@@ -342,9 +342,15 @@ def format_strategy_comparison(results):
     )
     
     data = [
+        ['累计收益率',
+         format_value(cumulative_return_portfolio, cumulative_style[0], '%'),
+         format_value(cumulative_return_etf, cumulative_style[1], '%')],
         ['年化收益率', 
          format_value(portfolio_metrics.get('annual_return', 0)*100, annual_return_style[0], '%'),
          format_value(etf_metrics.get('annual_return', 0)*100, annual_return_style[1], '%')],
+        ['单日最大亏损',
+         format_value(portfolio_max_daily_loss, max_daily_loss_style[0], '%'),
+         format_value(etf_max_daily_loss, max_daily_loss_style[1], '%')],
         ['最大回撤',
          format_value(portfolio_max_drawdown, max_drawdown_style[0], '%'),
          format_value(etf_max_drawdown, max_drawdown_style[1], '%')],
@@ -354,12 +360,7 @@ def format_strategy_comparison(results):
         ['夏普比率',
          format_value(portfolio_metrics.get('sharpe_ratio', 0), sharpe_style[0], ''),
          format_value(etf_metrics.get('sharpe_ratio', 0), sharpe_style[1], '')],
-        ['累计收益率',
-         format_value(cumulative_return_portfolio, cumulative_style[0], '%'),
-         format_value(cumulative_return_etf, cumulative_style[1], '%')],
-        ['单日最大亏损',
-         format_value(portfolio_max_daily_loss, max_daily_loss_style[0], '%'),
-         format_value(etf_max_daily_loss, max_daily_loss_style[1], '%')]
+        
     ]
     
     return {
