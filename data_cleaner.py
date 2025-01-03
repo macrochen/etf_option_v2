@@ -6,7 +6,7 @@ class DataCleaner:
     def __init__(self):
         # 需要保留的列名列表
         self.columns_to_keep = [
-            '日期', '交易代码', '收盘价', '行权价', 'Delta', '结算价'
+            '日期', '交易代码','涨跌幅(%)', '开盘价', '收盘价', '行权价', 'Delta', '结算价'
         ]
         
     def clean_file(self, input_file):
@@ -105,7 +105,7 @@ def main():
     cleaner = DataCleaner()
     
     # 获取用户输入的目录列表
-    input_dirs = input("请输入要处理的目录（多个目录用逗号分隔）: ")
+    input_dirs = input("请输入要处理的目录（多个目录用逗号分隔，  510050,510300,510500,159901,159915,159919,159922,588000,588080）: ")
     
     # 运行清洗程序
     cleaner.process_directories(input_dirs)

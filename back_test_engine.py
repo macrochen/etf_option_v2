@@ -287,41 +287,41 @@ class StrategyAnalyzer:
         portfolio_values_series = portfolio_df['portfolio_value']
         
         # 计算累计收益率
-        total_return = (portfolio_values_series.iloc[-1] - portfolio_values_series.iloc[0]) / portfolio_values_series.iloc[0]
-        portfolio_df['cumulative_return'] = (portfolio_values_series - initial_cash) / initial_cash * 100
+        portfolio_total_return_calc = (portfolio_values_series.iloc[-1] - portfolio_values_series.iloc[0]) / portfolio_values_series.iloc[0]
+        portfolio_df['portfolio_cumulative_return'] = (portfolio_values_series - initial_cash) / initial_cash * 100
         
         # 计算最大回撤
-        peak = portfolio_values_series.expanding(min_periods=1).max()
-        drawdown = (portfolio_values_series - peak) / peak
-        max_drawdown = drawdown.min()
-        max_drawdown_end_date = drawdown.idxmin()
-        max_drawdown_start_date = peak[:max_drawdown_end_date].idxmax()
+        portfolio_peak = portfolio_values_series.expanding(min_periods=1).max()
+        portfolio_drawdown = (portfolio_values_series - portfolio_peak) / portfolio_peak
+        portfolio_max_drawdown = portfolio_drawdown.min()  # 这是一个负值
+        portfolio_max_drawdown_end_date = portfolio_drawdown.idxmin()
+        portfolio_max_drawdown_start_date = portfolio_peak[:portfolio_max_drawdown_end_date].idxmax()
         
         # 计算日收益率，用于计算波动率
-        daily_returns = portfolio_values_series.pct_change().dropna()
-        annual_volatility = daily_returns.std() * np.sqrt(252)
+        portfolio_daily_returns = portfolio_values_series.pct_change().dropna()
+        portfolio_annual_volatility = portfolio_daily_returns.std() * np.sqrt(252)
         
         # 计算夏普比率
         risk_free_rate = 0.02  # 假设无风险利率为2%
-        sharpe_ratio = (portfolio_annual_return - risk_free_rate) / annual_volatility if annual_volatility != 0 else 0
+        portfolio_sharpe_ratio = (portfolio_annual_return - risk_free_rate) / portfolio_annual_volatility if portfolio_annual_volatility != 0 else 0
+        
+        # 创建portfolio_metrics字典
+        portfolio_metrics = {
+            'portfolio_sharpe_ratio': portfolio_sharpe_ratio,
+            'portfolio_annual_return': portfolio_annual_return,
+            'portfolio_annual_volatility': portfolio_annual_volatility,
+            'portfolio_total_return': portfolio_total_return
+        }
         
         return {
             "portfolio_df": portfolio_df,
-            "max_drawdown": max_drawdown * 100,
-            "max_drawdown_start_date": max_drawdown_start_date,
-            "max_drawdown_end_date": max_drawdown_end_date,
-            "sharpe_ratio": sharpe_ratio,
-            "annual_return": portfolio_annual_return,
-            "annual_volatility": annual_volatility,
-            "total_return": total_return,
             "put_trades": put_trades,
             "call_trades": call_trades,
-            "portfolio_metrics": {
-                'sharpe_ratio': sharpe_ratio,
-                'annual_return': portfolio_annual_return,
-                'annual_volatility': annual_volatility,
-                'total_return': portfolio_total_return
-            }
+            "portfolio_metrics": portfolio_metrics,
+            # 添加最大回撤相关信息，将最大回撤转换为正数
+            "portfolio_max_drawdown": abs(portfolio_max_drawdown * 100),
+            "portfolio_max_drawdown_start_date": portfolio_max_drawdown_start_date,
+            "portfolio_max_drawdown_end_date": portfolio_max_drawdown_end_date
         }
 
     @staticmethod
@@ -330,25 +330,25 @@ class StrategyAnalyzer:
         # 计算期权策略的指标
         portfolio_values_series = pd.Series({date: data['portfolio_value'] 
                                           for date, data in portfolio_values.items()})
-        portfolio_metrics = calculate_sharpe_ratio(portfolio_values_series)
+        portfolio_metrics = calculate_sharpe_ratio(portfolio_values_series, is_portfolio=True)
         
         # 计算ETF持有策略的指标
         etf_values_series = pd.Series({date: data['etf_buy_hold_value'] 
                                      for date, data in etf_buy_hold_portfolio.items()})
-        etf_metrics = calculate_sharpe_ratio(etf_values_series)
+        etf_metrics = calculate_sharpe_ratio(etf_values_series, is_portfolio=False)
         
         # 计算ETF持有策略的最大回撤
         etf_peak = etf_values_series.expanding(min_periods=1).max()
         etf_drawdown = (etf_values_series - etf_peak) / etf_peak
-        etf_max_drawdown = etf_drawdown.min() * 100
+        etf_max_drawdown = abs(etf_drawdown.min())  # 转换为正数
         
         print("\n=== 策略绩效对比 ===")
         print("指标              期权组合策略    ETF持有策略")
         print("-" * 45)
-        print(f"年化收益率:      {portfolio_metrics['annual_return']*100:8.2f}%    {etf_metrics['annual_return']*100:8.2f}%")
-        print(f"年化波动率:      {portfolio_metrics['annual_volatility']*100:8.2f}%    {etf_metrics['annual_volatility']*100:8.2f}%")
-        print(f"夏普比率:        {portfolio_metrics['sharpe_ratio']:8.2f}    {etf_metrics['sharpe_ratio']:8.2f}")
-        print(f"最大回撤:        {analysis_results['max_drawdown']:8.2f}%    {etf_max_drawdown:8.2f}%")
+        print(f"年化收益率:      {portfolio_metrics['portfolio_annual_return']*100:8.2f}%    {etf_metrics['etf_annual_return']*100:8.2f}%")
+        print(f"年化波动率:      {portfolio_metrics['portfolio_annual_volatility']*100:8.2f}%    {etf_metrics['etf_annual_volatility']*100:8.2f}%")
+        print(f"夏普比率:        {portfolio_metrics['portfolio_sharpe_ratio']:8.2f}    {etf_metrics['etf_sharpe_ratio']:8.2f}")
+        print(f"最大回撤:        {analysis_results['portfolio_max_drawdown']:8.2f}%    {etf_max_drawdown:8.2f}%")
         
         print("\n=== 期权交易统计 ===")
         print(f"PUT期权交易:")
@@ -410,7 +410,45 @@ def analyze_complex_strategy_with_equity_curve(etf_data, option_data, initial_ca
     etf_buy_hold_portfolio = {}
     
     # 获取所有交易日并排序
-    trading_days = sorted(pd.Index(option_data['日期'].unique()).union(etf_data.index))
+    print("\n=== 交易日期验证 ===")
+    # 获取有效的交易日期
+    option_dates = pd.Index(option_data['日期'].unique())
+    etf_dates = etf_data.index
+    trading_days = sorted(option_dates.union(etf_dates))
+    
+    # 验证交易日期
+    print(f"期权数据日期数量: {len(option_dates)}")
+    print(f"ETF数据日期数量: {len(etf_dates)}")
+    print(f"合并后的交易日期数量: {len(trading_days)}")
+    
+    # 检查是否有无效日期
+    invalid_dates = [d for d in trading_days if pd.isna(d)]
+    if invalid_dates:
+        print("警告: 发现无效日期:")
+        for d in invalid_dates:
+            print(f"  - {d}")
+        # 移除无效日期
+        trading_days = [d for d in trading_days if not pd.isna(d)]
+        print(f"清理后的交易日期数量: {len(trading_days)}")
+    
+    if not trading_days:
+        print("错误: 没有有效的交易日期")
+        return None
+    
+    # 获取起止日期
+    start_date = trading_days[0]
+    end_date = trading_days[-1]
+    
+    print(f"第一个交易日: {start_date}")
+    print(f"最后一个交易日: {end_date}")
+    
+    if pd.isna(start_date) or pd.isna(end_date):
+        print("错误: 起止日期无效")
+        return None
+    
+    calendar_days = (end_date - start_date).days + 1
+    print(f"\n回测区间: {start_date.strftime('%Y-%m-%d')} 到 {end_date.strftime('%Y-%m-%d')}")
+    print(f"日历天数: {calendar_days}")
     
     # 遍历每个交易日
     for current_date in trading_days:
@@ -465,22 +503,77 @@ def analyze_complex_strategy_with_equity_curve(etf_data, option_data, initial_ca
     # 创建ETF买入持有的DataFrame
     etf_buy_hold_df = pd.DataFrame.from_dict(etf_buy_hold_portfolio, orient='index')
     
-    # 计算回测的实际日历天数
-    start_date = trading_days[0]
-    end_date = trading_days[-1]
-    calendar_days = (end_date - start_date).days + 1
-    
-    # 计算期权策略的累计收益率和年化收益率
+    # 计算期权策略的指标
     portfolio_values_series = pd.Series({date: data['portfolio_value'] 
                                      for date, data in portfolio_manager.portfolio_values.items()})
-    portfolio_total_return = (portfolio_values_series.iloc[-1] - portfolio_values_series.iloc[0]) / portfolio_values_series.iloc[0]
-    portfolio_annual_return = (1 + portfolio_total_return) ** (365/calendar_days) - 1
+    print("\n=== 期权策略数据验证 ===")
+    print(f"期权策略数据点数量: {len(portfolio_values_series)}")
+    print(f"期权策略数据范围: {portfolio_values_series.index.min()} 到 {portfolio_values_series.index.max()}")
+    print(f"期权策略起始值: {portfolio_values_series.iloc[0]:.2f}")
+    print(f"期权策略结束值: {portfolio_values_series.iloc[-1]:.2f}")
     
-    # 计算ETF策略的累计收益率和年化收益率
+    # 计算ETF策略的指标
     etf_values_series = pd.Series({date: data['etf_buy_hold_value'] 
                                 for date, data in etf_buy_hold_portfolio.items()})
+    print("\n=== ETF策略数据验证 ===")
+    print(f"ETF策略数据点数量: {len(etf_values_series)}")
+    print(f"ETF策略数据范围: {etf_values_series.index.min()} 到 {etf_values_series.index.max()}")
+    print(f"ETF策略起始值: {etf_values_series.iloc[0]:.2f}")
+    print(f"ETF策略结束值: {etf_values_series.iloc[-1]:.2f}")
+    
+    # 确保数据是按日期排序的
+    portfolio_values_series = portfolio_values_series.sort_index()
+    etf_values_series = etf_values_series.sort_index()
+    
+    # 计算回测的实际日历天数
+    start_date = trading_days[0] if len(trading_days) > 0 else None
+    end_date = trading_days[-1] if len(trading_days) > 0 else None
+    
+    if start_date is None or end_date is None or pd.isna(start_date) or pd.isna(end_date):
+        print("警告: 无法获取有效的回测起止日期")
+        print(f"trading_days长度: {len(trading_days)}")
+        print(f"第一个交易日: {trading_days[0] if len(trading_days) > 0 else 'N/A'}")
+        print(f"最后一个交易日: {trading_days[-1] if len(trading_days) > 0 else 'N/A'}")
+        return None
+    
+    calendar_days = (end_date - start_date).days + 1
+    print(f"\n回测区间: {start_date.strftime('%Y-%m-%d')} 到 {end_date.strftime('%Y-%m-%d')}")
+    print(f"日历天数: {calendar_days}")
+    
+    # 验证日历天数
+    if calendar_days <= 0:
+        print("警告: 回测区间无效，日历天数小于等于0")
+        return None
+    
+    # 计算期权策略的累计收益率和年化收益率
+    portfolio_total_return = (portfolio_values_series.iloc[-1] - portfolio_values_series.iloc[0]) / portfolio_values_series.iloc[0]
+    portfolio_annual_return = (1 + portfolio_total_return) ** (365/calendar_days) - 1
+    print(f"\n期权策略累计收益率: {portfolio_total_return:.4f}")
+    print(f"期权策略年化收益率: {portfolio_annual_return:.4f}")
+    
+    # 计算ETF策略的累计收益率和年化收益率
     etf_total_return = (etf_values_series.iloc[-1] - etf_values_series.iloc[0]) / etf_values_series.iloc[0]
     etf_annual_return = (1 + etf_total_return) ** (365/calendar_days) - 1
+    print(f"\nETF策略累计收益率: {etf_total_return:.4f}")
+    print(f"ETF策略年化收益率: {etf_annual_return:.4f}")
+    
+    # 计算ETF策略的最大回撤
+    etf_peak = etf_values_series.expanding().max()
+    etf_drawdown = (etf_values_series - etf_peak) / etf_peak
+    etf_max_drawdown = abs(etf_drawdown.min())  # 转换为正数
+    
+    # 计算ETF策略的日收益率和年化波动率
+    etf_daily_returns = etf_values_series.pct_change().dropna()
+    etf_annual_volatility = etf_daily_returns.std() * np.sqrt(252)
+    
+    # 计算ETF策略的夏普比率
+    risk_free_rate = 0.02  # 假设无风险利率为2%
+    etf_sharpe_ratio = (etf_annual_return - risk_free_rate) / etf_annual_volatility if etf_annual_volatility != 0 else 0
+    
+    print(f"\nETF策略指标:")
+    print(f"年化波动率: {etf_annual_volatility:.4f}")
+    print(f"夏普比率: {etf_sharpe_ratio:.4f}")
+    print(f"最大回撤: {etf_max_drawdown:.4f}")
     
     # 分析策略结果
     analysis_results = StrategyAnalyzer.calculate_metrics(
@@ -495,8 +588,19 @@ def analyze_complex_strategy_with_equity_curve(etf_data, option_data, initial_ca
     # 添加ETF买入持有的DataFrame和指标到结果中
     analysis_results['etf_buy_hold_df'] = etf_buy_hold_df
     analysis_results['etf_metrics'] = {
-        'annual_return': etf_annual_return,
-        'total_return': etf_total_return
+        'etf_annual_return': etf_annual_return,
+        'etf_total_return': etf_total_return,
+        'etf_annual_volatility': etf_annual_volatility,
+        'etf_sharpe_ratio': etf_sharpe_ratio,
+        'etf_max_drawdown': etf_max_drawdown
+    }
+    
+    # 更新portfolio指标的命名
+    analysis_results['portfolio_metrics'] = {
+        'portfolio_sharpe_ratio': analysis_results['portfolio_metrics']['portfolio_sharpe_ratio'],
+        'portfolio_annual_return': analysis_results['portfolio_metrics']['portfolio_annual_return'],
+        'portfolio_annual_volatility': analysis_results['portfolio_metrics']['portfolio_annual_volatility'],
+        'portfolio_total_return': analysis_results['portfolio_metrics']['portfolio_total_return']
     }
     
     # 添加交易记录
@@ -515,119 +619,176 @@ def analyze_complex_strategy_with_equity_curve(etf_data, option_data, initial_ca
     
     analysis_results['statistics'] = portfolio_manager.statistics
     
+    # 添加原始ETF数据到结果中
+    analysis_results['etf_data'] = etf_data
+    
     return analysis_results
 
 def get_monthly_expiry(date, option_data):
+    """获取当月期权到期日"""
     year = date.year
     month = date.month
+    
+    # 获取当月所有的星期三
     cal = monthcalendar(year, month)
     wednesdays = [day for week in cal for day in week if day != 0 and datetime(year, month, day).weekday() == 2]
+    
     if len(wednesdays) < 4:
         raise ValueError(f"Month {month} in {year} does not have four Wednesdays.")
-    potential_expiry_day = wednesdays[3]  # 获取第四个星期三
-    potential_expiry_date = pd.Timestamp(datetime(year, month, potential_expiry_day))
-
-    # 检查期权数据中是否存在该日期，并添加最大搜索天数限制
-    search_days = 0
-    max_search_days = 10  # 设置最大搜索天数，可以根据实际情况调整
-    while search_days < max_search_days:
-        if any(option_data['日期'].dt.date == potential_expiry_date.date()):
-            return potential_expiry_date
-        else:
-            potential_expiry_date += pd.Timedelta(days=1)
-            search_days += 1
-
-    raise ValueError(f"Could not find valid expiry date for {date.strftime('%Y-%m')} within {max_search_days} days in option data.")
+    
+    # 获取第四个星期三
+    fourth_wednesday = wednesdays[3]
+    target_date = pd.Timestamp(datetime(year, month, fourth_wednesday)).normalize()
+    
+    # 获取所有期权交易日期并标准化
+    trading_dates = pd.DatetimeIndex(option_data['日期'].dt.normalize().unique()).sort_values()
+    
+    # 打印调试信息
+    print(f"\n=== 到期日查找调试信息 ===")
+    print(f"目标日期: {target_date}")
+    print(f"目标日期类型: {type(target_date)}")
+    print(f"第一个交易日: {trading_dates[0]}")
+    print(f"第一个交易日类型: {type(trading_dates[0])}")
+    
+    # 如果目标日期是交易日，直接返回
+    if target_date in trading_dates:
+        print(f"找到目标到期日: {target_date}")
+        return target_date
+        
+    # 如果不是交易日，向后查找最近的交易日（最多查找10天）
+    max_search_days = 10
+    for i in range(1, max_search_days + 1):
+        next_date = target_date + pd.Timedelta(days=i)
+        if next_date in trading_dates:
+            print(f"注意: {target_date} 不是交易日，到期日顺延至 {next_date}")
+            return next_date
+            
+    raise ValueError(f"无法找到 {target_date} 之后的有效交易日（已查找{max_search_days}天）")
 
 def get_next_monthly_expiry(date, option_data):
-    # print(f"get_next_monthly_expiry called with date: {date}")  # 调试信息
-
+    """获取下月期权到期日"""
     # 获取下个月的第一天
-    next_month_date = date.replace(day=1)
-    if next_month_date.month == 12:
-        next_month_date = next_month_date.replace(year=next_month_date.year + 1, month=1)
+    if date.month == 12:
+        next_month = pd.Timestamp(datetime(date.year + 1, 1, 1))
     else:
-        next_month_date = next_month_date.replace(month=next_month_date.month + 1)
-
-    year = next_month_date.year
-    month = next_month_date.month
-    cal = monthcalendar(year, month)
-    wednesdays = [day for week in cal for day in week if day != 0 and datetime(year, month, day).weekday() == 2]
+        next_month = pd.Timestamp(datetime(date.year, date.month + 1, 1))
+    
+    # 获取下月所有的星期三
+    cal = monthcalendar(next_month.year, next_month.month)
+    wednesdays = [day for week in cal for day in week if day != 0 and datetime(next_month.year, next_month.month, day).weekday() == 2]
+    
     if len(wednesdays) < 4:
-        raise ValueError(f"Month {month} in {year} does not have four Wednesdays.")
-    potential_expiry_day = wednesdays[3]  # 获取第四个星期三
-    potential_expiry_date = pd.Timestamp(datetime(year, month, potential_expiry_day))
-    # print(f"Initial potential_expiry_date: {potential_expiry_date}") # 调试信息
+        raise ValueError(f"Month {next_month.month} in {next_month.year} does not have four Wednesdays.")
+    
+    # 获取第四个星期三
+    fourth_wednesday = wednesdays[3]
+    target_date = pd.Timestamp(datetime(next_month.year, next_month.month, fourth_wednesday)).normalize()
+    
+    # 获取所有期权交易日期并标准化
+    trading_dates = pd.DatetimeIndex(option_data['日期'].dt.normalize().unique()).sort_values()
+    max_date = trading_dates.max()
+    
+    # 打印调试信息
+    print(f"\n=== 下月到期日查找调试信息 ===")
+    print(f"目标日期: {target_date}")
+    print(f"目标日期类型: {type(target_date)}")
+    print(f"第一个交易日: {trading_dates[0]}")
+    print(f"第一个交易日类型: {type(trading_dates[0])}")
+    
+    # 如果目标日期超出数据范围，返回None
+    if target_date > max_date:
+        print(f"警告: 目标到期日 {target_date} 超出数据范围 {max_date}")
+        return None
+    
+    # 如果目标日期是交易日，直接返回
+    if target_date in trading_dates:
+        print(f"找到目标到期日: {target_date}")
+        return target_date
+        
+    # 如果不是交易日，向后查找最近的交易日（最多查找10天）
+    max_search_days = 10
+    for i in range(1, max_search_days + 1):
+        next_date = target_date + pd.Timedelta(days=i)
+        if next_date > max_date:
+            print(f"警告: 查找到期日时超出数据范围")
+            return None
+        if next_date in trading_dates:
+            print(f"注意: {target_date} 不是交易日，到期日顺延至 {next_date}")
+            return next_date
+            
+    print(f"警告: 无法找到 {target_date} 之后的有效交易日（已查找{max_search_days}天）")
+    return None
 
-    max_data_date = option_data['日期'].max() # 获取期权数据的最大日期
-
-    # 检查计算出的到期日是否超出数据范围
-    if potential_expiry_date > max_data_date:
-        print(f"Warning: Potential expiry date {potential_expiry_date} exceeds maximum data date {max_data_date}.")
-        return None  # 或者返回上个月的到期日，根据你的策略调整
-
-    # 检查期权数据中是否存在该日期，并添加最大搜索天数限制
-    search_days = 0
-    max_search_days = 10  # 设置最大搜索天数，可以根据实际情况调整
-    while search_days < max_search_days:
-        # print(f"Checking potential_expiry_date: {potential_expiry_date.date()}") # 调试信息
-        if any(option_data['日期'].dt.date == potential_expiry_date.date()):
-            return potential_expiry_date
-        else:
-            potential_expiry_date += pd.Timedelta(days=1)
-            if potential_expiry_date > max_data_date: # 再次检查是否超出数据范围
-                print(f"Warning: Potential expiry date exceeded maximum data date during search.")
-                return None
-            search_days += 1
-            # print(f"Incremented potential_expiry_date to: {potential_expiry_date.date()}") # 调试信息
-
-    print(f"Could not find valid next monthly expiry date, last checked date: {potential_expiry_date.date()}") # 调试信息
-    raise ValueError(f"Could not find valid next monthly expiry date for {date.strftime('%Y-%m')} within {max_search_days} days in option data.")
-
-def calculate_sharpe_ratio(portfolio_values, risk_free_rate=0.02):
+def calculate_sharpe_ratio(portfolio_values, risk_free_rate=0.02, is_portfolio=True):
     """
     计算策略的Sharpe ratio
     :param portfolio_values: 包含每日投资组合价值的Series
     :param risk_free_rate: 无风险利率，默认2%
+    :param is_portfolio: 是否是期权组合策略，用于区分指标前缀
     :return: Sharpe ratio
     """
-    # 确保输入是Series类型
-    if not isinstance(portfolio_values, pd.Series):
-        portfolio_values = pd.Series(portfolio_values)
+    prefix = 'portfolio_' if is_portfolio else 'etf_'
+    strategy_name = '期权组合' if is_portfolio else 'ETF'
     
     try:
+        print(f"\n=== {strategy_name}策略指标计算调试信息 ===")
+        print(f"投资组合数据点数量: {len(portfolio_values)}")
+        print(f"起始值: {portfolio_values.iloc[0]:.2f}")
+        print(f"结束值: {portfolio_values.iloc[-1]:.2f}")
+        
         # 计算累计收益率
         total_return = (portfolio_values.iloc[-1] - portfolio_values.iloc[0]) / portfolio_values.iloc[0]
+        print(f"累计收益率: {total_return:.4f}")
         
         # 计算实际日历天数
         start_date = portfolio_values.index[0]
         end_date = portfolio_values.index[-1]
-        calendar_days = (end_date - start_date).days + 1  # 加1是因为包含起始日
+        calendar_days = (end_date - start_date).days + 1
+        print(f"回测区间: {start_date.strftime('%Y-%m-%d')} 到 {end_date.strftime('%Y-%m-%d')}")
+        print(f"日历天数: {calendar_days}")
         
         # 计算年化收益率
-        # 使用复利公式: (1 + r)^n = (1 + total_return)，其中n = 365/calendar_days
         annual_return = (1 + total_return) ** (365/calendar_days) - 1
+        print(f"年化收益率: {annual_return:.4f}")
         
         # 计算日收益率，用于计算波动率
         daily_returns = portfolio_values.pct_change().dropna()
+        print(f"日收益率数据点数量: {len(daily_returns)}")
+        print(f"日收益率均值: {daily_returns.mean():.6f}")
+        print(f"日收益率标准差: {daily_returns.std():.6f}")
         
         # 计算年化波动率
-        annual_volatility = daily_returns.std() * np.sqrt(252)  # 波动率仍使用交易日数252
+        annual_volatility = daily_returns.std() * np.sqrt(252)
+        print(f"年化波动率: {annual_volatility:.4f}")
         
         # 计算Sharpe ratio
         sharpe_ratio = (annual_return - risk_free_rate) / annual_volatility if annual_volatility != 0 else 0
+        print(f"夏普比率: {sharpe_ratio:.4f}")
+        print(f"计算过程: ({annual_return:.4f} - {risk_free_rate:.4f}) / {annual_volatility:.4f}")
+        
+        # 检查计算结果是否为nan
+        if np.isnan(annual_return) or np.isnan(annual_volatility) or np.isnan(sharpe_ratio):
+            print("警告: 计算结果中存在nan值!")
+            print(f"annual_return is nan: {np.isnan(annual_return)}")
+            print(f"annual_volatility is nan: {np.isnan(annual_volatility)}")
+            print(f"sharpe_ratio is nan: {np.isnan(sharpe_ratio)}")
         
         return {
-            'sharpe_ratio': sharpe_ratio,
-            'annual_return': annual_return,
-            'annual_volatility': annual_volatility
+            f'{prefix}sharpe_ratio': sharpe_ratio,
+            f'{prefix}annual_return': annual_return,
+            f'{prefix}annual_volatility': annual_volatility
         }
     except Exception as e:
-        print(f"Warning: Error calculating Sharpe ratio: {str(e)}")
+        print(f"\n警告: {strategy_name}策略指标计算出错")
+        print(f"错误信息: {str(e)}")
+        print("错误堆栈:")
+        import traceback
+        traceback.print_exc()
+        
         return {
-            'sharpe_ratio': 0,
-            'annual_return': 0,
-            'annual_volatility': 0
+            f'{prefix}sharpe_ratio': 0,
+            f'{prefix}annual_return': 0,
+            f'{prefix}annual_volatility': 0
         }
 
 def plot_equity_curve(analysis_results, symbol):
@@ -770,50 +931,96 @@ class BacktestEngine:
         
     def load_data(self):
         """加载数据"""
+        print("\n=== 开始加载数据 ===")
+        
         # 加载期权数据
         all_option_data = []
         for file_path in self.config.option_file_paths:
             try:
+                print(f"正在加载期权数据文件: {os.path.basename(file_path)}")
                 df = pd.read_excel(file_path)
+                
                 # 清理 '日期' 列：移除包含特定字符串的行
                 df = df[~df['日期'].astype(str).str.contains('数据来源')]
-                # 将 '日期' 列转换为 datetime 类型
-                df['日期'] = pd.to_datetime(df['日期'])
+                
+                # 将 '日期' 列转换为 datetime 类型，并处理无效日期
+                df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
+                invalid_dates = df[df['日期'].isna()]
+                if not invalid_dates.empty:
+                    print(f"  - 发现 {len(invalid_dates)} 行无效日期数据，将被移除")
+                    df = df.dropna(subset=['日期'])
+                
+                print(f"  - 加载了 {len(df)} 行数据")
+                if not df.empty:
+                    print(f"  - 日期范围: {df['日期'].min()} 到 {df['日期'].max()}")
                 all_option_data.append(df)
             except FileNotFoundError:
-                print(f"Error: Option data file not found: {file_path}")
+                print(f"错误: 找不到期权数据文件: {file_path}")
                 return False
-            except ImportError as e:
-                if 'openpyxl' in str(e):
-                    print("Error: Missing the 'openpyxl' library. Please install it using:")
-                    print("pip install openpyxl")
-                    return False
-                else:
-                    raise e
+            except Exception as e:
+                print(f"错误: 加载期权数据文件时出错: {str(e)}")
+                return False
+        
+        if not all_option_data:
+            print("错误: 没有成功加载任何期权数据")
+            return False
         
         self.option_data = pd.concat(all_option_data, ignore_index=True)
+        print(f"\n合并后的期权数据总行数: {len(self.option_data)}")
+        print(f"期权数据日期范围: {self.option_data['日期'].min()} 到 {self.option_data['日期'].max()}")
         
         # 加载ETF数据
         try:
+            print(f"\n正在加载ETF数据文件: {os.path.basename(self.config.etf_file_path)}")
             self.etf_data = pd.read_csv(self.config.etf_file_path)
-            self.etf_data['日期'] = pd.to_datetime(self.etf_data['日期'])
+            
+        
+            # 转换日期列并处理无效日期
+            self.etf_data['日期'] = pd.to_datetime(self.etf_data['日期'], errors='coerce')
+            invalid_dates = self.etf_data[self.etf_data['日期'].isna()]
+            if not invalid_dates.empty:
+                print(f"  - 发现 {len(invalid_dates)} 行无效日期数据，将被移除")
+                self.etf_data = self.etf_data.dropna(subset=['日期'])
+            
+            print(f"ETF数据总行数: {len(self.etf_data)}")
+            print(f"ETF数据日期范围: {self.etf_data['日期'].min()} 到 {self.etf_data['日期'].max()}")
+            
         except FileNotFoundError:
-            print(f"Error: ETF data file not found: {self.config.etf_file_path}")
+            print(f"错误: 找不到ETF数据文件: {self.config.etf_file_path}")
+            return False
+        except Exception as e:
+            print(f"错误: 加载ETF数据文件时出错: {str(e)}")
             return False
         
         # 根据日期范围过滤数据
         if self.config.start_date:
+            print(f"\n使用指定的开始日期: {self.config.start_date}")
             self.option_data = self.option_data[self.option_data['日期'] >= self.config.start_date]
             self.etf_data = self.etf_data[self.etf_data['日期'] >= self.config.start_date]
         
         if self.config.end_date:
+            print(f"使用指定的结束日期: {self.config.end_date}")
             self.option_data = self.option_data[self.option_data['日期'] <= self.config.end_date]
             self.etf_data = self.etf_data[self.etf_data['日期'] <= self.config.end_date]
         
         # 确保数据不为空
-        if len(self.option_data) == 0 or len(self.etf_data) == 0:
-            print("Error: No data available for the specified date range")
+        if len(self.option_data) == 0:
+            print("错误: 过滤后的期权数据为空")
             return False
+            
+        if len(self.etf_data) == 0:
+            print("错误: 过滤后的ETF数据为空")
+            return False
+        
+        # 对数据按日期排序
+        self.option_data = self.option_data.sort_values('日期')
+        self.etf_data = self.etf_data.sort_values('日期')
+        
+        print("\n=== 数据加载完成 ===")
+        print(f"过滤后的期权数据行数: {len(self.option_data)}")
+        print(f"过滤后的ETF数据行数: {len(self.etf_data)}")
+        print(f"期权数据日期范围: {self.option_data['日期'].min()} 到 {self.option_data['日期'].max()}")
+        print(f"ETF数据日期范围: {self.etf_data['日期'].min()} 到 {self.etf_data['日期'].max()}")
             
         return True
     
@@ -967,8 +1174,6 @@ class OptionTrader:
             exercise_income = self.pm.call_position.strike * self.pm.contract_multiplier * contracts
             self.pm.cash += exercise_income
             self.pm.etf_held -= self.pm.contract_multiplier * contracts
-            expiry_details["行权收入"] = f"{exercise_income:.2f}"
-            exercise = "行权"
             self.pm.statistics['call_exercised'] += 1
             self.pm.statistics['call_exercise_income'] += exercise_income
             self.pm.statistics['etf_sell_income'] += exercise_income
@@ -1298,9 +1503,9 @@ def main():
         print(f"\n=== {my_results['symbol']}ETF策略回测结果 ===")
         if 'portfolio_total_return' in my_results:
             print(f"最终累计收益率 (期权策略): {my_results['portfolio_total_return']:.2f}%")
-            print(f"最大回撤 (期权策略): {my_results['max_drawdown']:.2f}%")
-            print(f"最大回撤开始日期: {my_results['max_drawdown_start_date']}")
-            print(f"最大回撤结束日期: {my_results['max_drawdown_end_date']}")
+            print(f"最大回撤 (期权策略): {my_results['portfolio_max_drawdown']:.2f}%")
+            print(f"最大回撤开始日期: {my_results['portfolio_max_drawdown_start_date']}")
+            print(f"最大回撤结束日期: {my_results['portfolio_max_drawdown_end_date']}")
             
             etf_last_return = my_results['etf_buy_hold_df']['etf_buy_hold_return'].iloc[-1]
             print(f"最终累计收益率 (持有ETF): {etf_last_return:.2f}%")

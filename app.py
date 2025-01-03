@@ -273,63 +273,44 @@ def format_strategy_comparison(results):
     # 计算累计收益率
     portfolio_df = results['portfolio_df']
     etf_buy_hold_df = results['etf_buy_hold_df']
-    cumulative_return_portfolio = portfolio_metrics.get('total_return', 0) * 100  # 转换为百分比
+    cumulative_return_portfolio = portfolio_metrics.get('portfolio_total_return', 0) * 100  # 转换为百分比
     cumulative_return_etf = etf_buy_hold_df['etf_buy_hold_return'].iloc[-1]
     
     # 计算年化收益率
-    annual_return_portfolio = portfolio_metrics.get('annual_return', 0) * 100  # 转换为百分比
-    annual_return_etf = etf_metrics.get('annual_return', 0) * 100  # 转换为百分比
+    annual_return_portfolio = portfolio_metrics.get('portfolio_annual_return', 0) * 100  # 转换为百分比
+    annual_return_etf = etf_metrics.get('etf_annual_return', 0) * 100  # 转换为百分比
     
     # 计算夏普比率
-    sharpe_ratio_portfolio = portfolio_metrics.get('sharpe_ratio', 0)
-    sharpe_ratio_etf = etf_metrics.get('sharpe_ratio', 0)
+    sharpe_ratio_portfolio = portfolio_metrics.get('portfolio_sharpe_ratio', 0)
+    sharpe_ratio_etf = etf_metrics.get('etf_sharpe_ratio', 0)
     
     # 计算最大回撤
-    max_drawdown_portfolio = results['max_drawdown']
-    max_drawdown_start = results['max_drawdown_start_date']
-    max_drawdown_end = results['max_drawdown_end_date']
+    portfolio_max_drawdown = results['portfolio_max_drawdown']
+    portfolio_max_drawdown_start = results['portfolio_max_drawdown_start_date']
+    portfolio_max_drawdown_end = results['portfolio_max_drawdown_end_date']
     
-    # 格式化统计数据
-    statistics = results['statistics']
-    formatted_stats = {
-        '期权策略累计收益率': f"{cumulative_return_portfolio:.2f}%",
-        '期权策略年化收益率': f"{annual_return_portfolio:.2f}%",
-        '期权策略夏普比率': f"{sharpe_ratio_portfolio:.2f}",
-        '期权策略最大回撤': f"{max_drawdown_portfolio:.2f}%",
-        '期权策略最大回撤起始日期': max_drawdown_start.strftime('%Y-%m-%d'),
-        '期权策略最大回撤结束日期': max_drawdown_end.strftime('%Y-%m-%d'),
-        'ETF策略累计收益率': f"{cumulative_return_etf:.2f}%",
-        'ETF策略年化收益率': f"{annual_return_etf:.2f}%",
-        'ETF策略夏普比率': f"{sharpe_ratio_etf:.2f}",
-        'PUT期权交易统计': {
-            '总卖出次数': statistics['put_sold'],
-            '被行权次数': statistics['put_exercised'],
-            '到期作废次数': statistics['put_expired'],
-            '总收取权利金': f"{statistics['total_put_premium']:.2f}",
-            '总行权成本': f"{statistics['put_exercise_cost']:.2f}"
-        },
-        'CALL期权交易统计': {
-            '总卖出次数': statistics['call_sold'],
-            '被行权次数': statistics['call_exercised'],
-            '到期作废次数': statistics['call_expired'],
-            '总收取权利金': f"{statistics['total_call_premium']:.2f}",
-            '总行权收入': f"{statistics['call_exercise_income']:.2f}"
-        },
-        '资金使用统计': {
-            '最低现金持仓': f"{statistics['min_cash_position']:.2f}",
-            '总交易成本': f"{statistics['total_transaction_cost']:.2f}"
-        }
-    }
+    # 计算ETF的最大回撤
+    etf_max_drawdown = etf_metrics.get('etf_max_drawdown', 0) * 100  # 转换为百分比
     
-    # 将最大回撤转换为正数
-    portfolio_max_drawdown = abs(results.get('max_drawdown', 0))
-    etf_max_drawdown = abs(results.get('etf_max_drawdown', 0))
+    # 计算期权策略的单日最大亏损
+    portfolio_values = portfolio_df['portfolio_value']
+    portfolio_daily_returns = portfolio_values.pct_change() * 100  # 转换为百分比
+    portfolio_max_daily_loss = abs(min(0, portfolio_daily_returns.min()))
+    portfolio_max_daily_loss_date = portfolio_daily_returns[portfolio_daily_returns == -portfolio_max_daily_loss].index[0]
     
-    # 计算单日最大亏损（使用daily_return的最小值）
-    portfolio_max_daily_loss = abs(min(0, portfolio_df['daily_return'].min()))
-    # 计算ETF的日收益率并获取最大亏损
-    etf_daily_returns = etf_buy_hold_df['etf_buy_hold_return'].diff()
+    # 计算ETF的单日最大亏损
+    etf_data = results['etf_data']  # 获取原始ETF数据
+    
+    # 使用开盘价和收盘价计算日内跌幅
+    etf_daily_returns = ((etf_data['收盘价'] - etf_data['开盘价']) / etf_data['开盘价'] * 100)
     etf_max_daily_loss = abs(min(0, etf_daily_returns.min()))
+    etf_max_daily_loss_date = etf_daily_returns[etf_daily_returns == -etf_max_daily_loss].index[0]
+    
+    print(f"\nETF单日最大亏损计算:")
+    print(f"最大亏损日期: {etf_max_daily_loss_date}")
+    print(f"开盘价: {etf_data.loc[etf_max_daily_loss_date, '开盘价']:.4f}")
+    print(f"收盘价: {etf_data.loc[etf_max_daily_loss_date, '收盘价']:.4f}")
+    print(f"单日跌幅: {etf_max_daily_loss:.2f}%")
     
     # 比较函数：根据指标类型决定哪个值更好
     def compare_metrics(portfolio_value, etf_value, metric_type='higher_better'):
@@ -354,10 +335,16 @@ def format_strategy_comparison(results):
             return f'<span style="color: #FF4444; font-weight: bold">{value:.2f}{suffix}</span>'
         return f'{value:.2f}{suffix}'
     
+    # 格式化日期并添加样式
+    def format_date_with_value(value, date, style):
+        if style == 'bold':
+            return f'<span style="color: #FF4444; font-weight: bold">{value:.2f}% ({date.strftime("%Y-%m-%d")})</span>'
+        return f'{value:.2f}% ({date.strftime("%Y-%m-%d")})'
+    
     # 比较各项指标
     annual_return_style = compare_metrics(
-        portfolio_metrics.get('annual_return', 0) * 100,
-        etf_metrics.get('annual_return', 0) * 100,
+        portfolio_metrics.get('portfolio_annual_return', 0) * 100,
+        etf_metrics.get('etf_annual_return', 0) * 100,
         'higher_better'  # 年化收益率越高越好
     )
     max_drawdown_style = compare_metrics(
@@ -366,17 +353,17 @@ def format_strategy_comparison(results):
         'lower_better'  # 最大回撤越低越好
     )
     volatility_style = compare_metrics(
-        portfolio_metrics.get('annual_volatility', 0) * 100,
-        etf_metrics.get('annual_volatility', 0) * 100,
+        portfolio_metrics.get('portfolio_annual_volatility', 0) * 100,
+        etf_metrics.get('etf_annual_volatility', 0) * 100,
         'lower_better'  # 年化波动率越低越好
     )
     sharpe_style = compare_metrics(
-        portfolio_metrics.get('sharpe_ratio', 0),
-        etf_metrics.get('sharpe_ratio', 0),
+        portfolio_metrics.get('portfolio_sharpe_ratio', 0),
+        etf_metrics.get('etf_sharpe_ratio', 0),
         'higher_better'  # 夏普比率越高越好
     )
     cumulative_style = compare_metrics(
-        cumulative_return_portfolio,
+        portfolio_metrics.get('portfolio_total_return', 0) * 100,
         cumulative_return_etf,
         'higher_better'  # 累计收益率越高越好
     )
@@ -388,24 +375,23 @@ def format_strategy_comparison(results):
     
     data = [
         ['累计收益率',
-         format_value(cumulative_return_portfolio, cumulative_style[0], '%'),
+         format_value(portfolio_metrics.get('portfolio_total_return', 0) * 100, cumulative_style[0], '%'),
          format_value(cumulative_return_etf, cumulative_style[1], '%')],
         ['年化收益率', 
-         format_value(portfolio_metrics.get('annual_return', 0)*100, annual_return_style[0], '%'),
-         format_value(etf_metrics.get('annual_return', 0)*100, annual_return_style[1], '%')],
+         format_value(portfolio_metrics.get('portfolio_annual_return', 0) * 100, annual_return_style[0], '%'),
+         format_value(etf_metrics.get('etf_annual_return', 0) * 100, annual_return_style[1], '%')],
         ['单日最大亏损',
-         format_value(portfolio_max_daily_loss, max_daily_loss_style[0], '%'),
-         format_value(etf_max_daily_loss, max_daily_loss_style[1], '%')],
+         format_date_with_value(portfolio_max_daily_loss, portfolio_max_daily_loss_date, max_daily_loss_style[0]),
+         format_date_with_value(etf_max_daily_loss, etf_max_daily_loss_date, max_daily_loss_style[1])],
         ['最大回撤',
          format_value(portfolio_max_drawdown, max_drawdown_style[0], '%'),
          format_value(etf_max_drawdown, max_drawdown_style[1], '%')],
         ['年化波动率',
-         format_value(portfolio_metrics.get('annual_volatility', 0)*100, volatility_style[0], '%'),
-         format_value(etf_metrics.get('annual_volatility', 0)*100, volatility_style[1], '%')],
+         format_value(portfolio_metrics.get('portfolio_annual_volatility', 0) * 100, volatility_style[0], '%'),
+         format_value(etf_metrics.get('etf_annual_volatility', 0) * 100, volatility_style[1], '%')],
         ['夏普比率',
-         format_value(portfolio_metrics.get('sharpe_ratio', 0), sharpe_style[0], ''),
-         format_value(etf_metrics.get('sharpe_ratio', 0), sharpe_style[1], '')],
-        
+         format_value(portfolio_metrics.get('portfolio_sharpe_ratio', 0), sharpe_style[0], ''),
+         format_value(etf_metrics.get('etf_sharpe_ratio', 0), sharpe_style[1], '')],
     ]
     
     return {
