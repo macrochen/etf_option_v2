@@ -221,17 +221,17 @@ def format_trade_records(results):
         trade_data.append([
             date.strftime('%Y-%m-%d'),
             trade_info.get('交易类型', ''),
-            f"{trade_info.get('行权价', 0):.4f}",
+            f"{trade_info.get('到期日ETF价格', 0):.2f}",
+            f"{trade_info.get('行权价', 0):.2f}",
             f"{trade_info.get('期权价格', 0):.4f}",
             f"{trade_info.get('合约数量', 0)}张",
             f"{trade_info.get('权利金', 0):.2f}",
             f"{trade_info.get('交易成本', 0):.2f}",
-            f"{trade_info.get('到期日ETF价格', 0):.2f}",
             f"{trade_info.get('Delta', 0):.2f}"
         ])
     
     return {
-        'headers': ['日期', '交易类型', '行权价', '期权价格', '合约数量', '权利金', '交易成本', 'ETF价格', 'Delta'],
+        'headers': ['日期', '交易类型', 'ETF价格', '行权价', '期权价格', '合约数量', '权利金', '交易成本', 'Delta'],
         'data': sorted(trade_data)  # 按日期排序
     }
 
