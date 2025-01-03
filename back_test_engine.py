@@ -391,6 +391,10 @@ class StrategyAnalyzer:
         print(f"  3. ETF交易已实现损益: {etf_trading_pnl:.2f}")
         print(f"  4. ETF持仓未实现损益: {unrealized_etf_pnl:.2f}")
         print(f"  5. 交易成本: {statistics['total_transaction_cost']:.2f} ")
+        
+        # 计算因期权行权导致的ETF交易总盈亏
+        etf_exercise_pnl = etf_trading_pnl + unrealized_etf_pnl
+        print(f"  6. 期权行权ETF交易总盈亏: {etf_exercise_pnl:.2f}")
 
 def analyze_complex_strategy_with_equity_curve(etf_data, option_data, initial_cash=1000000, target_delta=0.5, holding_type='stock'):
     # 初始化各个组件
@@ -1162,6 +1166,8 @@ class OptionTrader:
             exercise_income = self.pm.call_position.strike * self.pm.contract_multiplier * contracts
             self.pm.cash += exercise_income
             self.pm.etf_held -= self.pm.contract_multiplier * contracts
+            expiry_details["行权收入"] = f"{exercise_income:.2f}"
+            exercise = "行权"
             self.pm.statistics['call_exercised'] += 1
             self.pm.statistics['call_exercise_income'] += exercise_income
             self.pm.statistics['etf_sell_income'] += exercise_income

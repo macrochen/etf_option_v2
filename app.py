@@ -404,6 +404,12 @@ def format_trade_summary(results):
     """格式化交易汇总数据"""
     stats = results.get('statistics', {})
     
+    # 计算ETF交易盈亏
+    etf_trading_pnl = stats.get('etf_sell_income', 0) - stats.get('etf_buy_cost', 0)
+    current_etf_value = stats.get('max_etf_held', 0) * results['etf_data'].iloc[-1]['收盘价']
+    unrealized_etf_pnl = current_etf_value #- (stats.get('etf_buy_cost', 0) - stats.get('etf_sell_income', 0))
+    etf_exercise_pnl = etf_trading_pnl + unrealized_etf_pnl
+    
     data = [
         ['卖出CALL总次数', f"{stats.get('call_sold', 0)}次"],
         ['CALL行权次数', f"{stats.get('call_exercised', 0)}次"],
@@ -412,7 +418,14 @@ def format_trade_summary(results):
         ['卖出PUT总次数', f"{stats.get('put_sold', 0)}次"],
         ['PUT行权次数', f"{stats.get('put_exercised', 0)}次"],
         ['PUT作废次数', f"{stats.get('put_expired', 0)}次"],
-        ['PUT权利金总计', f"{stats.get('total_put_premium', 0):.2f}"]
+        ['PUT权利金总计', f"{stats.get('total_put_premium', 0):.2f}"],
+        ['收取权利金总计', f"{stats.get('total_put_premium', 0) + stats.get('total_call_premium', 0):.2f}"],
+        # ['PUT行权成本', f"{stats.get('put_exercise_cost', 0):.2f}"],
+        # ['CALL行权收入', f"{stats.get('call_exercise_income', 0):.2f}"],
+        ['ETF交易已实现盈亏', f"{etf_trading_pnl:.2f}"],
+        ['ETF持仓未实现盈亏', f"{unrealized_etf_pnl:.2f}"],
+        ['ETF交易总盈亏', f"{etf_exercise_pnl:.2f}"],
+        ['总交易成本', f"{stats.get('total_transaction_cost', 0):.2f}"]
     ]
     
     return {
