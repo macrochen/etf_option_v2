@@ -280,13 +280,14 @@ class TradeLogger:
 
 class StrategyAnalyzer:
     @staticmethod
-    def calculate_metrics(portfolio_values, initial_cash, put_trades, call_trades):
+    def calculate_metrics(portfolio_values, initial_cash, put_trades, call_trades, portfolio_total_return, portfolio_annual_return):
         """计算策略的各项指标"""
         # 创建DataFrame并提取portfolio_value值
         portfolio_df = pd.DataFrame.from_dict(portfolio_values, orient='index')
         portfolio_values_series = portfolio_df['portfolio_value']
         
         # 计算累计收益率
+        total_return = (portfolio_values_series.iloc[-1] - portfolio_values_series.iloc[0]) / portfolio_values_series.iloc[0]
         portfolio_df['cumulative_return'] = (portfolio_values_series - initial_cash) / initial_cash * 100
         
         # 计算最大回撤
@@ -296,20 +297,31 @@ class StrategyAnalyzer:
         max_drawdown_end_date = drawdown.idxmin()
         max_drawdown_start_date = peak[:max_drawdown_end_date].idxmax()
         
-        # 计算Sharpe ratio和其他指标
-        sharpe_metrics = calculate_sharpe_ratio(portfolio_values_series)
+        # 计算日收益率，用于计算波动率
+        daily_returns = portfolio_values_series.pct_change().dropna()
+        annual_volatility = daily_returns.std() * np.sqrt(252)
+        
+        # 计算夏普比率
+        risk_free_rate = 0.02  # 假设无风险利率为2%
+        sharpe_ratio = (portfolio_annual_return - risk_free_rate) / annual_volatility if annual_volatility != 0 else 0
         
         return {
             "portfolio_df": portfolio_df,
             "max_drawdown": max_drawdown * 100,
             "max_drawdown_start_date": max_drawdown_start_date,
             "max_drawdown_end_date": max_drawdown_end_date,
-            "sharpe_ratio": sharpe_metrics['sharpe_ratio'],
-            "annual_return": sharpe_metrics['annual_return'],
-            "annual_volatility": sharpe_metrics['annual_volatility'],
+            "sharpe_ratio": sharpe_ratio,
+            "annual_return": portfolio_annual_return,
+            "annual_volatility": annual_volatility,
+            "total_return": total_return,
             "put_trades": put_trades,
             "call_trades": call_trades,
-            "portfolio_metrics": sharpe_metrics  # 添加完整的portfolio_metrics
+            "portfolio_metrics": {
+                'sharpe_ratio': sharpe_ratio,
+                'annual_return': portfolio_annual_return,
+                'annual_volatility': annual_volatility,
+                'total_return': portfolio_total_return
+            }
         }
 
     @staticmethod
@@ -453,29 +465,39 @@ def analyze_complex_strategy_with_equity_curve(etf_data, option_data, initial_ca
     # 创建ETF买入持有的DataFrame
     etf_buy_hold_df = pd.DataFrame.from_dict(etf_buy_hold_portfolio, orient='index')
     
+    # 计算回测的实际日历天数
+    start_date = trading_days[0]
+    end_date = trading_days[-1]
+    calendar_days = (end_date - start_date).days + 1
+    
+    # 计算期权策略的累计收益率和年化收益率
+    portfolio_values_series = pd.Series({date: data['portfolio_value'] 
+                                     for date, data in portfolio_manager.portfolio_values.items()})
+    portfolio_total_return = (portfolio_values_series.iloc[-1] - portfolio_values_series.iloc[0]) / portfolio_values_series.iloc[0]
+    portfolio_annual_return = (1 + portfolio_total_return) ** (365/calendar_days) - 1
+    
+    # 计算ETF策略的累计收益率和年化收益率
+    etf_values_series = pd.Series({date: data['etf_buy_hold_value'] 
+                                for date, data in etf_buy_hold_portfolio.items()})
+    etf_total_return = (etf_values_series.iloc[-1] - etf_values_series.iloc[0]) / etf_values_series.iloc[0]
+    etf_annual_return = (1 + etf_total_return) ** (365/calendar_days) - 1
+    
     # 分析策略结果
     analysis_results = StrategyAnalyzer.calculate_metrics(
         portfolio_manager.portfolio_values, 
         initial_cash,
         portfolio_manager.put_trades,
-        portfolio_manager.call_trades
+        portfolio_manager.call_trades,
+        portfolio_total_return,
+        portfolio_annual_return  # 传入计算好的年化收益率
     )
     
-    # 添加ETF买入持有的DataFrame到结果中
+    # 添加ETF买入持有的DataFrame和指标到结果中
     analysis_results['etf_buy_hold_df'] = etf_buy_hold_df
-    
-    # 计算ETF买入持有策略的指标
-    etf_metrics = calculate_sharpe_ratio(pd.Series({date: data['etf_buy_hold_value'] 
-                                                  for date, data in etf_buy_hold_portfolio.items()}))
-    analysis_results['etf_metrics'] = etf_metrics
-    
-    # 计算ETF的最大回撤并添加到结果中
-    etf_values_series = pd.Series({date: data['etf_buy_hold_value'] 
-                                 for date, data in etf_buy_hold_portfolio.items()})
-    etf_peak = etf_values_series.expanding(min_periods=1).max()
-    etf_drawdown = (etf_values_series - etf_peak) / etf_peak
-    etf_max_drawdown = etf_drawdown.min() * 100
-    analysis_results['etf_max_drawdown'] = etf_max_drawdown
+    analysis_results['etf_metrics'] = {
+        'annual_return': etf_annual_return,
+        'total_return': etf_total_return
+    }
     
     # 添加交易记录
     analysis_results['trades'] = portfolio_manager.trades
@@ -490,7 +512,7 @@ def analyze_complex_strategy_with_equity_curve(etf_data, option_data, initial_ca
         etf_buy_hold_portfolio,
         analysis_results
     )
-
+    
     analysis_results['statistics'] = portfolio_manager.statistics
     
     return analysis_results
@@ -574,14 +596,23 @@ def calculate_sharpe_ratio(portfolio_values, risk_free_rate=0.02):
         portfolio_values = pd.Series(portfolio_values)
     
     try:
-        # 计算日收益率
-        daily_returns = portfolio_values.pct_change().dropna()
+        # 计算累计收益率
+        total_return = (portfolio_values.iloc[-1] - portfolio_values.iloc[0]) / portfolio_values.iloc[0]
+        
+        # 计算实际日历天数
+        start_date = portfolio_values.index[0]
+        end_date = portfolio_values.index[-1]
+        calendar_days = (end_date - start_date).days + 1  # 加1是因为包含起始日
         
         # 计算年化收益率
-        annual_return = (1 + daily_returns.mean()) ** 252 - 1
+        # 使用复利公式: (1 + r)^n = (1 + total_return)，其中n = 365/calendar_days
+        annual_return = (1 + total_return) ** (365/calendar_days) - 1
+        
+        # 计算日收益率，用于计算波动率
+        daily_returns = portfolio_values.pct_change().dropna()
         
         # 计算年化波动率
-        annual_volatility = daily_returns.std() * np.sqrt(252)
+        annual_volatility = daily_returns.std() * np.sqrt(252)  # 波动率仍使用交易日数252
         
         # 计算Sharpe ratio
         sharpe_ratio = (annual_return - risk_free_rate) / annual_volatility if annual_volatility != 0 else 0
@@ -1265,9 +1296,8 @@ def main():
     
     if my_results:
         print(f"\n=== {my_results['symbol']}ETF策略回测结果 ===")
-        if 'portfolio_df' in my_results:
-            last_return = my_results['portfolio_df']['cumulative_return'].iloc[-1]
-            print(f"最终累计收益率 (期权策略): {last_return:.2f}%")
+        if 'portfolio_total_return' in my_results:
+            print(f"最终累计收益率 (期权策略): {my_results['portfolio_total_return']:.2f}%")
             print(f"最大回撤 (期权策略): {my_results['max_drawdown']:.2f}%")
             print(f"最大回撤开始日期: {my_results['max_drawdown_start_date']}")
             print(f"最大回撤结束日期: {my_results['max_drawdown_end_date']}")

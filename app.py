@@ -273,8 +273,53 @@ def format_strategy_comparison(results):
     # 计算累计收益率
     portfolio_df = results['portfolio_df']
     etf_buy_hold_df = results['etf_buy_hold_df']
-    cumulative_return_portfolio = portfolio_df['cumulative_return'].iloc[-1]
+    cumulative_return_portfolio = portfolio_metrics.get('total_return', 0) * 100  # 转换为百分比
     cumulative_return_etf = etf_buy_hold_df['etf_buy_hold_return'].iloc[-1]
+    
+    # 计算年化收益率
+    annual_return_portfolio = portfolio_metrics.get('annual_return', 0) * 100  # 转换为百分比
+    annual_return_etf = etf_metrics.get('annual_return', 0) * 100  # 转换为百分比
+    
+    # 计算夏普比率
+    sharpe_ratio_portfolio = portfolio_metrics.get('sharpe_ratio', 0)
+    sharpe_ratio_etf = etf_metrics.get('sharpe_ratio', 0)
+    
+    # 计算最大回撤
+    max_drawdown_portfolio = results['max_drawdown']
+    max_drawdown_start = results['max_drawdown_start_date']
+    max_drawdown_end = results['max_drawdown_end_date']
+    
+    # 格式化统计数据
+    statistics = results['statistics']
+    formatted_stats = {
+        '期权策略累计收益率': f"{cumulative_return_portfolio:.2f}%",
+        '期权策略年化收益率': f"{annual_return_portfolio:.2f}%",
+        '期权策略夏普比率': f"{sharpe_ratio_portfolio:.2f}",
+        '期权策略最大回撤': f"{max_drawdown_portfolio:.2f}%",
+        '期权策略最大回撤起始日期': max_drawdown_start.strftime('%Y-%m-%d'),
+        '期权策略最大回撤结束日期': max_drawdown_end.strftime('%Y-%m-%d'),
+        'ETF策略累计收益率': f"{cumulative_return_etf:.2f}%",
+        'ETF策略年化收益率': f"{annual_return_etf:.2f}%",
+        'ETF策略夏普比率': f"{sharpe_ratio_etf:.2f}",
+        'PUT期权交易统计': {
+            '总卖出次数': statistics['put_sold'],
+            '被行权次数': statistics['put_exercised'],
+            '到期作废次数': statistics['put_expired'],
+            '总收取权利金': f"{statistics['total_put_premium']:.2f}",
+            '总行权成本': f"{statistics['put_exercise_cost']:.2f}"
+        },
+        'CALL期权交易统计': {
+            '总卖出次数': statistics['call_sold'],
+            '被行权次数': statistics['call_exercised'],
+            '到期作废次数': statistics['call_expired'],
+            '总收取权利金': f"{statistics['total_call_premium']:.2f}",
+            '总行权收入': f"{statistics['call_exercise_income']:.2f}"
+        },
+        '资金使用统计': {
+            '最低现金持仓': f"{statistics['min_cash_position']:.2f}",
+            '总交易成本': f"{statistics['total_transaction_cost']:.2f}"
+        }
+    }
     
     # 将最大回撤转换为正数
     portfolio_max_drawdown = abs(results.get('max_drawdown', 0))
