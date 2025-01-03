@@ -643,12 +643,6 @@ def get_monthly_expiry(date, option_data):
     # 获取所有期权交易日期并标准化
     trading_dates = pd.DatetimeIndex(option_data['日期'].dt.normalize().unique()).sort_values()
     
-    # 打印调试信息
-    print(f"\n=== 到期日查找调试信息 ===")
-    print(f"目标日期: {target_date}")
-    print(f"目标日期类型: {type(target_date)}")
-    print(f"第一个交易日: {trading_dates[0]}")
-    print(f"第一个交易日类型: {type(trading_dates[0])}")
     
     # 如果目标日期是交易日，直接返回
     if target_date in trading_dates:
@@ -688,12 +682,6 @@ def get_next_monthly_expiry(date, option_data):
     trading_dates = pd.DatetimeIndex(option_data['日期'].dt.normalize().unique()).sort_values()
     max_date = trading_dates.max()
     
-    # 打印调试信息
-    print(f"\n=== 下月到期日查找调试信息 ===")
-    print(f"目标日期: {target_date}")
-    print(f"目标日期类型: {type(target_date)}")
-    print(f"第一个交易日: {trading_dates[0]}")
-    print(f"第一个交易日类型: {type(trading_dates[0])}")
     
     # 如果目标日期超出数据范围，返回None
     if target_date > max_date:
