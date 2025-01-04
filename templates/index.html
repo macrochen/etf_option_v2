@@ -151,7 +151,21 @@
             <!-- 收益曲线图 -->
             <div class="card mb-4">
                 <div class="card-body">
-                    <div id="equity-curve"></div>
+                    <div id="performance-plot"></div>
+                </div>
+            </div>
+            
+            <!-- 回撤分析图 -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div id="drawdown-plot"></div>
+                </div>
+            </div>
+            
+            <!-- 收益分布图 -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div id="pnl-distribution-plot"></div>
                 </div>
             </div>
 
@@ -296,8 +310,21 @@
                             return;
                         }
                         
-                        // 绘制收益曲线
-                        Plotly.newPlot('equity-curve', JSON.parse(response.plot).data, JSON.parse(response.plot).layout);
+                        // 渲染图表
+                        Plotly.newPlot('performance-plot', 
+                            JSON.parse(response.plots.performance).data,
+                            JSON.parse(response.plots.performance).layout
+                        );
+                        
+                        Plotly.newPlot('drawdown-plot',
+                            JSON.parse(response.plots.drawdown).data,
+                            JSON.parse(response.plots.drawdown).layout
+                        );
+                        
+                        Plotly.newPlot('pnl-distribution-plot',
+                            JSON.parse(response.plots.pnl_distribution).data,
+                            JSON.parse(response.plots.pnl_distribution).layout
+                        );
                         
                         // 更新策略对比表格
                         updateTable('strategy-comparison', response.strategy_comparison);

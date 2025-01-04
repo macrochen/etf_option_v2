@@ -20,56 +20,33 @@ class PortfolioManager:
     def __init__(self, initial_cash, contract_multiplier=10000, transaction_cost_per_contract=3.6):
         self.initial_cash = initial_cash
         self.cash = initial_cash
-        self.etf_held = 0
         self.contract_multiplier = contract_multiplier
         self.transaction_cost_per_contract = transaction_cost_per_contract
         self.put_position = None
-        self.call_position = None
-        # 添加合成持仓相关的属性
-        self.synthetic_position = None  # 用于跟踪合成持仓
-        self.synthetic_put = None      # 合成持仓的put期权
-        self.synthetic_call = None     # 合成持仓的call期权
         self.portfolio_values = {}
-        self.put_trades = []
-        self.call_trades = []
+        self.put_trades = []  # 只保留put交易记录
         self.trades = {}
+        
+        # 修改统计信息，移除call相关，添加平仓相关
         self.statistics = {
-            'put_sold': 0,
-            'put_exercised': 0,
-            'put_expired': 0,
-            'call_sold': 0,
-            'call_exercised': 0,
-            'call_expired': 0,
-            'total_put_premium': 0,
-            'total_call_premium': 0,
-            'total_transaction_cost': 0,
-            'max_etf_held': 0,
+            'put_sold': 0,            # put卖出次数
+            'put_expired': 0,         # put到期作废次数
+            'put_closed': 0,          # put平仓次数
+            'total_put_premium': 0,   # put权利金收入
+            'total_close_cost': 0,    # put平仓成本
+            'total_transaction_cost': 0,  # 总交易成本
             'min_cash_position': float('inf'),
-            'put_exercise_cost': 0,
-            'call_exercise_income': 0,
-            'etf_buy_cost': 0,
-            'etf_sell_income': 0,
-            'total_etf_pnl': 0,
-            # 添加合成持仓相关的统计
-            'synthetic_positions_opened': 0,
-            'synthetic_positions_closed': 0,
-            'synthetic_total_cost': 0,
-            'synthetic_total_pnl': 0
+            'max_loss_trade': 0,      # 单次最大亏损
+            'total_realized_pnl': 0   # 总实现盈亏
         }
 
     def calculate_portfolio_value(self, current_date, etf_price, option_data):
         """计算当日投资组合价值"""
-        # 计算ETF市值
-        etf_value = self.etf_held * etf_price if etf_price is not None else 0
-        
         # 计算期权持仓的市值
         unrealized_option_value = self._calculate_option_value(current_date, option_data)
         
-        # 计算合成持仓的市值
-        synthetic_value = self._calculate_synthetic_value(current_date, option_data) if self.synthetic_position else 0
-        
         # 计算总市值
-        portfolio_value = self.cash + etf_value + unrealized_option_value + synthetic_value
+        portfolio_value = self.cash + unrealized_option_value
         
         # 计算日收益率
         if len(self.portfolio_values) > 0:
@@ -81,23 +58,19 @@ class PortfolioManager:
         # 记录每日数据
         self.portfolio_values[current_date] = {
             'cash': self.cash,
-            'etf_value': etf_value,
             'option_value': unrealized_option_value,
-            'synthetic_value': synthetic_value,
             'portfolio_value': portfolio_value,
             'daily_return': daily_return,
             'cumulative_return': (portfolio_value - self.initial_cash) / self.initial_cash * 100
         }
         
-        return portfolio_value, etf_value, unrealized_option_value + synthetic_value
+        return portfolio_value, 0, unrealized_option_value  # 第二个参数(etf_value)始终为0
 
     def _calculate_option_value(self, current_date, option_data):
         """计算期权持仓的浮动盈亏"""
         unrealized_value = 0
         if self.put_position:
             unrealized_value += self._get_position_value(current_date, self.put_position, option_data)
-        if self.call_position:
-            unrealized_value += self._get_position_value(current_date, self.call_position, option_data)
         return unrealized_value
 
     def _get_position_value(self, current_date, position, option_data):
@@ -118,10 +91,6 @@ class PortfolioManager:
         # 处理PUT期权到期
         if self.put_position and self.put_position.expiry <= current_date:
             self._handle_put_expiry(current_date, etf_data)
-            
-        # 处理CALL期权到期
-        if self.call_position and self.call_position.expiry <= current_date:
-            self._handle_call_expiry(current_date, etf_data)
 
     def _handle_put_expiry(self, current_date, etf_data):
         """处理PUT期权到期"""
@@ -150,17 +119,18 @@ class PortfolioManager:
             contracts = self.put_position.num_contracts
             exercise_cost = self.put_position.strike * self.contract_multiplier * contracts
             self.cash -= exercise_cost
-            self.etf_held += self.contract_multiplier * contracts
-            expiry_details["行权成本"] = f"{exercise_cost:.2f}"
-            exercise = "被行权"
-            self.statistics['put_exercised'] += 1
+            self.statistics['put_expired'] += 1
             self.statistics['put_exercise_cost'] += exercise_cost
             self.statistics['etf_buy_cost'] += exercise_cost
+            self.statistics['max_etf_held'] = max(self.statistics['max_etf_held'], self.etf_held)
+            self.statistics['total_put_premium'] += premium_income
+            self.statistics['total_transaction_cost'] += exercise_cost
+            self.statistics['min_cash_position'] = min(self.statistics['min_cash_position'], self.cash)
+            self.statistics['max_loss_trade'] = min(self.statistics['max_loss_trade'], -exercise_cost)
+            self.statistics['total_realized_pnl'] += -exercise_cost
         else:
             self.statistics['put_expired'] += 1
         
-        self.statistics['max_etf_held'] = max(self.statistics['max_etf_held'], self.etf_held)
-            
         current_position = self.cash + (self.etf_held * expiry_etf_price)
         expiry_details.update({
             "当前持仓ETF数量": str(self.etf_held),
@@ -172,52 +142,87 @@ class PortfolioManager:
         self.logger.log_option_expiry(f"{expiry_date.strftime('%m月')}PUT到期" + exercise, expiry_date, expiry_details)
         self.put_position = None
 
-    def _handle_call_expiry(self, current_date, etf_data):
-        """处理CALL期权到期"""
-        expiry_date = self.call_position.expiry
-        expiry_etf_price = etf_data.at[expiry_date, '收盘价'] if expiry_date in etf_data.index else None
-
-        if expiry_etf_price is None:
-            print(f"Warning: No ETF price found for expiry date {expiry_date}")
-            return
-
-        # 在到期时将权利金计入收入
-        premium_income = self.call_position.premium * self.contract_multiplier * self.call_position.num_contracts
-        self.cash += premium_income
-
-        # 记录到期信息
-        expiry_details = {
-            "ETF价格": f"{expiry_etf_price:.4f}",
-            "行权价格": f"{self.call_position.strike:.4f}",
-            "合约数量": f"{self.call_position.num_contracts}张",
-            "权利金收入": f"{premium_income:.2f}"
-        }
-
-        exercise = "作废"
-        if expiry_etf_price > self.call_position.strike:
-            # CALL被行权
-            contracts = self.call_position.num_contracts
-            exercise_income = self.call_position.strike * self.contract_multiplier * contracts
-            self.cash += exercise_income
-            self.etf_held -= self.contract_multiplier * contracts
-            expiry_details["行权收入"] = f"{exercise_income:.2f}"
-            exercise = "行权"
-            self.statistics['call_exercised'] += 1
-            self.statistics['call_exercise_income'] += exercise_income
-            self.statistics['etf_sell_income'] += exercise_income
-        else:
-            self.statistics['call_expired'] += 1
+    def close_put_position(self, current_date, close_price, etf_price):
+        """平仓PUT期权"""
+        if not self.put_position:
+            print(f"\n[警告] {current_date} 尝试平仓时发现没有持仓")
+            return False
             
-        current_position = self.cash + (self.etf_held * expiry_etf_price)
-        expiry_details.update({
-            "当前持仓ETF数量": str(self.etf_held),
-            "当前现金": f"{self.cash:.2f}",
-            "当前持仓头寸": f"{current_position:.2f}",
-            "总收益率": f"{((current_position - self.initial_cash) / self.initial_cash * 100):.2f}%"
-        })
+        # 计算平仓成本
+        close_cost = close_price * self.contract_multiplier * self.put_position.num_contracts
+        transaction_cost = self.transaction_cost_per_contract * self.put_position.num_contracts
+        total_cost = close_cost + transaction_cost
         
-        self.logger.log_option_expiry(f"{expiry_date.strftime('%m月')}CALL期权到期" + exercise, expiry_date, expiry_details)
-        self.call_position = None
+        # 检查是否有足够的现金平仓
+        if self.cash < total_cost:
+            print(f"\n[错误] {current_date} 现金不足，无法平仓")
+            print(f"=== 平仓失败详情 ===")
+            print(f"当前现金: {self.cash:.2f}")
+            print(f"所需现金: {total_cost:.2f}")
+            print(f"  - 平仓成本: {close_cost:.2f}")
+            print(f"  - 交易费用: {transaction_cost:.2f}")
+            print(f"\n期权持仓信息:")
+            print(f"  - 持仓数量: {self.put_position.num_contracts}张")
+            print(f"  - 行权价: {self.put_position.strike:.4f}")
+            print(f"  - 当前ETF价格: {etf_price:.4f}")
+            print(f"  - 期权价格: {close_price:.4f}")
+            print(f"  - 到期日: {self.put_position.expiry}")
+            print(f"  - 原始权利金: {self.put_position.premium:.4f}")
+            
+            # 记录当前的浮动盈亏
+            original_premium = self.put_position.premium * self.contract_multiplier * self.put_position.num_contracts
+            unrealized_pnl = original_premium - (close_price * self.contract_multiplier * self.put_position.num_contracts)
+            print(f"\n当前持仓盈亏:")
+            print(f"  - 收取权利金: {original_premium:.2f}")
+            print(f"  - 当前市值: {close_price * self.contract_multiplier * self.put_position.num_contracts:.2f}")
+            print(f"  - 浮动盈亏: {unrealized_pnl:.2f}")
+            
+            # 记录资金缺口
+            shortfall = total_cost - self.cash
+            print(f"\n资金缺口: {shortfall:.2f}")
+            print("=" * 50)
+            return False
+            
+        # 执行平仓
+        self.cash -= total_cost
+        
+        # 计算平仓损益
+        original_premium = self.put_position.premium * self.contract_multiplier * self.put_position.num_contracts
+        realized_pnl = original_premium - close_cost - transaction_cost
+        
+        # 更新统计信息
+        self.statistics['put_closed'] += 1
+        self.statistics['total_close_cost'] += close_cost
+        self.statistics['total_transaction_cost'] += transaction_cost
+        self.statistics['total_realized_pnl'] += realized_pnl
+        self.statistics['max_loss_trade'] = min(self.statistics['max_loss_trade'], realized_pnl)
+        self.statistics['min_cash_position'] = min(self.statistics['min_cash_position'], self.cash)
+        
+        # 记录交易信息
+        self.trades[current_date] = {
+            '交易类型': 'PUT平仓',
+            '平仓价格': close_price,
+            'ETF价格': etf_price,
+            '合约数量': self.put_position.num_contracts,
+            '平仓成本': close_cost,
+            '交易成本': transaction_cost,
+            '实现盈亏': realized_pnl
+        }
+        
+        # 记录平仓成功信息
+        print(f"\n[成功] {current_date} PUT期权平仓")
+        print(f"平仓详情:")
+        print(f"  - 合约数量: {self.put_position.num_contracts}张")
+        print(f"  - 平仓价格: {close_price:.4f}")
+        print(f"  - 平仓成本: {close_cost:.2f}")
+        print(f"  - 交易费用: {transaction_cost:.2f}")
+        print(f"  - 实现盈亏: {realized_pnl:.2f}")
+        print(f"  - 剩余现金: {self.cash:.2f}")
+        
+        # 清除持仓
+        self.put_position = None
+        
+        return True
 
     def _get_eligible_options(self, current_date, expiry, option_type, option_data):
         """获取符合条件的期权"""
@@ -357,13 +362,6 @@ class StrategyAnalyzer:
         print(f"  到期作废次数: {statistics['put_expired']}")
         print(f"  总收取权利金: {statistics['total_put_premium']:.2f}")
         print(f"  总行权成本: {statistics['put_exercise_cost']:.2f}")
-        
-        print(f"\nCALL期权交易:")
-        print(f"  总卖出次数: {statistics['call_sold']}")
-        print(f"  被行权次数: {statistics['call_exercised']}")
-        print(f"  到期作废次数: {statistics['call_expired']}")
-        print(f"  总收取权利金: {statistics['total_call_premium']:.2f}")
-        print(f"  总行权收入: {statistics['call_exercise_income']:.2f}")
         
         print(f"\n资金使用:")
         print(f"  最低现金持仓: {statistics['min_cash_position']:.2f}")
@@ -1054,171 +1052,71 @@ class OptionTrader:
         # 获取符合条件的PUT期权
         eligible_puts = self._get_eligible_options(current_date, expiry, 'P', option_data)
         if eligible_puts.empty:
+            print(f"\n[警告] {current_date} 没有找到合适的PUT期权")
             return
         
         # 获取Delta值最接近目标值的期权
         selected_put = self._get_closest_option(eligible_puts, self.target_delta, is_call=False)
         if selected_put.empty:
+            print(f"\n[警告] {current_date} 没有找到目标Delta的PUT期权")
             return
             
         # 执行交易
         self._execute_put_trade(current_date, expiry, selected_put, etf_price)
 
-    def sell_call(self, current_date, expiry, option_data, etf_price):
-        """卖出CALL期权"""
-        # 获取符合条件的CALL期权
-        eligible_calls = self._get_eligible_options(current_date, expiry, 'C', option_data)
-        if eligible_calls.empty:
+    def handle_option_expiry(self, current_date, etf_data, option_data):
+        """处理期权到期或平仓"""
+        if not self.pm.put_position:
             return
+            
+        # 获取当前ETF价格
+        etf_price = etf_data.at[current_date, '收盘价'] if current_date in etf_data.index else None
+        if etf_price is None:
+            print(f"\n[错误] {current_date} 无法获取ETF价格")
+            return
+            
+        # 获取当前期权价格
+        current_options = option_data[
+            (option_data['日期'] == current_date) & 
+            (option_data['交易代码'] == self.pm.put_position.trade_code)
+        ]
+        if current_options.empty:
+            print(f"\n[错误] {current_date} 无法获取期权价格")
+            return
+            
+        current_option_price = current_options['收盘价'].iloc[0]
         
-        # 获取Delta值最接近目标值的期权
-        selected_call = self._get_closest_option(eligible_calls, self.target_delta, is_call=True)
-        if selected_call.empty:
-            return
-            
-        # 执行交易
-        self._execute_call_trade(current_date, expiry, selected_call, etf_price)
-
-    def handle_option_expiry(self, current_date, etf_data):
-        """处理期权到期"""
-        # 处理PUT期权到期
-        if self.pm.put_position and self.pm.put_position.expiry <= current_date:
-            self._handle_put_expiry(current_date, etf_data)
-            
-        # 处理CALL期权到期
-        if self.pm.call_position and self.pm.call_position.expiry <= current_date:
-            self._handle_call_expiry(current_date, etf_data)
-
-    def _handle_put_expiry(self, current_date, etf_data):
-        """处理PUT期权到期"""
-        expiry_date = self.pm.put_position.expiry
-        expiry_etf_price = etf_data.at[expiry_date, '收盘价'] if expiry_date in etf_data.index else None
-
-        if expiry_etf_price is None:
-            print(f"Warning: No ETF price found for expiry date {expiry_date}")
-            return
-
-        # 在到期时将权利金计入收入
-        premium_income = self.pm.put_position.premium * self.pm.contract_multiplier * self.pm.put_position.num_contracts
-        self.pm.cash += premium_income
-
-        # 记录到期信息
-        expiry_details = {
-            "ETF价格": f"{expiry_etf_price:.4f}",
-            "行权价格": f"{self.pm.put_position.strike:.4f}",
-            "合约数量": f"{self.pm.put_position.num_contracts}张",
-            "权利金收入": f"{premium_income:.2f}"
-        }
-
-        exercise = "变废纸"
-        if expiry_etf_price < self.pm.put_position.strike:
-            # PUT被行权
-            contracts = self.pm.put_position.num_contracts
-            exercise_cost = self.pm.put_position.strike * self.pm.contract_multiplier * contracts
-            self.pm.cash -= exercise_cost
-            self.pm.etf_held += self.pm.contract_multiplier * contracts
-            expiry_details["行权成本"] = f"{exercise_cost:.2f}"
-            exercise = "被行权"
-            self.pm.statistics['put_exercised'] += 1
-            self.pm.statistics['put_exercise_cost'] += exercise_cost
-            self.pm.statistics['etf_buy_cost'] += exercise_cost
+        # 如果是到期日
+        if self.pm.put_position.expiry <= current_date:
+            if etf_price < self.pm.put_position.strike:
+                # ETF价格低于行权价，需要平仓
+                print(f"\n[信息] {current_date} ETF价格 {etf_price:.4f} 低于行权价 {self.pm.put_position.strike:.4f}，执行平仓")
+                self.pm.close_put_position(current_date, current_option_price, etf_price)
+            else:
+                # ETF价格高于行权价，期权作废
+                print(f"\n[信息] {current_date} ETF价格 {etf_price:.4f} 高于行权价 {self.pm.put_position.strike:.4f}，期权作废")
+                self.pm.statistics['put_expired'] += 1
+                self.pm.put_position = None
         else:
-            self.pm.statistics['put_expired'] += 1
-        
-        self.pm.statistics['max_etf_held'] = max(self.pm.statistics['max_etf_held'], self.pm.etf_held)
+            # 非到期日，检查是否需要平仓
+            unrealized_loss = (current_option_price - self.pm.put_position.premium) * self.pm.contract_multiplier * self.pm.put_position.num_contracts
+            loss_ratio = abs(unrealized_loss) / (self.pm.put_position.premium * self.pm.contract_multiplier * self.pm.put_position.num_contracts)
             
-        current_position = self.pm.cash + (self.pm.etf_held * expiry_etf_price)
-        expiry_details.update({
-            "当前持仓ETF数量": str(self.pm.etf_held),
-            "当前现金": f"{self.pm.cash:.2f}",
-            "当前持仓头寸": f"{current_position:.2f}",
-            "总收益率": f"{((current_position - self.pm.initial_cash) / self.pm.initial_cash * 100):.2f}%"
-        })
-        
-        self.logger.log_option_expiry(f"{expiry_date.strftime('%m月')}PUT到期" + exercise, expiry_date, expiry_details)
-        self.pm.put_position = None
-
-    def _handle_call_expiry(self, current_date, etf_data):
-        """处理CALL期权到期"""
-        expiry_date = self.pm.call_position.expiry
-        expiry_etf_price = etf_data.at[expiry_date, '收盘价'] if expiry_date in etf_data.index else None
-
-        if expiry_etf_price is None:
-            print(f"Warning: No ETF price found for expiry date {expiry_date}")
-            return
-
-        # 在到期时将权利金计入收入
-        premium_income = self.pm.call_position.premium * self.pm.contract_multiplier * self.pm.call_position.num_contracts
-        self.pm.cash += premium_income
-
-        # 记录到期信息
-        expiry_details = {
-            "ETF价格": f"{expiry_etf_price:.4f}",
-            "行权价格": f"{self.pm.call_position.strike:.4f}",
-            "合约数量": f"{self.pm.call_position.num_contracts}张",
-            "权利金收入": f"{premium_income:.2f}"
-        }
-
-        exercise = "作废"
-        if expiry_etf_price > self.pm.call_position.strike:
-            # CALL被行权
-            contracts = self.pm.call_position.num_contracts
-            exercise_income = self.pm.call_position.strike * self.pm.contract_multiplier * contracts
-            self.pm.cash += exercise_income
-            self.pm.etf_held -= self.pm.contract_multiplier * contracts
-            expiry_details["行权收入"] = f"{exercise_income:.2f}"
-            exercise = "行权"
-            self.pm.statistics['call_exercised'] += 1
-            self.pm.statistics['call_exercise_income'] += exercise_income
-            self.pm.statistics['etf_sell_income'] += exercise_income
-        else:
-            self.pm.statistics['call_expired'] += 1
-            
-        current_position = self.pm.cash + (self.pm.etf_held * expiry_etf_price)
-        expiry_details.update({
-            "当前持仓ETF数量": str(self.pm.etf_held),
-            "当前现金": f"{self.pm.cash:.2f}",
-            "当前持仓头寸": f"{current_position:.2f}",
-            "总收益率": f"{((current_position - self.pm.initial_cash) / self.pm.initial_cash * 100):.2f}%"
-        })
-        
-        self.logger.log_option_expiry(f"{expiry_date.strftime('%m月')}CALL期权到期" + exercise, expiry_date, expiry_details)
-        self.pm.call_position = None
-
-    def _get_eligible_options(self, current_date, expiry, option_type, option_data):
-        """获取符合条件的期权"""
-        # 先判断日期
-        date_filtered = option_data[option_data['日期'] == current_date]
-        
-        # 从交易代码中判断期权类型和月份
-        # 例如：510500C2210M05750，需要判断C/P和年月
-        year_str = str(expiry.year)[-2:]  # 获取年份的后两位
-        month_str = str(expiry.month).zfill(2)  # 补零成两位数
-        
-        # 构建交易代码的匹配模式
-        code_pattern = f'{option_type}{year_str}{month_str}'
-        
-        return date_filtered[date_filtered['交易代码'].str.contains(code_pattern)]
-
-    def _get_closest_option(self, options, target_delta, is_call=True):
-        """获取Delta值最接近目标值的期权"""
-        # 创建options的副本以避免SettingWithCopyWarning
-        options = options.copy()
-        
-        if is_call:
-            # 对于CALL期权，寻找最接近target_delta的期权
-            closest_idx = (options['Delta'] - target_delta).abs().idxmin()
-            return options.loc[[closest_idx]]
-        else:
-            # 对于PUT期权，寻找最接近-target_delta的期权
-            closest_idx = (options['Delta'] + target_delta).abs().idxmin()
-            return options.loc[[closest_idx]]
+            # 如果亏损超过权利金的50%，执行平仓
+            if loss_ratio > 0.5:
+                print(f"\n[信息] {current_date} 浮动亏损率 {loss_ratio:.2%} 超过阈值，执行平仓")
+                self.pm.close_put_position(current_date, current_option_price, etf_price)
 
     def _execute_put_trade(self, current_date, expiry, option_data, etf_price):
         """执行PUT期权交易"""
         strike_price = option_data['行权价'].iloc[0]
         premium_per_contract = option_data['结算价'].iloc[0]
-        margin_per_contract = strike_price * self.pm.contract_multiplier
+        
+        # 计算保证金要求
+        margin_per_contract = min(
+            strike_price * 0.12 * self.pm.contract_multiplier,  # 12%保证金
+            (strike_price - max(0, strike_price - etf_price)) * self.pm.contract_multiplier  # 实值部分全额
+        )
         
         # 计算可以卖出的最大合约数量
         max_contracts = 0
@@ -1246,204 +1144,58 @@ class OptionTrader:
             total_cost = self.pm.transaction_cost_per_contract * max_contracts
             self.pm.cash -= total_cost
             
-            # 计算当前总头寸
-            current_position = self.pm.cash + (self.pm.etf_held * etf_price)
-            
-            # 记录交易信息
-            self.logger.log_option_expiry(f"卖出{expiry.strftime('%m月')}PUT期权", current_date, {
-                "到期日": expiry.strftime('%Y-%m-%d'),
-                "行权价": f"{strike_price:.4f}",
-                "当前ETF价格": f"{etf_price:.4f}",
-                "期权价格": f"{premium_per_contract:.4f}",
-                "收取权利金": f"{premium_per_contract * max_contracts * self.pm.contract_multiplier:.2f}",
-                "合约数量": f"{max_contracts}张",
-                "交易成本": f"{total_cost:.2f}",
-                "当前现金": f"{self.pm.cash:.2f}",
-                "当前持仓头寸": f"{current_position:.2f}"
-            })
-            
-            # 记录交易点
-            current_return = (current_position - self.pm.initial_cash) / self.pm.initial_cash * 100
-            self.pm.put_trades.append((current_date, current_return))
+            # 收取权利金
+            premium_income = premium_per_contract * max_contracts * self.pm.contract_multiplier
+            self.pm.cash += premium_income
             
             # 更新统计数据
             self.pm.statistics['put_sold'] += 1
-            self.pm.statistics['total_put_premium'] += premium_per_contract * max_contracts * self.pm.contract_multiplier
+            self.pm.statistics['total_put_premium'] += premium_income
             self.pm.statistics['total_transaction_cost'] += total_cost
             self.pm.statistics['min_cash_position'] = min(self.pm.statistics['min_cash_position'], self.pm.cash)
 
-            # 记录交易信息到trades字典
+            # 记录交易信息
             self.pm.trades[current_date] = {
                 '交易类型': '卖出PUT',
                 '行权价': strike_price,
                 '期权价格': premium_per_contract,
                 '合约数量': max_contracts,
-                '权利金': premium_per_contract * max_contracts * self.pm.contract_multiplier,
+                '权利金': premium_income,
                 '交易成本': total_cost,
-                '到期日ETF价格': etf_price,
+                '保证金': margin_per_contract * max_contracts,
+                'ETF价格': etf_price,
                 'Delta': option_data['Delta'].iloc[0]
             }
-
-    def _execute_call_trade(self, current_date, expiry, option_data, etf_price):
-        """执行CALL期权交易"""
-        strike_price = option_data['行权价'].iloc[0]
-        premium_per_contract = option_data['结算价'].iloc[0]
-        num_contracts = int(self.pm.etf_held // self.pm.contract_multiplier)
-        
-        if num_contracts > 0:
-            # 创建期权持仓对象
-            self.pm.call_position = OptionPosition(
-                expiry=expiry,
-                strike=strike_price,
-                premium=premium_per_contract,
-                num_contracts=num_contracts,
-                trade_code=option_data['交易代码'].iloc[0],
-                initial_cash=self.pm.cash
-            )
-            
-            # 扣除交易成本
-            total_cost = self.pm.transaction_cost_per_contract * num_contracts
-            self.pm.cash -= total_cost
-            
-            # 计算当前总头寸
-            current_position = self.pm.cash + (self.pm.etf_held * etf_price)
-            
-            # 记录交易信息
-            self.logger.log_option_expiry(f"卖出{expiry.strftime('%m月')}CALL期权", current_date, {
-                "到期日": expiry.strftime('%Y-%m-%d'),
-                "行权价": f"{strike_price:.4f}",
-                "当前ETF价格": f"{etf_price:.4f}",
-                "期权权利金": f"{premium_per_contract:.4f}",
-                "合约数量": f"{num_contracts}张",
-                "交易成本": f"{total_cost:.2f}",
-                "当前现金": f"{self.pm.cash:.2f}",
-                "当前持仓头寸": f"{current_position:.2f}"
-            })
             
             # 记录交易点
+            current_position = self.pm.cash
             current_return = (current_position - self.pm.initial_cash) / self.pm.initial_cash * 100
-            self.pm.call_trades.append((current_date, current_return))
+            self.pm.put_trades.append((current_date, current_return))
             
-            # 更新统计数据
-            self.pm.statistics['call_sold'] += 1
-            self.pm.statistics['total_call_premium'] += premium_per_contract * num_contracts * self.pm.contract_multiplier
-            self.pm.statistics['total_transaction_cost'] += total_cost
-            self.pm.statistics['min_cash_position'] = min(self.pm.statistics['min_cash_position'], self.pm.cash)
+            print(f"\n[成功] {current_date} 卖出PUT期权")
+            print(f"交易详情:")
+            print(f"  - 合约数量: {max_contracts}张")
+            print(f"  - 行权价: {strike_price:.4f}")
+            print(f"  - 期权价格: {premium_per_contract:.4f}")
+            print(f"  - 权利金收入: {premium_income:.2f}")
+            print(f"  - 交易成本: {total_cost:.2f}")
+            print(f"  - 保证金要求: {margin_per_contract * max_contracts:.2f}")
+            print(f"  - 剩余现金: {self.pm.cash:.2f}")
 
-            # 记录交易信息到trades字典
-            self.pm.trades[current_date] = {
-                '交易类型': '卖出CALL',
-                '行权价': strike_price,
-                '期权价格': premium_per_contract,
-                '合约数量': num_contracts,
-                '权利金': premium_per_contract * num_contracts * self.pm.contract_multiplier,
-                '交易成本': total_cost,
-                '到期日ETF价格': etf_price,
-                'Delta': option_data['Delta'].iloc[0]
-            }
-
-    def execute_synthetic_position(self, current_date, expiry, option_data, etf_price):
-        """执行合成持仓交易"""
-        # 获取符合条件的PUT期权
-        eligible_puts = self._get_eligible_options(current_date, expiry, 'P', option_data)
-        if eligible_puts.empty:
-            return False
-
-        # 获取Delta值最接近0.1的PUT期权
-        selected_put = self._get_closest_option(eligible_puts, 0.1, is_call=False)
-        if selected_put.empty:
-            return False
-
-        # 获取相同行权价的CALL期权
-        strike_price = selected_put['行权价'].iloc[0]
+    def sell_call(self, current_date, expiry, option_data, etf_price):
+        """卖出CALL期权"""
+        # 获取符合条件的CALL期权
         eligible_calls = self._get_eligible_options(current_date, expiry, 'C', option_data)
         if eligible_calls.empty:
-            return False
-
-        # 从CALL期权中选择相同行权价的期权
-        same_strike_calls = eligible_calls[eligible_calls['行权价'] == strike_price]
-        if same_strike_calls.empty:
-            return False
-
-        # 执行合成持仓交易
-        return self._execute_synthetic_trade(current_date, expiry, selected_put, same_strike_calls.iloc[0], etf_price)
-
-    def _execute_synthetic_trade(self, current_date, expiry, put_option, call_option, etf_price):
-        """执行合成持仓的具体交易"""
-        strike_price = put_option['行权价'].iloc[0]
-        put_premium = put_option['结算价'].iloc[0]
-        call_premium = call_option['结算价'].iloc[0]
+            return
         
-        # 计算所需保证金
-        margin_per_contract = strike_price * self.pm.contract_multiplier
-        
-        # 计算可以建立的最大合约数量
-        max_contracts = 0
-        while True:
-            total_cost = (max_contracts + 1) * self.pm.transaction_cost_per_contract * 2  # PUT和CALL各一张
-            total_margin = (max_contracts + 1) * margin_per_contract
-            call_cost = (max_contracts + 1) * call_premium * self.pm.contract_multiplier
+        # 获取Delta值最接近目标值的期权
+        selected_call = self._get_closest_option(eligible_calls, self.target_delta, is_call=True)
+        if selected_call.empty:
+            return
             
-            if self.pm.cash - total_cost - call_cost >= total_margin:
-                max_contracts += 1
-            else:
-                break
-
-        if max_contracts > 0:
-            # 创建合成持仓
-            self.pm.synthetic_put = OptionPosition(
-                expiry=expiry,
-                strike=strike_price,
-                premium=put_premium,
-                num_contracts=max_contracts,
-                trade_code=put_option['交易代码'].iloc[0],
-                initial_cash=self.pm.cash
-            )
-            
-            self.pm.synthetic_call = OptionPosition(
-                expiry=expiry,
-                strike=strike_price,
-                premium=call_premium,
-                num_contracts=max_contracts,
-                trade_code=call_option['交易代码'].iloc[0],
-                initial_cash=self.pm.cash
-            )
-            
-            # 标记合成持仓状态
-            self.pm.synthetic_position = True
-            
-            # 计算交易成本和权利金
-            total_cost = self.pm.transaction_cost_per_contract * max_contracts * 2  # PUT和CALL各收一次费用
-            put_premium_income = put_premium * max_contracts * self.pm.contract_multiplier
-            call_premium_cost = call_premium * max_contracts * self.pm.contract_multiplier
-            
-            # 更新现金
-            self.pm.cash -= total_cost
-            self.pm.cash += put_premium_income  # 收取PUT权利金
-            self.pm.cash -= call_premium_cost   # 支付CALL权利金
-            
-            # 更新统计数据
-            self.pm.statistics['synthetic_positions_opened'] += 1
-            self.pm.statistics['synthetic_total_cost'] += total_cost
-            self.pm.statistics['min_cash_position'] = min(self.pm.statistics['min_cash_position'], self.pm.cash)
-            
-            # 记录交易信息到trades字典
-            self.pm.trades[current_date] = {
-                '交易类型': '建立合成持仓',
-                '行权价': strike_price,
-                'PUT期权价格': put_premium,
-                'CALL期权价格': call_premium,
-                '合约数量': max_contracts,
-                'PUT权利金收入': put_premium_income,
-                'CALL权利金支出': call_premium_cost,
-                '交易成本': total_cost,
-                '到期日ETF价格': etf_price,
-                'Delta': put_option['Delta'].iloc[0]
-            }
-            
-            return True
-        
-        return False
+        # 执行交易
+        self._execute_call_trade(current_date, expiry, selected_call, etf_price)
 
     def handle_synthetic_expiry(self, current_date, etf_data):
         """处理合成持仓到期"""
