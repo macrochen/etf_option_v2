@@ -8,14 +8,14 @@ from utils import calculate_returns, format_number
 class StrategyAnalyzer:
     @staticmethod
     def calculate_metrics(portfolio_values: Dict[datetime, DailyPortfolio],
-                         trades: List[TradeRecord],
+                         trades: Dict[datetime, List[Dict]],
                          initial_cash: float,
                          etf_data: pd.DataFrame = None) -> Dict[str, Any]:
         """计算策略的各项指标，包括与ETF买入持有的对比
         
         Args:
             portfolio_values: 每日投资组合状态记录
-            trades: 交易记录列表
+            trades: 交易记录字典，键为日期，值为当日交易列表
             initial_cash: 初始资金
             etf_data: ETF价格数据，用于计算买入持有收益
         """
@@ -86,6 +86,8 @@ class StrategyAnalyzer:
         etf = metrics.get('etf_metrics', {})
         
         comparison_data = [
+            ['总收益率', f"{portfolio['total_return']:.2f}%",
+             f"{etf.get('total_return', 0):.2f}%" if etf else 'N/A'],
             ['年化收益率', f"{portfolio['annual_return']*100:.2f}%",
              f"{etf.get('annual_return', 0)*100:.2f}%" if etf else 'N/A'],
             ['年化波动率', f"{portfolio['annual_volatility']*100:.2f}%",
@@ -94,18 +96,16 @@ class StrategyAnalyzer:
              f"{etf.get('sharpe_ratio', 0):.2f}" if etf else 'N/A'],
             ['最大回撤', f"{portfolio['max_drawdown']:.2f}%",
              f"{etf.get('max_drawdown', 0):.2f}%" if etf else 'N/A'],
-            ['总收益率', f"{portfolio['total_return']:.2f}%",
-             f"{etf.get('total_return', 0):.2f}%" if etf else 'N/A']
         ]
         
         return comparison_data
 
     @staticmethod
-    def _calculate_trade_metrics(trades: Dict[datetime, Dict]) -> Dict[str, Any]:
+    def _calculate_trade_metrics(trades: Dict[datetime, List[Dict]]) -> Dict[str, Any]:
         """计算交易相关指标
         
         Args:
-            trades: 交易记录字典，键为日期，值为交易信息
+            trades: 交易记录字典，键为日期，值为当日交易列表
             
         Returns:
             Dict[str, Any]: 交易指标字典
@@ -124,18 +124,21 @@ class StrategyAnalyzer:
                 'total_cost': 0
             }
         
-        # 将字典转换为DataFrame
-        trades_df = pd.DataFrame([
-            {
-                'date': date,
-                'type': trade['交易类型'],
-                'price': trade['期权价格'],
-                'contracts': trade['合约数量'],
-                'pnl': trade['实现盈亏'],
-                'cost': trade['交易成本']
-            }
-            for date, trade in trades.items()
-        ])
+        # 将所有交易记录展平为一个列表
+        trade_records = []
+        for date, daily_trades in trades.items():
+            for trade in daily_trades:
+                trade_records.append({
+                    'date': date,
+                    'type': trade['交易类型'],
+                    'price': trade['期权价格'],
+                    'contracts': trade['合约数量'],
+                    'pnl': trade['实现盈亏'],
+                    'cost': trade['交易成本']
+                })
+        
+        # 转换为DataFrame
+        trades_df = pd.DataFrame(trade_records)
         
         # 计算指标
         winning_trades = trades_df[trades_df['pnl'] > 0]

@@ -230,22 +230,25 @@ def format_trade_records(results: Dict[str, Any]) -> Dict[str, Any]:
     trade_data = []
     
     # 获取所有交易记录
-    for date, trade in results['trades'].items():
-        trade_data.append([
-            date.strftime('%Y-%m-%d'),
-            trade['交易类型'],
-            f"{trade['ETF价格']:.4f}",
-            f"{trade['行权价']:.4f}",
-            f"{trade['期权价格']:.4f}",
-            f"{trade['合约数量']}张",
-            f"{abs(trade['权利金收入']):.4f}",
-            f"{trade['交易成本']:.2f}",
-            f"{trade['Delta']:.2f}",
-            f"{trade['实现盈亏']:.2f}" if trade['实现盈亏'] else "0.00"
-        ])
+    for date, trades_list in results['trades'].items():
+        # 处理当日的每笔交易
+        for trade in trades_list:
+            trade_data.append([
+                date.strftime('%Y-%m-%d'),
+                trade['交易类型'],
+                f"{trade['ETF价格']:.4f}",
+                f"{trade['行权价']:.4f}",
+                f"{trade['期权价格']:.4f}",
+                f"{trade['合约数量']}张",
+                f"{abs(trade['权利金收入']):.4f}",
+                f"{trade['交易成本']:.2f}",
+                f"{trade['Delta']:.2f}",
+                f"{trade['实现盈亏']:.2f}" if trade['实现盈亏'] else "0.00"
+            ])
     
     return {
-        'headers': ['日期', '交易类型', '期权价格', '合约数量', '权利金', '交易成本', '盈亏'],
+        'headers': ['日期', '交易类型', 'ETF价格', '行权价', '期权价格', 
+                   '合约数量', '权利金', '交易成本', 'Delta', '实现盈亏'],
         'data': sorted(trade_data, key=lambda x: x[0])  # 按日期排序
     }
 

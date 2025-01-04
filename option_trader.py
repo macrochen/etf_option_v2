@@ -70,10 +70,11 @@ class OptionTrader:
             return
             
         current_option_price = current_options['收盘价'].iloc[0]
-        
+        current_option_delta = current_options['Delta'].iloc[0]
+
         # 如果是到期日
         if self.pm.put_position.expiry <= current_date:
-            self.pm.handle_put_expiry(current_date, etf_price)
+            self.pm.handle_put_expiry(current_date, current_option_price, current_option_delta, etf_price)
         else:
             # 非到期日，检查亏损情况
             unrealized_loss = (current_option_price - self.pm.put_position.premium) * \
@@ -148,7 +149,7 @@ class OptionTrader:
         self.pm.cash += premium_income
         
         # 记录开仓交易
-        self.pm.trades[current_date] = {
+        trade_record = {
             '交易类型': '卖出PUT',
             '期权价格': premium,
             'ETF价格': etf_price,
@@ -161,6 +162,11 @@ class OptionTrader:
             '剩余现金': self.pm.cash,
             '保证金': margin_per_contract * max_contracts
         }
+        
+        # 将交易记录添加到当日交易列表中
+        if current_date not in self.pm.trades:
+            self.pm.trades[current_date] = []
+        self.pm.trades[current_date].append(trade_record)
         
         # 更新统计数据
         self.pm.statistics['put_sold'] += 1

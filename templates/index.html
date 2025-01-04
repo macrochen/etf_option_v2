@@ -106,16 +106,6 @@
                                 </div>
                                 <div class="col-md-2">
                                     <div class="form-group">
-                                        <label for="holding_type">持仓方式</label>
-                                        <select class="form-control" id="holding_type" name="holding_type" required>
-                                            {% for type in holding_types %}
-                                            <option value="{{ type.value }}">{{ type.label }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="col-md-2">
-                                    <div class="form-group">
                                         <label for="start_date">开始日期</label>
                                         <input type="date" class="form-control" id="start_date" name="start_date">
                                     </div>
@@ -126,7 +116,7 @@
                                         <input type="date" class="form-control" id="end_date" name="end_date">
                                     </div>
                                 </div>
-                                <div class="col-md-1">
+                                <div class="col-md-2">
                                     <button type="submit" class="btn btn-primary mt-4 w-100">执行回测</button>
                                 </div>
                             </div>
