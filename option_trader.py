@@ -146,7 +146,8 @@ class OptionTrader:
         
         # 收取权利金
         premium_income = premium * max_contracts * self.pm.contract_multiplier
-        self.pm.cash += premium_income
+        # 卖期权获得的权利金展示不能计入现金，因为它是一笔未确认的负债
+        # self.pm.cash += premium_income
         
         # 记录开仓交易
         trade_record = {
