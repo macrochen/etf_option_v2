@@ -230,15 +230,18 @@ def format_trade_records(results: Dict[str, Any]) -> Dict[str, Any]:
     trade_data = []
     
     # 获取所有交易记录
-    for trade in results['trades']:
+    for date, trade in results['trades'].items():
         trade_data.append([
-            trade.date.strftime('%Y-%m-%d'),
-            trade.trade_type,
-            f"{trade.price:.4f}",
-            f"{trade.num_contracts}张",
-            f"{trade.premium:.4f}",
-            f"{trade.cost:.2f}",
-            f"{trade.pnl:.2f}" if trade.pnl else "0.00"
+            date.strftime('%Y-%m-%d'),
+            trade['交易类型'],
+            f"{trade['ETF价格']:.4f}",
+            f"{trade['行权价']:.4f}",
+            f"{trade['期权价格']:.4f}",
+            f"{trade['合约数量']}张",
+            f"{abs(trade['权利金收入']):.4f}",
+            f"{trade['交易成本']:.2f}",
+            f"{trade['Delta']:.2f}",
+            f"{trade['实现盈亏']:.2f}" if trade['实现盈亏'] else "0.00"
         ])
     
     return {

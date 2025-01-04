@@ -125,10 +125,19 @@ def get_trading_dates(start_date: datetime, end_date: datetime,
     Returns:
         List[datetime]: 交易日期列表
     """
+    # 确保日期范围有效
+    if start_date > end_date:
+        raise ValueError(f"开始日期 {start_date} 不能晚于结束日期 {end_date}")
+    
+    # 获取交易日期
     trading_dates = option_data[
         (option_data['日期'] >= start_date) & 
         (option_data['日期'] <= end_date)
     ]['日期'].unique()
+    
+    # 检查是否找到交易日期
+    if len(trading_dates) == 0:
+        print(f"警告: 在 {start_date} 至 {end_date} 期间没有找到交易日期")
     
     return sorted(trading_dates)
 

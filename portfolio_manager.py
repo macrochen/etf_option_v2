@@ -26,7 +26,7 @@ class PortfolioManager:
         # 持仓和交易记录
         self.put_position: Optional[OptionPosition] = None
         self.portfolio_values: Dict[datetime, DailyPortfolio] = {}
-        self.trades: List[TradeRecord] = []
+        self.trades: Dict[datetime, Dict] = {}  # 改为使用字典存储交易记录
         self.put_trades: List[tuple] = []  # 用于绘图
         
         # 统计信息
@@ -148,17 +148,20 @@ class PortfolioManager:
             self.cash
         )
         
-        # 记录交易
-        trade = TradeRecord(
-            date=current_date,
-            trade_type='PUT平仓',
-            price=close_price,
-            num_contracts=self.put_position.num_contracts,
-            premium=close_price,
-            cost=total_cost,
-            pnl=realized_pnl
-        )
-        self.trades.append(trade)
+        # 记录交易信息
+        self.trades[current_date] = {
+            '交易类型': 'PUT平仓',
+            '期权价格': close_price,
+            'ETF价格': etf_price,
+            '行权价': self.put_position.strike,
+            '合约数量': self.put_position.num_contracts,
+            '权利金收入': -close_cost,  # 平仓时为支出
+            '交易成本': transaction_cost,
+            '实现盈亏': realized_pnl,
+            '剩余现金': self.cash,
+            'Delta': self.put_position.delta,
+            '保证金': 0  # 平仓后保证金释放
+        }
         
         # 记录交易点（用于绘图）
         current_return = (self.cash - self.initial_cash) / self.initial_cash * 100

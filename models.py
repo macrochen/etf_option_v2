@@ -7,6 +7,7 @@ class OptionPosition:
     """期权持仓数据模型"""
     expiry: datetime          # 到期日
     strike: float            # 行权价
+    delta: float            # 行权价
     premium: float          # 期权费
     num_contracts: int      # 合约数量
     trade_code: str         # 交易代码

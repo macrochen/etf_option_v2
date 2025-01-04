@@ -6,16 +6,18 @@ from logger import TradeLogger
 from utils import calculate_margin_requirement
 
 class OptionTrader:
-    def __init__(self, portfolio_manager, target_delta: float):
+    def __init__(self, portfolio_manager, target_delta: float, stop_loss_ratio: Optional[float] = None):
         """
         期权交易执行器
         
         Args:
             portfolio_manager: 投资组合管理器实例
             target_delta: 目标delta值
+            stop_loss_ratio: 止损比例，None表示不止损
         """
         self.pm = portfolio_manager
         self.target_delta = target_delta
+        self.stop_loss_ratio = stop_loss_ratio
         self.logger = TradeLogger()
 
     def sell_put(self, current_date: datetime, expiry: datetime, 
@@ -73,24 +75,29 @@ class OptionTrader:
         if self.pm.put_position.expiry <= current_date:
             self.pm.handle_put_expiry(current_date, etf_price)
         else:
-            # 非到期日，检查是否需要平仓
+            # 非到期日，检查亏损情况
             unrealized_loss = (current_option_price - self.pm.put_position.premium) * \
                             self.pm.contract_multiplier * self.pm.put_position.num_contracts
             loss_ratio = abs(unrealized_loss) / (self.pm.put_position.premium * \
                           self.pm.contract_multiplier * self.pm.put_position.num_contracts)
             
-            # 如果亏损超过权利金的50%，执行平仓
-            if loss_ratio > 0.5:
+            # 记录警告日志
+            if loss_ratio > 0.5:  # 始终在亏损超过50%时记录警告
                 self.logger.log_warning(
-                    f"{current_date} 浮动亏损率 {loss_ratio:.2%} 超过阈值，执行平仓\n"
+                    f"{current_date} 浮动亏损率达到 {loss_ratio:.2%}\n"
                     f"浮动亏损: {unrealized_loss:.2f}"
                 )
-                self.pm.close_put_position(current_date, current_option_price, etf_price)
+                
+                # 只有在设置了止损比例且达到止损条件时才平仓
+                if self.stop_loss_ratio is not None and loss_ratio > self.stop_loss_ratio:
+                    self.logger.log_warning(f"触发止损线 {self.stop_loss_ratio:.2%}，执行平仓")
+                    self.pm.close_put_position(current_date, current_option_price, etf_price)
 
     def _execute_put_trade(self, current_date: datetime, expiry: datetime, 
                           option_data: pd.DataFrame, etf_price: float) -> bool:
         """执行PUT期权交易"""
         strike_price = option_data['行权价'].iloc[0]
+        delta = option_data['Delta'].iloc[0]
         premium = option_data['收盘价'].iloc[0]
         
         # 计算每张合约需要的保证金
@@ -123,6 +130,7 @@ class OptionTrader:
         self.pm.put_position = OptionPosition(
             expiry=expiry,
             strike=strike_price,
+            delta=delta,
             premium=premium,
             num_contracts=max_contracts,
             trade_code=option_data['交易代码'].iloc[0],
@@ -138,6 +146,21 @@ class OptionTrader:
         # 收取权利金
         premium_income = premium * max_contracts * self.pm.contract_multiplier
         self.pm.cash += premium_income
+        
+        # 记录开仓交易
+        self.pm.trades[current_date] = {
+            '交易类型': '卖出PUT',
+            '期权价格': premium,
+            'ETF价格': etf_price,
+            '行权价': strike_price,
+            '合约数量': max_contracts,
+            '权利金收入': premium_income,
+            '交易成本': total_cost,
+            'Delta': delta,
+            '实现盈亏': 0,  # 开仓时盈亏为0
+            '剩余现金': self.pm.cash,
+            '保证金': margin_per_contract * max_contracts
+        }
         
         # 更新统计数据
         self.pm.statistics['put_sold'] += 1

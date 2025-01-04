@@ -5,7 +5,7 @@ from portfolio_manager import PortfolioManager
 from option_trader import OptionTrader
 from strategy_analyzer import StrategyAnalyzer
 from logger import TradeLogger
-from utils import get_trading_dates, get_next_monthly_expiry
+from utils import get_trading_dates, get_next_monthly_expiry, get_monthly_expiry
 from visualization import StrategyVisualizer
 
 class BacktestEngine:
@@ -31,11 +31,14 @@ class BacktestEngine:
         portfolio_manager = PortfolioManager(
             initial_cash=self.config.initial_capital,
             contract_multiplier=self.config.contract_multiplier,
-            transaction_cost_per_contract=self.config.transaction_cost,
-            margin_ratio=self.config.margin_ratio
+            transaction_cost_per_contract=self.config.transaction_cost
         )
         
-        option_trader = OptionTrader(portfolio_manager, self.config.delta)
+        option_trader = OptionTrader(
+            portfolio_manager=portfolio_manager,
+            target_delta=self.config.delta,
+            stop_loss_ratio=self.config.stop_loss_ratio
+        )
         
         # 获取交易日期列表
         trading_dates = get_trading_dates(
@@ -43,6 +46,11 @@ class BacktestEngine:
             self.config.end_date or self.option_data['日期'].max(),
             self.option_data
         )
+        
+        # 检查是否有有效的交易日期
+        if not trading_dates:
+            self.logger.log_error("没有找到有效的交易日期，请检查日期范围和数据文件")
+            return None
         
         self.logger.log_trade(trading_dates[0], "回测开始", {
             "初始资金": self.config.initial_capital,
@@ -66,7 +74,12 @@ class BacktestEngine:
             
             # 如果没有持仓，尝试开仓
             if not portfolio_manager.put_position:
-                expiry = get_next_monthly_expiry(current_date, self.option_data)
+                # 第一次开仓使用当月到期日，后续使用下月到期日
+                if not portfolio_manager.trades:  # 如果没有交易记录，说明是第一次开仓
+                    expiry = get_monthly_expiry(current_date, self.option_data)
+                else:
+                    expiry = get_next_monthly_expiry(current_date, self.option_data)
+                    
                 if expiry:
                     option_trader.sell_put(current_date, expiry, self.option_data, etf_price)
             

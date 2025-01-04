@@ -8,9 +8,10 @@ import matplotlib.font_manager as fm  # 导入字体管理器
 import os
 
 class OptionPosition:
-    def __init__(self, expiry, strike, premium, num_contracts, trade_code, initial_cash):
+    def __init__(self, expiry, strike, delta, premium, num_contracts, trade_code, initial_cash):
         self.expiry = expiry
         self.strike = strike
+        self.delta = delta
         self.premium = premium
         self.num_contracts = num_contracts
         self.trade_code = trade_code
@@ -1110,6 +1111,7 @@ class OptionTrader:
     def _execute_put_trade(self, current_date, expiry, option_data, etf_price):
         """执行PUT期权交易"""
         strike_price = option_data['行权价'].iloc[0]
+        delta = option_data['Delta'].iloc[0]
         premium_per_contract = option_data['结算价'].iloc[0]
         
         # 计算保证金要求
@@ -1134,6 +1136,7 @@ class OptionTrader:
             self.pm.put_position = OptionPosition(
                 expiry=expiry,
                 strike=strike_price,
+                delta=delta,
                 premium=premium_per_contract,
                 num_contracts=max_contracts,
                 trade_code=option_data['交易代码'].iloc[0],

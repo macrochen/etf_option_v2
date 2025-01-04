@@ -1,40 +1,54 @@
 import os
 import pandas as pd
+from dataclasses import dataclass
+from typing import Optional
+from datetime import datetime
 
+@dataclass
 class BacktestConfig:
-    def __init__(self, symbol, delta=0.3, initial_capital=1000000, contract_multiplier=10000,
-                 transaction_cost=3.6, risk_free_rate=0.02, start_date=None, end_date=None,
-                 holding_type='stock', margin_ratio=1.0):
-        """
-        回测配置类
-        
-        Args:
-            symbol: str, ETF代码
-            delta: float, 目标delta值
-            initial_capital: float, 初始资金
-            contract_multiplier: int, 合约乘数
-            transaction_cost: float, 每张合约交易成本
-            risk_free_rate: float, 无风险利率
-            start_date: datetime, 回测开始日期
-            end_date: datetime, 回测结束日期
-            holding_type: str, 持仓类型 ('stock' 或 'synthetic')
-            margin_ratio: float, 保证金比例，默认为1.0表示全额保证金
-        """
-        self.symbol = symbol
-        self.delta = delta
-        self.initial_capital = initial_capital
-        self.contract_multiplier = contract_multiplier
-        self.transaction_cost = transaction_cost
-        self.risk_free_rate = risk_free_rate
-        self.start_date = pd.to_datetime(start_date) if start_date else None
-        self.end_date = pd.to_datetime(end_date) if end_date else None
-        self.holding_type = holding_type
-        self.margin_ratio = margin_ratio
-        
+    """回测配置类"""
+    symbol: str                    # ETF代码
+    delta: float                   # 目标delta值
+    start_date: Optional[datetime] = None  # 回测开始日期
+    end_date: Optional[datetime] = None    # 回测结束日期
+    initial_capital: float = 1000000.0     # 初始资金
+    contract_multiplier: int = 10000       # 合约乘数
+    transaction_cost: float = 3.6          # 每张合约交易成本
+    stop_loss_ratio: Optional[float] = None  # 止损比例，None表示不止损
+    risk_free_rate: float = 0.02          # 无风险利率
+    holding_type: str = 'stock'           # 持仓类型 ('stock' 或 'synthetic')
+    
+    def __post_init__(self):
+        """数据验证和文件加载"""
+        # 转换日期格式
+        if self.start_date and not isinstance(self.start_date, datetime):
+            try:
+                self.start_date = pd.to_datetime(self.start_date)
+            except (ValueError, TypeError):
+                self.start_date = None
+            
+        if self.end_date and not isinstance(self.end_date, datetime):
+            try:
+                self.end_date = pd.to_datetime(self.end_date)
+            except (ValueError, TypeError):
+                self.end_date = None
+            
+        # 验证参数
+        if self.initial_capital <= 0:
+            raise ValueError("初始资金必须大于0")
+        if self.contract_multiplier <= 0:
+            raise ValueError("合约乘数必须大于0")
+        if self.transaction_cost < 0:
+            raise ValueError("交易成本不能为负")
+        if self.stop_loss_ratio is not None and (self.stop_loss_ratio <= 0 or self.stop_loss_ratio > 1):
+            raise ValueError("止损比例必须在0到1之间")
+        if self.holding_type not in ['stock', 'synthetic']:
+            raise ValueError("持仓类型必须是 'stock' 或 'synthetic'")
+            
         # 自动获取文件列表
         self.option_file_paths = []
         self.etf_file_path = None
-        self._load_files(symbol)
+        self._load_files(self.symbol)
     
     def _load_files(self, folder_name: str):
         """根据文件夹名自动加载文件列表"""

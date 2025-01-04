@@ -101,37 +101,60 @@ class StrategyAnalyzer:
         return comparison_data
 
     @staticmethod
-    def _calculate_trade_metrics(trades: List[TradeRecord]) -> Dict[str, Any]:
-        """计算交易相关指标"""
-        if not trades:
-            return {}
+    def _calculate_trade_metrics(trades: Dict[datetime, Dict]) -> Dict[str, Any]:
+        """计算交易相关指标
+        
+        Args:
+            trades: 交易记录字典，键为日期，值为交易信息
             
-        # 转换为DataFrame便于分析
+        Returns:
+            Dict[str, Any]: 交易指标字典
+        """
+        if not trades:
+            return {
+                'total_trades': 0,
+                'winning_trades': 0,
+                'losing_trades': 0,
+                'win_rate': 0,
+                'avg_win': 0,
+                'avg_loss': 0,
+                'max_win': 0,
+                'max_loss': 0,
+                'total_pnl': 0,
+                'total_cost': 0
+            }
+        
+        # 将字典转换为DataFrame
         trades_df = pd.DataFrame([
             {
-                'date': t.date,
-                'type': t.trade_type,
-                'pnl': t.pnl,
-                'cost': t.cost
-            } for t in trades
+                'date': date,
+                'type': trade['交易类型'],
+                'price': trade['期权价格'],
+                'contracts': trade['合约数量'],
+                'pnl': trade['实现盈亏'],
+                'cost': trade['交易成本']
+            }
+            for date, trade in trades.items()
         ])
         
-        # 计算交易相关指标
+        # 计算指标
         winning_trades = trades_df[trades_df['pnl'] > 0]
         losing_trades = trades_df[trades_df['pnl'] < 0]
         
-        return {
-            "total_trades": len(trades),
-            "winning_trades": len(winning_trades),
-            "losing_trades": len(losing_trades),
-            "win_rate": len(winning_trades) / len(trades) if trades else 0,
-            "avg_win": winning_trades['pnl'].mean() if not winning_trades.empty else 0,
-            "avg_loss": losing_trades['pnl'].mean() if not losing_trades.empty else 0,
-            "max_win": winning_trades['pnl'].max() if not winning_trades.empty else 0,
-            "max_loss": losing_trades['pnl'].min() if not losing_trades.empty else 0,
-            "total_pnl": trades_df['pnl'].sum(),
-            "total_cost": trades_df['cost'].sum()
+        metrics = {
+            'total_trades': len(trades_df),
+            'winning_trades': len(winning_trades),
+            'losing_trades': len(losing_trades),
+            'win_rate': len(winning_trades) / len(trades_df) if len(trades_df) > 0 else 0,
+            'avg_win': winning_trades['pnl'].mean() if not winning_trades.empty else 0,
+            'avg_loss': losing_trades['pnl'].mean() if not losing_trades.empty else 0,
+            'max_win': winning_trades['pnl'].max() if not winning_trades.empty else 0,
+            'max_loss': losing_trades['pnl'].min() if not losing_trades.empty else 0,
+            'total_pnl': trades_df['pnl'].sum(),
+            'total_cost': trades_df['cost'].sum()
         }
+        
+        return metrics
 
     @staticmethod
     def _calculate_risk_metrics(portfolio_values: Dict[datetime, DailyPortfolio]) -> Dict[str, Any]:
