@@ -97,11 +97,37 @@
                                 <div class="col-md-2">
                                     <div class="form-group">
                                         <label for="delta">Delta值</label>
-                                        <select class="form-control" id="delta" name="delta" required>
-                                            {% for option in delta_options %}
-                                            <option value="{{ option.value }}" {% if option.value == 0.5 %}selected{% endif %}>{{ option.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        <div class="input-group">
+                                            <input type="number" 
+                                                   class="form-control" 
+                                                   id="delta" 
+                                                   name="delta" 
+                                                   step="0.01" 
+                                                   min="0.01" 
+                                                   max="0.99" 
+                                                   value="0.3" 
+                                                   required>
+                                            <button class="btn btn-outline-secondary dropdown-toggle" 
+                                                    type="button" 
+                                                    data-bs-toggle="dropdown" 
+                                                    aria-expanded="false">
+                                                快速选择
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                {% for option in delta_options %}
+                                                <li>
+                                                    <a class="dropdown-item delta-option" 
+                                                       href="#" 
+                                                       data-value="{{ option.value }}">
+                                                        {{ option.label }}
+                                                    </a>
+                                                </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                        <small class="form-text text-muted">
+                                            输入0.01-0.99之间的数值，或从右侧选择预设值
+                                        </small>
                                     </div>
                                 </div>
                                 <div class="col-md-2">
@@ -360,6 +386,22 @@
                     tbody.append(tr);
                 });
             }
+            
+            // Delta值快速选择
+            $('.delta-option').click(function(e) {
+                e.preventDefault();
+                $('#delta').val($(this).data('value'));
+            });
+            
+            // Delta值输入验证
+            $('#delta').on('input', function() {
+                let value = parseFloat($(this).val());
+                if (value < 0.01) {
+                    $(this).val(0.01);
+                } else if (value > 0.99) {
+                    $(this).val(0.99);
+                }
+            });
         });
     </script>
 </body>

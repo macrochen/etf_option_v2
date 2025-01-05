@@ -120,7 +120,8 @@ class BacktestEngine:
         performance_plot = self.visualizer.create_performance_plot(
             portfolio_manager.portfolio_values,
             portfolio_manager.put_trades,
-            self.config.symbol
+            self.config.symbol,
+            self.etf_data
         )
         
         drawdown_plot = self.visualizer.create_drawdown_plot(

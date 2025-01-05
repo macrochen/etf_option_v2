@@ -26,13 +26,11 @@ ETF_OPTIONS = [
 ]
 
 DELTA_OPTIONS = [
-    {'value': 0.1, 'label': '0.1'},
-    {'value': 0.2, 'label': '0.2'},
-    {'value': 0.3, 'label': '0.3'},
-    {'value': 0.4, 'label': '0.4'},
-    {'value': 0.5, 'label': '0.5'},
-    {'value': 0.6, 'label': '0.6'},
-    {'value': 0.7, 'label': '0.7'}
+    {'value': 0.2, 'label': '0.2 (保守)'},
+    {'value': 0.3, 'label': '0.3 (稳健)'},
+    {'value': 0.4, 'label': '0.4 (平衡)'},
+    {'value': 0.5, 'label': '0.5 (积极)'},
+    {'value': 0.6, 'label': '0.6 (激进)'}
 ]
 
 HOLDING_TYPES = [

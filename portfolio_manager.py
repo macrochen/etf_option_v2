@@ -205,11 +205,13 @@ class PortfolioManager:
             )
             
             # 更新现金
-            self.cash -= exercise_cost
+            self.cash += realized_pnl
             put_action = "行权"
         else:
             # 期权作废，盈利为权利金收入
             realized_pnl = premium_income
+            # 作废，正式将权利金记录现金收益中
+            self.cash += premium_income
             
             self.logger.log_trade(current_date, "PUT期权到期作废", {
                 "ETF价格": f"{etf_price:.4f}",
