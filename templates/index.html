@@ -89,10 +89,11 @@
                 <div class="card">
                     <div class="card-body">
                         <form id="backtest-form">
-                            <div class="row">
-                                <div class="col-md-3">
+                            <!-- ETF选择 -->
+                            <div class="row mb-4">
+                                <div class="col-md-4">
                                     <div class="form-group">
-                                        <label for="etf_code">ETF代码</label>
+                                        <label for="etf_code">ETF标的物</label>
                                         <select class="form-control" id="etf_code" name="etf_code" required>
                                             {% for option in etf_options %}
                                             <option value="{{ option.value }}">{{ option.label }}</option>
@@ -100,55 +101,173 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div class="col-md-2">
-                                    <div class="form-group">
-                                        <label for="delta">Delta值</label>
-                                        <div class="input-group">
-                                            <input type="number" 
-                                                   class="form-control" 
-                                                   id="delta" 
-                                                   name="delta" 
-                                                   step="0.01" 
-                                                   min="0.01" 
-                                                   max="0.99" 
-                                                   value="0.3" 
-                                                   required>
-                                            <button class="btn btn-outline-secondary dropdown-toggle" 
-                                                    type="button" 
-                                                    data-bs-toggle="dropdown" 
-                                                    aria-expanded="false">
-                                                快速选择
-                                            </button>
-                                            <ul class="dropdown-menu dropdown-menu-end">
-                                                {% for option in delta_options %}
-                                                <li>
-                                                    <a class="dropdown-item delta-option" 
-                                                       href="#" 
-                                                       data-value="{{ option.value }}">
-                                                        {{ option.label }}
-                                                    </a>
-                                                </li>
-                                                {% endfor %}
-                                            </ul>
-                                        </div>
-                                        <small class="form-text text-muted">
-                                            输入0.01-0.99之间的数值，或从右侧选择预设值
-                                        </small>
+                                <div class="col-md-8">
+                                    <div class="strategy-type-indicator alert alert-info mb-0 mt-4 d-none">
+                                        当前策略：<span class="strategy-name"></span>
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                            </div>
+
+                            <!-- 期权参数设置 -->
+                            <div class="row mb-4">
+                                <!-- PUT策略设置 -->
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-header bg-light">
+                                            <h6 class="mb-0">PUT期权策略</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row">
+                                                <div class="col-md-6 mb-3">
+                                                    <label for="put_sell_delta">卖出Delta</label>
+                                                    <div class="input-group">
+                                                        <input type="number" 
+                                                               class="form-control" 
+                                                               id="put_sell_delta" 
+                                                               name="put_sell_delta"
+                                                               step="0.1" 
+                                                               min="-0.9" 
+                                                               max="-0.1"
+                                                               placeholder="-0.9至-0.1">
+                                                        <button class="btn btn-outline-secondary dropdown-toggle" 
+                                                                type="button" 
+                                                                data-bs-toggle="dropdown">
+                                                            选择
+                                                        </button>
+                                                        <ul class="dropdown-menu dropdown-menu-end">
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.1">-0.1</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.2">-0.2</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.3">-0.3</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.4">-0.4</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.5">-0.5</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.6">-0.6</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.7">-0.7</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.8">-0.8</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.9">-0.9</a></li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6 mb-3">
+                                                    <label for="put_buy_delta">买入Delta</label>
+                                                    <div class="input-group">
+                                                        <input type="number" 
+                                                               class="form-control" 
+                                                               id="put_buy_delta" 
+                                                               name="put_buy_delta"
+                                                               step="0.1" 
+                                                               min="-0.9" 
+                                                               max="-0.1"
+                                                               placeholder="-0.9至-0.1">
+                                                        <button class="btn btn-outline-secondary dropdown-toggle" 
+                                                                type="button" 
+                                                                data-bs-toggle="dropdown">
+                                                            选择
+                                                        </button>
+                                                        <ul class="dropdown-menu dropdown-menu-end">
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.1">-0.1</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.2">-0.2</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.3">-0.3</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.4">-0.4</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.5">-0.5</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.6">-0.6</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.7">-0.7</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.8">-0.8</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="-0.9">-0.9</a></li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- CALL策略设置 -->
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-header bg-light">
+                                            <h6 class="mb-0">CALL期权策略</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row">
+                                                <div class="col-md-6 mb-3">
+                                                    <label for="call_sell_delta">卖出Delta</label>
+                                                    <div class="input-group">
+                                                        <input type="number" 
+                                                               class="form-control" 
+                                                               id="call_sell_delta" 
+                                                               name="call_sell_delta"
+                                                               step="0.1" 
+                                                               min="0.1" 
+                                                               max="0.9"
+                                                               placeholder="0.1-0.9">
+                                                        <button class="btn btn-outline-secondary dropdown-toggle" 
+                                                                type="button" 
+                                                                data-bs-toggle="dropdown">
+                                                            选择
+                                                        </button>
+                                                        <ul class="dropdown-menu dropdown-menu-end">
+                                                            <li><a class="dropdown-item" href="#" data-value="0.1">0.1</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.2">0.2</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.3">0.3</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.4">0.4</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.5">0.5</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.6">0.6</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.7">0.7</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.8">0.8</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.9">0.9</a></li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6 mb-3">
+                                                    <label for="call_buy_delta">买入Delta</label>
+                                                    <div class="input-group">
+                                                        <input type="number" 
+                                                               class="form-control" 
+                                                               id="call_buy_delta" 
+                                                               name="call_buy_delta"
+                                                               step="0.1" 
+                                                               min="0.1" 
+                                                               max="0.9"
+                                                               placeholder="0.1-0.9">
+                                                        <button class="btn btn-outline-secondary dropdown-toggle" 
+                                                                type="button" 
+                                                                data-bs-toggle="dropdown">
+                                                            选择
+                                                        </button>
+                                                        <ul class="dropdown-menu dropdown-menu-end">
+                                                            <li><a class="dropdown-item" href="#" data-value="0.1">0.1</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.2">0.2</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.3">0.3</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.4">0.4</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.5">0.5</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.6">0.6</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.7">0.7</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.8">0.8</a></li>
+                                                            <li><a class="dropdown-item" href="#" data-value="0.9">0.9</a></li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 日期选择 -->
+                            <div class="row">
+                                <div class="col-md-4">
                                     <div class="form-group">
                                         <label for="start_date">开始日期</label>
-                                        <input type="date" class="form-control" id="start_date" name="start_date">
+                                        <input type="date" class="form-control" id="start_date" name="start_date" required>
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-4">
                                     <div class="form-group">
                                         <label for="end_date">结束日期</label>
-                                        <input type="date" class="form-control" id="end_date" name="end_date">
+                                        <input type="date" class="form-control" id="end_date" name="end_date" required>
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-4">
                                     <button type="submit" class="btn btn-primary mt-4 w-100">执行回测</button>
                                 </div>
                             </div>
@@ -157,6 +276,9 @@
                 </div>
             </div>
         </div>
+
+        <!-- 错误提示容器 -->
+        <div id="error-container" class="mt-3"></div>
 
         <!-- 加载动画 -->
         <div class="loading">
@@ -423,5 +545,7 @@
             });
         });
     </script>
+    <!-- 添加回测脚本 -->
+    <script src="{{ url_for('static', filename='js/backtest.js') }}"></script>
 </body>
 </html> 
