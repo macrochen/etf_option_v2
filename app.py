@@ -240,7 +240,7 @@ def format_trade_records(results: Dict[str, Any]) -> Dict[str, Any]:
                 f"{trade['合约数量']}张",
                 f"{abs(trade['权利金收入']):.4f}",
                 f"{trade['交易成本']:.2f}",
-                f"{trade['Delta']:.2f}",
+                f"{trade['Delta']:.3f}",
                 f"{trade['实现盈亏']:.2f}" if trade['实现盈亏'] else "0.00"
             ])
     

@@ -54,11 +54,12 @@ class BacktestConfig:
         """根据文件夹名自动加载文件列表"""
         try:
             # 获取文件夹中的所有文件
+            folder_name = "data/" + folder_name
             files = os.listdir(folder_name)
             
             # 获取期权文件（xlsx文件）
             self.option_file_paths = [
-                os.path.join(folder_name, f) 
+                os.path.join(folder_name, f)
                 for f in files 
                 if f.endswith('.xlsx') and not f.startswith('~$')
             ]

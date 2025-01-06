@@ -119,7 +119,7 @@ class DateAnalyzer:
                 print(f'etf_code = "{etf_code}.{exchange_suffix}"')
                 print(f'start_date = "{dir_start_date.strftime("%Y-%m-%d")}"  # 起始日期')
                 print(f'end_date = "{dir_end_date.strftime("%Y-%m-%d")}"  # 结束日期')
-                print(str(etf_label))
+                # print(str(etf_label))
 
 def main():
     # 创建日期分析器实例
