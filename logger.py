@@ -38,10 +38,9 @@ class TradeLogger:
         """记录每日投资组合状态"""
         self.logger.info(f"\n[{date.strftime('%Y-%m-%d')}期权策略盈亏] ")
         self.logger.info(f"现金: {portfolio_data['cash']:.2f}")
-        self.logger.info(f"期权市值: {portfolio_data['option_value']:.2f}")
-        self.logger.info(f"总市值: {portfolio_data['total_value']:.2f}")
-        self.logger.info(f"日收益率: {portfolio_data['daily_return']:.2f}%")
-        self.logger.info(f"累计收益率: {portfolio_data['cumulative_return']:.2f}%")
+        self.logger.info(f"保证金: {portfolio_data['margin']:.2f}")
+        self.logger.info(f"持仓数量: {portfolio_data['positions']}")
+        self.logger.info(f"总市值: {portfolio_data['portfolio_value']:.2f}")
 
     def log_trade(self, date: datetime, trade_type: str, trade_details: Dict[str, Any]) -> None:
         """记录交易信息"""

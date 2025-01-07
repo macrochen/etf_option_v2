@@ -1,22 +1,74 @@
 import plotly.graph_objs as go
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 from datetime import datetime
 import pandas as pd
 
-from models import DailyPortfolio
-
 
 class StrategyVisualizer:
+    def create_plots(self, trades: Dict[datetime, Dict], 
+                    symbol: str, etf_data: pd.DataFrame,
+                    analysis_results: Dict[str, Any]) -> Dict[str, Any]:
+        """创建所有可视化图表
+        
+        Args:
+            trades: 交易记录
+            symbol: ETF代码
+            etf_data: ETF数据
+            analysis_results: 分析结果
+        
+        Returns:
+            Dict[str, Any]: 包含所有图表的字典
+        """
+        # 从交易记录中提取每日投资组合价值
+        portfolio_values = {
+            date: {'total_value': trade['cash'] - trade['margin']}
+            for date, trade in trades.items()
+        }
+        
+        # 创建收益率曲线图
+        performance_plot = self.create_performance_plot(
+            portfolio_values,
+            [],  # 暂时不显示交易点
+            symbol,
+            etf_data
+        )
+        
+        # 创建回撤分析图
+        drawdown_plot = self.create_drawdown_plot(
+            portfolio_values,
+            analysis_results['portfolio_metrics']['max_drawdown_start'],
+            analysis_results['portfolio_metrics']['max_drawdown_end']
+        )
+        
+        # 创建收益分布图
+        pnl_distribution_plot = self.create_pnl_distribution_plot(
+            analysis_results['portfolio_metrics']['daily_returns']
+        )
+        
+        return {
+            'performance': performance_plot,
+            'drawdown': drawdown_plot,
+            'pnl_distribution': pnl_distribution_plot
+        }
+
     @staticmethod
-    def create_performance_plot(portfolio_values: Dict[datetime, DailyPortfolio],
+    def create_performance_plot(portfolio_values: Dict[datetime, Dict],
                               put_trades: List[Tuple[datetime, float]],
                               symbol: str,
                               etf_data: pd.DataFrame = None) -> Dict:
         """创建收益率曲线图"""
         # 创建投资组合收益率序列
-        dates = list(portfolio_values.keys())
+        dates = sorted(portfolio_values.keys())
+        if not dates:
+            return {'data': [], 'layout': {}}
+            
+        initial_value = portfolio_values[dates[0]]['total_value']
+        if initial_value == 0:
+            print("警告: 初始投资组合价值为0，无法计算收益率")
+            return {'data': [], 'layout': {}}
+            
         portfolio_returns = [
-            (portfolio_values[date].total_value / portfolio_values[dates[0]].total_value - 1) * 100
+            (portfolio_values[date]['total_value'] / initial_value - 1) * 100
             for date in dates
         ]
         
@@ -33,15 +85,16 @@ class StrategyVisualizer:
         if etf_data is not None:
             # 获取相同时间段的ETF数据
             etf_prices = etf_data.loc[dates[0]:dates[-1]]['收盘价']
-            etf_returns = [(price / etf_prices.iloc[0] - 1) * 100 for price in etf_prices]
-            
-            trace2 = go.Scatter(
-                x=etf_prices.index,
-                y=etf_returns,
-                name=f'持有{symbol}ETF收益率',
-                line=dict(color='gray', width=2)
-            )
-            traces.append(trace2)
+            if not etf_prices.empty:
+                etf_returns = [(price / etf_prices.iloc[0] - 1) * 100 for price in etf_prices]
+                
+                trace2 = go.Scatter(
+                    x=etf_prices.index,
+                    y=etf_returns,
+                    name=f'持有{symbol}ETF收益率',
+                    line=dict(color='gray', width=2)
+                )
+                traces.append(trace2)
         
         # 添加交易点标记
         if put_trades:
@@ -98,11 +151,17 @@ class StrategyVisualizer:
         return {'data': traces, 'layout': layout}
 
     @staticmethod
-    def create_drawdown_plot(portfolio_values: Dict[datetime, float],
+    def create_drawdown_plot(portfolio_values: Dict[datetime, Dict],
                            max_drawdown_start: datetime,
                            max_drawdown_end: datetime) -> Dict:
         """创建回撤分析图表"""
-        portfolio_df = pd.DataFrame.from_dict(portfolio_values, orient='index')
+        if not portfolio_values:
+            return {'data': [], 'layout': {}}
+            
+        # 创建DataFrame
+        dates = sorted(portfolio_values.keys())
+        values = [portfolio_values[date]['total_value'] for date in dates]
+        portfolio_df = pd.DataFrame({'total_value': values}, index=dates)
         
         # 计算回撤序列
         portfolio_peak = portfolio_df['total_value'].expanding(min_periods=1).max()
@@ -118,15 +177,21 @@ class StrategyVisualizer:
             line=dict(color='red', width=1)
         )
         
+        traces = [trace]
+        
         # 标记最大回撤区间
-        max_drawdown_period = go.Scatter(
-            x=[max_drawdown_start, max_drawdown_end],
-            y=[drawdown[max_drawdown_start], drawdown[max_drawdown_end]],
-            mode='markers+lines',
-            name='最大回撤区间',
-            line=dict(color='red', width=2, dash='dash'),
-            marker=dict(size=8)
-        )
+        if max_drawdown_start is not None and max_drawdown_end is not None:
+            # 确保日期在数据范围内
+            if max_drawdown_start in drawdown.index and max_drawdown_end in drawdown.index:
+                max_drawdown_period = go.Scatter(
+                    x=[max_drawdown_start, max_drawdown_end],
+                    y=[drawdown[max_drawdown_start], drawdown[max_drawdown_end]],
+                    mode='markers+lines',
+                    name='最大回撤区间',
+                    line=dict(color='red', width=2, dash='dash'),
+                    marker=dict(size=8)
+                )
+                traces.append(max_drawdown_period)
         
         layout = go.Layout(
             title=dict(
@@ -150,11 +215,14 @@ class StrategyVisualizer:
             showlegend=True
         )
         
-        return {'data': [trace, max_drawdown_period], 'layout': layout}
+        return {'data': traces, 'layout': layout}
 
     @staticmethod
     def create_pnl_distribution_plot(daily_returns: pd.Series) -> Dict:
         """创建收益分布图表"""
+        if daily_returns.empty:
+            return {'data': [], 'layout': {}}
+            
         trace = go.Histogram(
             x=daily_returns,
             nbinsx=50,

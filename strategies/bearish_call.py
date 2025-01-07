@@ -45,9 +45,7 @@ class BearishCallStrategy(OptionStrategy):
         """
         # 获取目标月份的看涨期权
         target_calls = current_options[
-            current_options['交易代码'].str.contains(
-                f"C{expiry.strftime('%y%m')}"
-            )
+            current_options['认购认沽'] == '认购'
         ]
         
         if target_calls.empty:

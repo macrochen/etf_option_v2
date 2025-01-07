@@ -20,10 +20,10 @@ class PositionConfig:
     etf_code: str                # ETF代码
     sell_delta: float           # 卖出期权的目标Delta值
     buy_delta: float            # 买入期权的目标Delta值
-    holding_type: str           # 持仓方式
     contract_multiplier: int    # 合约乘数
     margin_ratio: float        # 保证金比例
     stop_loss_ratio: float     # 止损比例
+    transaction_cost: float    # 每张合约交易成本
 
 @dataclass
 class OptionPosition:

@@ -57,11 +57,22 @@ def get_next_monthly_expiry(date: datetime, option_data: pd.DataFrame) -> Option
         Optional[datetime]: 下月到期日，如果无法获取则返回None
     """
     try:
+        # 检查数据边界
+        max_date = pd.to_datetime(option_data['日期'].max())
+        if date >= max_date:
+            print(f"警告: 当前日期 {date.strftime('%Y-%m-%d')} 已超出数据范围")
+            return None
+            
         # 获取下月第一天
         if date.month == 12:
             next_month = datetime(date.year + 1, 1, 1)
         else:
             next_month = datetime(date.year, date.month + 1, 1)
+            
+        # 如果下月第一天已超出数据范围，返回None
+        if next_month > max_date:
+            print(f"警告: 下月 {next_month.strftime('%Y-%m')} 已超出数据范围")
+            return None
         
         # 获取下月所有的星期三
         cal = monthcalendar(next_month.year, next_month.month)
@@ -72,7 +83,8 @@ def get_next_monthly_expiry(date: datetime, option_data: pd.DataFrame) -> Option
         ]
         
         if len(wednesdays) < 4:
-            raise ValueError(f"月份 {next_month.month}/{next_month.year} 不足四个星期三")
+            print(f"警告: 月份 {next_month.month}/{next_month.year} 不足四个星期三")
+            return None
         
         # 获取第四个星期三
         target_date = wednesdays[3]
@@ -81,19 +93,28 @@ def get_next_monthly_expiry(date: datetime, option_data: pd.DataFrame) -> Option
         trading_dates = pd.to_datetime(option_data['日期'].unique())
         trading_dates = sorted(trading_dates)
         
+        # 如果目标日期超出数据范围，返回None
+        if target_date > max_date:
+            print(f"警告: 目标到期日 {target_date.strftime('%Y-%m-%d')} 已超出数据范围")
+            return None
+        
         # 如果目标日期不是交易日，向后查找最近的交易日（最多查找10天）
         if target_date not in trading_dates:
             for i in range(1, 11):  # 最多往后找10天
                 next_date = target_date + timedelta(days=i)
+                if next_date > max_date:
+                    print(f"警告: 无法找到合适的到期日，已超出数据范围")
+                    return None
                 if next_date in trading_dates:
                     target_date = next_date
                     break
             else:  # 如果10天内都没找到交易日
-                raise ValueError(f"无法找到{target_date}之后的有效交易日")
+                print(f"警告: 无法找到 {target_date.strftime('%Y-%m-%d')} 之后的有效交易日")
+                return None
         
         return target_date
         
-    except ValueError as e:
+    except Exception as e:
         print(f"警告: 无法获取下月到期日: {str(e)}")
         return None
 
@@ -152,12 +173,19 @@ def calculate_returns(values: pd.Series,
     Returns:
         Tuple[float, float, float]: (年化收益率, 年化波动率, 夏普比率)
     """
+    if values.empty:
+        return 0.0, 0.0, 0.0
+        
     # 计算日收益率
     daily_returns = values.pct_change().dropna()
+    if daily_returns.empty:
+        return 0.0, 0.0, 0.0
     
     # 计算年化收益率
-    total_return = (values.iloc[-1] / values.iloc[0]) - 1
+    total_return = (values.iloc[-1] / values.iloc[0]) - 1 if len(values) > 1 else 0
     days = (values.index[-1] - values.index[0]).days
+    if days <= 0:
+        return 0.0, 0.0, 0.0
     annual_return = (1 + total_return) ** (annualization / days) - 1
     
     # 计算年化波动率

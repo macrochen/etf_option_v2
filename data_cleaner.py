@@ -100,15 +100,59 @@ class DataCleaner:
         print(f"总成功数: {total_success}")
         print(f"总失败数: {total_files - total_success}")
 
-def main():
-    # 创建数据清洗器实例
-    cleaner = DataCleaner()
+def remove_wind_source_line(file_path: str):
+    """删除 Excel 文件中的 Wind 数据来源行
     
+    Args:
+        file_path: Excel 文件路径
+    """
+    print(f"处理文件: {file_path}")
+    
+    # 读取 Excel 文件
+    df = pd.read_excel(file_path)
+    
+    # 获取原始行数
+    original_rows = len(df)
+    
+    # 删除包含'Wind'的行
+    df = df[~df['日期'].astype(str).str.contains('Wind', na=False)]
+    
+    # 获取处理后的行数
+    cleaned_rows = len(df)
+    
+    # 保存清理后的文件
+    df.to_excel(file_path, index=False)
+    
+    print(f"已删除 {original_rows - cleaned_rows} 行数据")
+
+def remove_wind_source_lines(directory: str):
+    """递归处理指定目录及其子目录下所有 Excel 文件中的 Wind 数据来源行
+    
+    Args:
+        directory: 数据目录路径
+    """
+    # 遍历目录及子目录
+    for root, dirs, files in os.walk(directory):
+        # 过滤出 Excel 文件
+        excel_files = [f for f in files if f.endswith('.xlsx')]
+        
+        if excel_files:
+            print(f"\n处理目录: {root}")
+            # 处理当前目录下的每个 Excel 文件
+            for file_name in excel_files:
+                file_path = os.path.join(root, file_name)
+                remove_wind_source_line(file_path)
+
+def main():
+    """主函数"""
     # 获取用户输入的目录列表
     input_dirs = input("请输入要处理的目录（多个目录用逗号分隔，  510050,510300,510500,159901,159915,159919,159922,588000,588080）: ")
     
     # 运行清洗程序
+    cleaner = DataCleaner()
     cleaner.process_directories(input_dirs)
 
 if __name__ == "__main__":
-    main() 
+    # main()
+    # 如果直接运行此脚本，则处理 data 目录及其所有子目录
+    remove_wind_source_lines("data")

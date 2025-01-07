@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import numpy as np
 from .types import OptionType, PositionConfig, OptionPosition
-from .utils import get_monthly_expiry, get_next_monthly_expiry
+from utils import get_monthly_expiry, get_next_monthly_expiry
 
 class OptionStrategy(ABC):
     """期权策略抽象基类"""
@@ -131,11 +131,14 @@ class OptionStrategy(ABC):
         return current_data.iloc[0]['收盘价']
     
     def _get_expiry_from_code(self, contract_code: str) -> datetime:
-        """从合约代码解析到期日"""
-        # 示例：510300P2309M03950
-        # 提取年月：2309 -> 2023年9月
-        year = int('20' + contract_code[6:8])
-        month = int(contract_code[8:10])
+        """从合约代码解析到期日
+        
+        示例：510300C2309M03800
+        提取年月：2309 -> 2023年9月
+        """
+        # 提取年月
+        year = int('20' + contract_code[7:9])
+        month = int(contract_code[9:11])
         # 使用第一天作为参考日期来获取当月到期日
         reference_date = datetime(year, month, 1)
         return get_monthly_expiry(reference_date, self.option_data)
