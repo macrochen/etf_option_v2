@@ -7,20 +7,76 @@ from strategy_analyzer import StrategyAnalyzer
 from logger import TradeLogger
 from utils import get_trading_dates, get_next_monthly_expiry, get_monthly_expiry
 from visualization import StrategyVisualizer
+from backtest_params import BacktestParams, StrategyType
+from config import BacktestConfig
+import sqlite3
+import os
 
 class BacktestEngine:
-    def __init__(self, config):
+    def __init__(self, params: BacktestConfig):
         """
         回测引擎
         
         Args:
-            config: 回测配置对象
+            params: 回测参数对象，包含ETF代码、日期范围、策略参数等
         """
-        self.config = config
+        self.params = params
         self.option_data = None
         self.etf_data = None
         self.logger = TradeLogger()
         self.visualizer = StrategyVisualizer()
+        
+        # 从配置中获取参数
+        self.initial_capital = params.initial_capital
+        self.contract_multiplier = params.contract_multiplier
+        self.transaction_cost = params.transaction_cost
+        self.margin_ratio = 0.12  # 保证金比例
+        self.stop_loss_ratio = 0.5  # 止损比例
+        
+        # 验证参数
+        self._validate_params()
+        
+        # 记录初始化信息
+        self.logger.log_trade(datetime.now(), "初始化回测引擎", {
+            "ETF代码": self.params.etf_code,
+            "持仓方式": self.params.holding_type,
+            "Delta": self.params.delta,
+            "初始资金": self.initial_capital,
+            "合约乘数": self.contract_multiplier,
+            "交易成本": self.transaction_cost,
+            "保证金比例": f"{self.margin_ratio*100}%",
+            "止损比例": f"{self.stop_loss_ratio*100}%"
+        })
+        
+    def _validate_params(self):
+        """验证基础参数的合法性"""
+        # 验证资金相关参数
+        if self.initial_capital <= 0:
+            raise ValueError("初始资金必须大于0")
+        
+        # 验证合约乘数
+        if self.contract_multiplier <= 0:
+            raise ValueError("合约乘数必须大于0")
+        
+        # 验证交易成本
+        if self.transaction_cost < 0:
+            raise ValueError("交易成本不能为负数")
+        
+        # 验证保证金比例
+        if not (0 < self.margin_ratio <= 1):
+            raise ValueError("保证金比例必须在0到1之间")
+        
+        # 验证止损比例
+        if not (0 < self.stop_loss_ratio <= 1):
+            raise ValueError("止损比例必须在0到1之间")
+        
+        # 验证数据库文件
+        if not os.path.exists(self.params.db_path):
+            raise ValueError(f"找不到数据库文件: {self.params.db_path}")
+        
+        # 验证ETF代码
+        if not self.params.etf_code:
+            raise ValueError("ETF代码不能为空")
         
     def run_backtest(self) -> Optional[Dict[str, Any]]:
         """运行回测"""
@@ -29,21 +85,22 @@ class BacktestEngine:
             
         # 初始化组件
         portfolio_manager = PortfolioManager(
-            initial_cash=self.config.initial_capital,
-            contract_multiplier=self.config.contract_multiplier,
-            transaction_cost_per_contract=self.config.transaction_cost
+            initial_cash=self.initial_capital,
+            contract_multiplier=self.contract_multiplier,
+            transaction_cost_per_contract=self.transaction_cost,
+            margin_ratio=self.margin_ratio
         )
         
         option_trader = OptionTrader(
             portfolio_manager=portfolio_manager,
-            target_delta=self.config.delta,
-            stop_loss_ratio=self.config.stop_loss_ratio
+            delta=self.params.delta,
+            stop_loss_ratio=self.stop_loss_ratio
         )
         
         # 获取交易日期列表
         trading_dates = get_trading_dates(
-            self.config.start_date or self.option_data['日期'].min(),
-            self.config.end_date or self.option_data['日期'].max(),
+            self.params.start_date,
+            self.params.end_date,
             self.option_data
         )
         
@@ -53,9 +110,10 @@ class BacktestEngine:
             return None
         
         self.logger.log_trade(trading_dates[0], "回测开始", {
-            "初始资金": self.config.initial_capital,
-            "标的": self.config.symbol,
-            "目标Delta": self.config.delta,
+            "初始资金": self.initial_capital,
+            "标的": self.params.etf_code,
+            "持仓方式": self.params.holding_type,
+            "Delta": self.params.delta,
             "开始日期": trading_dates[0].strftime('%Y-%m-%d'),
             "结束日期": trading_dates[-1].strftime('%Y-%m-%d')
         })
@@ -70,10 +128,10 @@ class BacktestEngine:
                 continue
             
             # 处理期权到期或平仓
-            option_trader.handle_option_expiry(current_date, self.etf_data, self.option_data)
+            option_trader.handle_positions(current_date, self.etf_data, self.option_data)
             
             # 如果没有持仓，尝试开仓
-            if not portfolio_manager.put_position:
+            if not option_trader.has_positions():
                 # 第一次开仓使用当月到期日，后续使用下月到期日
                 if not portfolio_manager.trades:  # 如果没有交易记录，说明是第一次开仓
                     expiry = get_monthly_expiry(current_date, self.option_data)
@@ -81,7 +139,7 @@ class BacktestEngine:
                     expiry = get_next_monthly_expiry(current_date, self.option_data)
                     
                 if expiry:
-                    option_trader.sell_put(current_date, expiry, self.option_data, etf_price)
+                    option_trader.open_positions(current_date, expiry, self.option_data, etf_price)
             
             # 计算当日投资组合价值
             portfolio_value, unrealized_pnl = portfolio_manager.calculate_portfolio_value(
@@ -95,102 +153,167 @@ class BacktestEngine:
                 'total_value': portfolio_value,
                 'daily_return': portfolio_manager.portfolio_values[current_date].daily_return,
                 'cumulative_return': portfolio_manager.portfolio_values[current_date].total_value / \
-                                   self.config.initial_capital - 1
+                                   self.initial_capital - 1
             })
         
         # 分析策略结果
         analysis_results = StrategyAnalyzer.calculate_metrics(
             portfolio_manager.portfolio_values,
             portfolio_manager.trades,
-            self.config.initial_capital,
+            self.initial_capital,
             self.etf_data
         )
         
         # 生成策略报告
         report = StrategyAnalyzer.generate_report(analysis_results)
         
-        # 生成策略对比数据
-        comparison_data = StrategyAnalyzer.generate_comparison_table(analysis_results)
-        
         self.logger.log_trade(trading_dates[-1], "回测结束", {
             "报告": report
         })
         
         # 生成可视化图表
-        performance_plot = self.visualizer.create_performance_plot(
+        plots = self.visualizer.create_plots(
             portfolio_manager.portfolio_values,
-            portfolio_manager.put_trades,
-            self.config.symbol,
-            self.etf_data
-        )
-        
-        drawdown_plot = self.visualizer.create_drawdown_plot(
-            portfolio_manager.portfolio_values,
-            analysis_results['portfolio_metrics']['max_drawdown_start'],
-            analysis_results['portfolio_metrics']['max_drawdown_end']
-        )
-        
-        pnl_distribution = self.visualizer.create_pnl_distribution_plot(
-            analysis_results['portfolio_metrics']['daily_returns']
+            portfolio_manager.trades,
+            self.params.etf_code,
+            self.etf_data,
+            analysis_results
         )
         
         # 返回回测结果
         return {
-            "symbol": self.config.symbol,
+            "etf_code": self.params.etf_code,
+            "holding_type": self.params.holding_type,
+            "delta": self.params.delta,
             "portfolio_values": portfolio_manager.portfolio_values,
             "trades": portfolio_manager.trades,
-            "statistics": portfolio_manager.statistics,
             "analysis": analysis_results,
             "report": report,
-            "plots": {
-                "performance": performance_plot,
-                "drawdown": drawdown_plot,
-                "pnl_distribution": pnl_distribution
-            }
+            "plots": plots
         }
 
     def load_data(self) -> bool:
-        """加载数据"""
-        self.logger.log_trade(datetime.now(), "开始加载数据", {
-            "期权文件数量": len(self.config.option_file_paths),
-            "ETF文件": self.config.etf_file_path
-        })
-        
+        """从SQLite数据库加载数据"""
         try:
-            # 加载期权数据
-            option_data_list = []
-            for file_path in self.config.option_file_paths:
-                df = pd.read_excel(file_path)
-                df = df[~df['日期'].astype(str).str.contains('数据来源')]
-                df['日期'] = pd.to_datetime(df['日期'], errors='coerce')
-                df = df.dropna(subset=['日期'])
-                option_data_list.append(df)
+            # 连接数据库
+            conn = sqlite3.connect('market_data.db')
             
-            self.option_data = pd.concat(option_data_list, ignore_index=True)
-            self.option_data = self.option_data.sort_values('日期')
+            self.logger.log_trade(datetime.now(), "开始从数据库加载数据", {
+                "ETF代码": self.params.etf_code,
+                "开始日期": self.params.start_date.strftime('%Y-%m-%d') if self.params.start_date else "earliest",
+                "结束日期": self.params.end_date.strftime('%Y-%m-%d') if self.params.end_date else "latest"
+            })
+            
+            # 构建ETF数据查询
+            etf_query = f"""
+                SELECT date, open_price, close_price
+                FROM etf_daily
+                WHERE etf_code = '{self.params.etf_code}'
+            """
+            if self.params.start_date:
+                etf_query += f" AND date >= '{self.params.start_date.strftime('%Y-%m-%d')}'"
+            if self.params.end_date:
+                etf_query += f" AND date <= '{self.params.end_date.strftime('%Y-%m-%d')}'"
+            etf_query += " ORDER BY date"
             
             # 加载ETF数据
-            self.etf_data = pd.read_csv(self.config.etf_file_path)
-            self.etf_data['日期'] = pd.to_datetime(self.etf_data['日期'])
-            self.etf_data = self.etf_data.set_index('日期').sort_index()
+            self.etf_data = pd.read_sql_query(etf_query, conn, parse_dates=['date'])
+            self.etf_data = self.etf_data.set_index('date')
             
-            # 根据日期范围过滤数据
-            if self.config.start_date:
-                self.option_data = self.option_data[self.option_data['日期'] >= self.config.start_date]
-                self.etf_data = self.etf_data[self.etf_data.index >= self.config.start_date]
+            # 构建期权数据查询
+            option_query = f"""
+                SELECT date, contract_code, change_rate, open_price, close_price,
+                       strike_price, delta, settlement_price
+                FROM option_daily
+                WHERE etf_code = '{self.params.etf_code}'
+            """
+            if self.params.start_date:
+                option_query += f" AND date >= '{self.params.start_date.strftime('%Y-%m-%d')}'"
+            if self.params.end_date:
+                option_query += f" AND date <= '{self.params.end_date.strftime('%Y-%m-%d')}'"
+            option_query += " ORDER BY date"
             
-            if self.config.end_date:
-                self.option_data = self.option_data[self.option_data['日期'] <= self.config.end_date]
-                self.etf_data = self.etf_data[self.etf_data.index <= self.config.end_date]
+            # 加载期权数据
+            self.option_data = pd.read_sql_query(option_query, conn, parse_dates=['date'])
             
+            # 如果没有指定日期范围，使用数据中的最小和最大日期
+            if self.params.start_date is None:
+                self.params.start_date = self.option_data['date'].min()
+            if self.params.end_date is None:
+                self.params.end_date = self.option_data['date'].max()
+            
+            # 记录数据加载结果
             self.logger.log_trade(datetime.now(), "数据加载完成", {
                 "期权数据行数": len(self.option_data),
                 "ETF数据行数": len(self.etf_data),
-                "数据日期范围": f"{self.option_data['日期'].min()} 至 {self.option_data['日期'].max()}"
+                "数据日期范围": f"{self.option_data['date'].min().strftime('%Y-%m-%d')} 至 {self.option_data['date'].max().strftime('%Y-%m-%d')}"
+            })
+            
+            # 关闭数据库连接
+            conn.close()
+            
+            # 重命名列名以匹配原有代码
+            self.option_data = self.option_data.rename(columns={
+                'date': '日期',
+                'contract_code': '交易代码',
+                'change_rate': '涨跌幅(%)',
+                'open_price': '开盘价',
+                'close_price': '收盘价',
+                'strike_price': '行权价',
+                'delta': 'Delta',
+                'settlement_price': '结算价'
+            })
+            
+            self.etf_data = self.etf_data.rename(columns={
+                'open_price': '开盘价',
+                'close_price': '收盘价'
             })
             
             return True
             
         except Exception as e:
-            self.logger.log_error(f"数据加载失败: {str(e)}")
+            self.logger.log_error(f"数据库加载失败: {str(e)}")
             return False 
+
+def main():
+    """主函数"""
+    # 创建回测配置
+    configs = [
+        BacktestConfig(
+            etf_code='510300',  # 沪深300ETF
+            delta=0.4,
+            holding_type='synthetic'
+        ),
+        BacktestConfig(
+            etf_code='510500',  # 中证500ETF
+            delta=0.2,
+            holding_type='synthetic'
+        ),
+        BacktestConfig(
+            etf_code='510050',  # 上证50ETF
+            delta=0.3,
+            holding_type='synthetic'
+        )
+    ]
+    
+    # 运行每个配置的回测
+    for config in configs:
+        print(f"\n=== 开始回测 {config.etf_code} ===")
+        engine = BacktestEngine(config)
+        results = engine.run_backtest()
+        
+        if results:
+            print(f"\n=== {config.etf_code}ETF策略回测结果 ===")
+            if 'portfolio_total_return' in results:
+                print(f"最终累计收益率 (期权策略): {results['portfolio_total_return']:.2f}%")
+                print(f"最大回撤 (期权策略): {results['portfolio_max_drawdown']:.2f}%")
+                print(f"最大回撤开始日期: {results['portfolio_max_drawdown_start_date']}")
+                print(f"最大回撤结束日期: {results['portfolio_max_drawdown_end_date']}")
+                
+                etf_last_return = results['etf_buy_hold_df']['etf_buy_hold_return'].iloc[-1]
+                print(f"最终累计收益率 (持有ETF): {etf_last_return:.2f}%")
+                
+                plot_equity_curve(results, config.etf_code)
+
+if __name__ == "__main__":
+    main() 

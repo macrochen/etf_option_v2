@@ -1,18 +1,18 @@
 from flask import Flask, render_template, request, jsonify
+from backtest_params import BacktestParams, StrategyType
+from backtest_engine import run_backtest
 import plotly
 import plotly.graph_objs as go
 import json
 import pandas as pd
-from typing import Dict, Any, List, Tuple
-from config import BacktestConfig  # 改用新的配置类
-from backtest_engine import BacktestEngine  # 改用新的回测引擎
+from typing import Dict, Any, List
 from logger import TradeLogger
 from strategy_analyzer import StrategyAnalyzer
-from traceback import format_exc  # 添加这行导入
+
 
 app = Flask(__name__)
 
-# 常量定义
+# ETF选项列表
 ETF_OPTIONS = [
     {'value': '510050', 'label': '上证50ETF (510050)'},
     {'value': '510300', 'label': '沪深300ETF (510300)'},
@@ -25,54 +25,19 @@ ETF_OPTIONS = [
     {'value': '588080', 'label': '科创板100ETF (588080)'}
 ]
 
-DELTA_OPTIONS = [
-    {'value': 0.2, 'label': '0.2 (保守)'},
-    {'value': 0.3, 'label': '0.3 (稳健)'},
-    {'value': 0.4, 'label': '0.4 (平衡)'},
-    {'value': 0.5, 'label': '0.5 (积极)'},
-    {'value': 0.6, 'label': '0.6 (激进)'}
-]
-
-HOLDING_TYPES = [
-    {'value': 'stock', 'label': '正股持仓'},
-    {'value': 'synthetic', 'label': '合成持仓'}
-]
-
 @app.route('/')
 def index():
-    return render_template('index.html', 
-                         etf_options=ETF_OPTIONS,
-                         delta_options=DELTA_OPTIONS,
-                         holding_types=HOLDING_TYPES)
+    return render_template('index.html', etf_options=ETF_OPTIONS)
 
-@app.route('/run_backtest', methods=['POST'])
-def run_backtest():
+@app.route('/api/backtest', methods=['POST'])
+def run_backtest_api():
     logger = TradeLogger()  # 创建日志记录器
     try:
-        # 获取表单数据
-        etf_code = request.form.get('etf_code')
-        delta = float(request.form.get('delta'))
-        holding_type = request.form.get('holding_type', 'stock')
-        start_date = request.form.get('start_date')
-        end_date = request.form.get('end_date')
+        # 解析和验证参数
+        params = BacktestParams(request.json)
         
-        # 转换日期字符串为datetime对象
-        if start_date:
-            start_date = pd.to_datetime(start_date)
-        if end_date:
-            end_date = pd.to_datetime(end_date)
-        
-        # 运行回测
-        config = BacktestConfig(
-            symbol=etf_code,
-            delta=delta,
-            start_date=start_date,
-            end_date=end_date,
-            holding_type=holding_type
-        )
-        
-        engine = BacktestEngine(config)
-        results = engine.run_backtest()
+        # 执行回测
+        results = run_backtest(params)
         
         if not results:
             logger.log_error("回测执行失败，未返回结果")
@@ -93,12 +58,11 @@ def run_backtest():
             'strategy_comparison': format_strategy_comparison(results)
         })
         
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
-        # 记录详细的错误信息和堆栈跟踪
-        error_msg = f"回测执行出错: {str(e)}\n{format_exc()}"
-        logger.log_error(error_msg)
-        # 只返回简单的错误信息给前端
-        return jsonify({'error': '回测执行出错，请查看日志了解详情'})
+        app.logger.error(f"回测执行失败: {str(e)}", exc_info=True)
+        return jsonify({'error': '回测执行失败，请检查系统日志'}), 500
 
 def create_plot(results):
     """创建Plotly图表"""
