@@ -44,4 +44,6 @@ venv/
 ENV/
 
 # Jupyter Notebook
-.ipynb_checkpoints 
+.ipynb_checkpoints *.db
+
+*.db
