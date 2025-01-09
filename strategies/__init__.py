@@ -1,4 +1,4 @@
-from .types import OptionType, StrategyType, PositionConfig, OptionPosition
+from .types import OptionType, StrategyType, PositionConfig, OptionPosition,PortfolioValue,TradeResult,BacktestResult
 from .base import OptionStrategy
 from .factory import StrategyFactory
 from .bearish_call import BearishCallStrategy
@@ -11,6 +11,9 @@ __all__ = [
     'StrategyType',
     'PositionConfig',
     'OptionPosition',
+    'PortfolioValue',
+    'TradeResult',
+    'BacktestResult',
     'OptionStrategy',
     'StrategyFactory',
     'BearishCallStrategy'

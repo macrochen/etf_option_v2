@@ -258,13 +258,13 @@
                                 <div class="col-md-4">
                                     <div class="form-group">
                                         <label for="start_date">开始日期</label>
-                                        <input type="date" class="form-control" id="start_date" name="start_date" required>
+                                        <input type="date" class="form-control" id="start_date" name="start_date">
                                     </div>
                                 </div>
                                 <div class="col-md-4">
                                     <div class="form-group">
                                         <label for="end_date">结束日期</label>
-                                        <input type="date" class="form-control" id="end_date" name="end_date" required>
+                                        <input type="date" class="form-control" id="end_date" name="end_date">
                                     </div>
                                 </div>
                                 <div class="col-md-4">
@@ -446,9 +446,20 @@
                 
                 // 发送回测请求
                 $.ajax({
-                    url: '/run_backtest',
+                    url: '/api/backtest',
                     method: 'POST',
-                    data: $(this).serialize(),
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        etf_code: $('#etf_code').val(),
+                        start_date: $('#start_date').val() || undefined,
+                        end_date: $('#end_date').val() || undefined,
+                        strategy_params: {
+                            put_sell_delta: parseFloat($('#put_sell_delta').val()) || undefined,
+                            put_buy_delta: parseFloat($('#put_buy_delta').val()) || undefined,
+                            call_sell_delta: parseFloat($('#call_sell_delta').val()) || undefined,
+                            call_buy_delta: parseFloat($('#call_buy_delta').val()) || undefined
+                        }
+                    }),
                     success: function(response) {
                         try {
                             if (response.error) {
@@ -491,7 +502,7 @@
                     },
                     error: function(xhr, status, error) {
                         console.error('Ajax request failed:', status, error);
-                        alert('回测执行失败，请重试');
+                        alert('displayResults回测执行失败，请重试');
                     },
                     complete: function() {
                         // 隐藏加载动画

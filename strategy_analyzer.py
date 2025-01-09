@@ -2,13 +2,15 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
-from models import TradeRecord, DailyPortfolio
+from models import DailyPortfolio
+from strategies import PortfolioValue
+from strategies.types import TradeRecord
 from utils import calculate_returns, format_number
 
 class StrategyAnalyzer:
     @staticmethod
-    def calculate_metrics(portfolio_values: Dict[datetime, Dict],
-                         trades: Dict[datetime, Dict],
+    def calculate_metrics(portfolio_values: Dict[datetime, PortfolioValue],
+                         trades: Dict[datetime, List[TradeRecord]],
                          initial_cash: float,
                          etf_data: pd.DataFrame = None) -> Dict[str, Any]:
         """计算策略的各项指标，包括与ETF买入持有的对比
@@ -46,7 +48,7 @@ class StrategyAnalyzer:
         
         # 创建净值序列
         portfolio_series = pd.Series(
-            {date: data['total_value'] for date, data in portfolio_values.items()}
+            {date: data.total_value for date, data in portfolio_values.items()}
         ).sort_index()
         
         # 计算期权策略的收益率指标
@@ -138,7 +140,7 @@ class StrategyAnalyzer:
         return comparison_data
 
     @staticmethod
-    def _calculate_trade_metrics(trades: Dict[datetime, Dict]) -> Dict[str, Any]:
+    def _calculate_trade_metrics(trades: Dict[datetime, List[TradeRecord]]) -> Dict[str, Any]:
         """计算交易相关指标
         
         Args:
@@ -163,24 +165,24 @@ class StrategyAnalyzer:
         
         # 将所有交易记录展平为一个列表
         trade_records = []
-        for date, trade in trades.items():
-            trade_records.append({
-                'date': date,
-                'type': trade['action'],
-                'details': trade['details'],
-                'cash': trade['cash'],
-                'margin': trade['margin']
-            })
+        for date, trades_list in trades.items():
+            # 遍历每个日期下的所有交易记录
+            for trade in trades_list:
+                trade_records.append({
+                    'date': date,
+                    'type': trade.action,
+                    'pnl': trade.pnl,
+                    'total_pnl': trade.total_pnl,
+                })
         
         # 转换为DataFrame
         trades_df = pd.DataFrame(trade_records)
         
         # 计算指标
         total_trades = len(trades_df)
-        total_pnl = trades_df['cash'].iloc[-1] - trades_df['cash'].iloc[0]
+        total_pnl = trades_df['total_pnl'].iloc[-1]
         
         # 计算每笔交易的盈亏
-        trades_df['pnl'] = trades_df['cash'].diff()
         winning_trades = trades_df[trades_df['pnl'] > 0]
         losing_trades = trades_df[trades_df['pnl'] < 0]
         
@@ -200,22 +202,22 @@ class StrategyAnalyzer:
         return metrics
 
     @staticmethod
-    def _calculate_risk_metrics(portfolio_values: Dict[datetime, Dict]) -> Dict[str, Any]:
+    def _calculate_risk_metrics(portfolio_values: Dict[datetime, PortfolioValue]) -> Dict[str, Any]:
         """计算风险相关指标"""
         # 转换为DataFrame便于分析
         portfolio_df = pd.DataFrame([
             {
                 'date': date,
-                'total_value': data['total_value'],
-                'margin_occupied': data['margin_occupied'],
-                'daily_return': data['daily_return']
+                'total_value': data.total_value,
+                # 'margin_occupied': data['margin_occupied'],
+                'daily_return': data.daily_return
             } for date, data in portfolio_values.items()
         ])
         
         # 计算风险指标
         return {
-            "max_margin_ratio": (portfolio_df['margin_occupied'] / portfolio_df['total_value']).max(),
-            "avg_margin_ratio": (portfolio_df['margin_occupied'] / portfolio_df['total_value']).mean(),
+            # "max_margin_ratio": (portfolio_df['margin_occupied'] / portfolio_df['total_value']).max(),
+            # "avg_margin_ratio": (portfolio_df['margin_occupied'] / portfolio_df['total_value']).mean(),
             "var_95": np.percentile(portfolio_df['daily_return'], 5),  # 95% VaR
             "var_99": np.percentile(portfolio_df['daily_return'], 1),  # 99% VaR
             "max_daily_loss": portfolio_df['daily_return'].min(),
@@ -247,8 +249,8 @@ class StrategyAnalyzer:
         
         # 风险指标
         report.append("风险指标:")
-        report.append(f"  最大保证金占用比例: {metrics['risk_metrics']['max_margin_ratio']*100:.2f}%")
-        report.append(f"  平均保证金占用比例: {metrics['risk_metrics']['avg_margin_ratio']*100:.2f}%")
+        # report.append(f"  最大保证金占用比例: {metrics['risk_metrics']['max_margin_ratio']*100:.2f}%")
+        # report.append(f"  平均保证金占用比例: {metrics['risk_metrics']['avg_margin_ratio']*100:.2f}%")
         report.append(f"  95% VaR: {metrics['risk_metrics']['var_95']:.2f}%")
         report.append(f"  99% VaR: {metrics['risk_metrics']['var_99']:.2f}%")
         report.append(f"  最大日亏损: {metrics['risk_metrics']['max_daily_loss']:.2f}%")

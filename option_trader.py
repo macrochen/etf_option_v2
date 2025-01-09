@@ -136,7 +136,6 @@ class OptionTrader:
             num_contracts=max_contracts,
             trade_code=option_data['交易代码'].iloc[0],
             initial_cash=self.pm.cash,
-            margin=margin_per_contract * max_contracts,
             open_date=current_date
         )
         

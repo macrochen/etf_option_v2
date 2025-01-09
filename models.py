@@ -12,7 +12,6 @@ class OptionPosition:
     num_contracts: int      # 合约数量
     trade_code: str         # 交易代码
     initial_cash: float     # 建仓时的现金
-    margin: float = 0.0     # 占用保证金
     open_date: Optional[datetime] = None  # 开仓日期
     
     def __post_init__(self):
@@ -23,8 +22,6 @@ class OptionPosition:
             raise ValueError("行权价必须大于0")
         if self.premium <= 0:
             raise ValueError("期权费必须大于0")
-        if self.margin < 0:
-            raise ValueError("保证金不能为负")
 
 @dataclass
 class TradeRecord:

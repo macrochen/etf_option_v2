@@ -1,8 +1,11 @@
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 import pandas as pd
 from datetime import datetime
+
+from . import TradeResult
 from .base import OptionStrategy
-from .types import OptionType, StrategyType
+from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord
+
 
 class BearishCallStrategy(OptionStrategy):
     """熊市看涨价差策略（Bear Call Spread / Call Credit Spread）
@@ -18,37 +21,33 @@ class BearishCallStrategy(OptionStrategy):
         - 到期日自动平仓
     """
     
-    def should_open_position(self, current_date: datetime, 
-                           market_data: Dict[str, pd.DataFrame]) -> bool:
-        """判断是否应该开仓"""
-        # 只在没有持仓时开仓
-        return not bool(self.positions)
+    def __init__(self, config, option_data, etf_data):
+        # 调用父类的__init__方法，传入所有参数
+        super().__init__(config, option_data, etf_data)
     
-    def should_close_position(self, current_date: datetime, 
-                            market_data: Dict[str, pd.DataFrame]) -> bool:
-        """判断是否应该平仓"""
-        if not self.positions:
-            return False
-            
-        # 获取任意一个持仓（两个期权的到期日相同）
-        position = next(iter(self.positions.values()))
-        
-        # 到期平仓
-        return position.expiry <= current_date
-    
-    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """选择合适的期权对
+    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[Dict, Dict]:
+        """选择合适的期权合约
         
         策略逻辑：
         1. 卖出高Delta的看涨期权（例如：0.3）
         2. 买入低Delta的看涨期权（例如：0.2）
         """
-        # 获取目标月份的看涨期权
+
+        # 获取目标月份的看涨期权，交易代码中包含 'C' + 到期年月，且 Delta 不为空
         target_calls = current_options[
-            current_options['认购认沽'] == '认购'
+            (current_options['交易代码'].str.contains('C' + expiry.strftime('%y%m'))) & 
+            (current_options['Delta'].notna())
         ]
         
         if target_calls.empty:
+            # 使用标准的warning方法
+            self.logger.warning(
+                f"未找到符合条件的看涨期权:\n"
+                f"到期日: {expiry.strftime('%Y-%m-%d')}\n"
+                f"期权代码模式: C{expiry.strftime('%y%m')}\n"
+                f"当前期权数量: {len(current_options)}\n"
+                f"Delta有效期权数量: {current_options['Delta'].notna().sum()}"
+            )
             return None, None
             
         # 找到Delta最接近卖出目标值的期权
@@ -84,7 +83,7 @@ class BearishCallStrategy(OptionStrategy):
         )
     
     def open_position(self, current_date: datetime, 
-                     market_data: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
+                     market_data: Dict[str, pd.DataFrame]) -> Optional[TradeResult]:
         """开仓逻辑"""
         # 获取目标到期日
         expiry = self.get_target_expiry(current_date)
@@ -92,8 +91,19 @@ class BearishCallStrategy(OptionStrategy):
             return None
             
         option_data = market_data['option']
+        etf_data = market_data['etf']
+        
+        # 获取当前ETF价格
+        # current_etf_price = etf_data[etf_data['日期'] == current_date].iloc[0]['收盘价']
+
+        if current_date in etf_data.index:
+            current_etf_price = etf_data.loc[current_date]['收盘价']
+        else:
+            self.logger.warning(f"在 {current_date} 没有找到 ETF 数据，无法开仓")
+            return None
         
         # 获取当日期权数据
+        # todo 参考 etf_data改成索引的访问方式
         current_options = option_data[option_data['日期'] == current_date]
         
         # 选择合适的期权对
@@ -116,7 +126,8 @@ class BearishCallStrategy(OptionStrategy):
             option_type=OptionType.CALL,
             quantity=-quantity,  # 负数表示卖出
             current_date=current_date,
-            options=sell_option
+            options=sell_option,
+            expiry=expiry
         )
         
         # 创建买入期权持仓
@@ -126,35 +137,85 @@ class BearishCallStrategy(OptionStrategy):
             option_type=OptionType.CALL,
             quantity=quantity,  # 正数表示买入
             current_date=current_date,
-            options=buy_option
+            options=buy_option,
+            expiry=expiry
         )
         
         # 记录持仓
         self.positions[sell_position.contract_code] = sell_position
         self.positions[buy_position.contract_code] = buy_position
         
-        return {
-            "action": "open",
-            "sell_position": sell_position,
-            "buy_position": buy_position,
-            "cash": self.cash,
-            "margin": self.margin
-        }
+        # 计算开仓成本和价值
+        sell_open_cost = self.calculate_transaction_cost(abs(sell_position.quantity))
+        buy_open_cost = self.calculate_transaction_cost(abs(buy_position.quantity))
+        sell_open_value = sell_position.open_price * abs(sell_position.quantity) * self.config.contract_multiplier
+        buy_open_value = buy_position.open_price * abs(buy_position.quantity) * self.config.contract_multiplier
+        
+        # 构建开仓记录
+        records = []
+        
+        # 卖出期权的开仓记录
+        records.append(TradeRecord(
+            date=current_date,
+            action='卖出开仓',
+            etf_price=current_etf_price,
+            strike=sell_position.strike,
+            price=sell_position.open_price,
+            quantity=abs(sell_position.quantity),
+            premium=sell_open_value,
+            cost=sell_open_cost,
+            delta=sell_position.delta,
+            pnl=None  # 开仓时没有盈亏
+        ))
+        
+        # 买入期权的开仓记录
+        records.append(TradeRecord(
+            date=current_date,
+            action='买入开仓',
+            etf_price=current_etf_price,
+            strike=buy_position.strike,
+            price=buy_position.open_price,
+            quantity=abs(buy_position.quantity),
+            premium=buy_open_value,
+            cost=buy_open_cost,
+            delta=buy_position.delta,
+            pnl=None  # 开仓时没有盈亏
+        ))
+        
+        # 返回开仓结果
+        return TradeResult(
+            records=records,
+            etf_price=current_etf_price,
+            total_pnl=None,  # 开仓时没有盈亏
+            total_cost=sell_open_cost + buy_open_cost,
+        )
     
     def close_position(self, current_date: datetime, 
-                      market_data: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
+                      market_data: Dict[str, pd.DataFrame]) -> Optional[TradeResult]:
+
         """平仓逻辑
         
-        熊市看涨价差策略平仓时：
-        1. 买入平仓之前卖出的低行权价看涨期权
-        2. 卖出平仓之前买入的高行权价看涨期权
+        熊市看涨价差策略平仓时有三种情况：
+        1. 到期作废：当ETF价格低于较低行权价时，两个期权都作废
+        2. 部分平仓：当ETF价格介于两个行权价之间时
+           - 买入平仓之前卖出的低行权价看涨期权
+           - 高行权价看涨期权作废
+        3. 全部平仓：当ETF价格大于等于较高行权价时
+           - 买入平仓之前卖出的低行权价看涨期权
+           - 卖出平仓之前买入的高行权价看涨期权
         """
         if not self.positions:
             return None
             
         option_data = market_data['option']
-        total_cost = 0
-        positions_info = []
+        etf_data = market_data['etf']
+        
+        # 获取当前ETF价格
+        if current_date in etf_data.index:
+            current_etf_price = etf_data.loc[current_date]['收盘价']
+        else:
+            self.logger.log_warning(f"在 {current_date} 没有找到 ETF 数据，无法平仓")
+            return None
         
         # 找到卖出和买入的期权持仓
         sell_position = None
@@ -168,72 +229,207 @@ class BearishCallStrategy(OptionStrategy):
         if not sell_position or not buy_position:
             return None
             
-        # 获取卖出期权的当前价格（用于买入平仓）
-        sell_options = option_data[
-            (option_data['日期'] == current_date) & 
-            (option_data['交易代码'] == sell_position.contract_code)
-        ]
+        # 初始化变量
+        sell_close_price = 0
+        buy_close_price = 0
+        sell_close_cost = 0
+        buy_close_cost = 0
+        sell_close_value = 0
+        buy_close_value = 0
         
-        if sell_options.empty:
-            return None
+        # 分别设置卖出期权和买入期权的平仓类型
+        sell_close_type = '到期作废'
+        buy_close_type = '到期作废'
+        
+        # 情况1：两个期权都作废
+        if current_etf_price <= sell_position.strike:
+            sell_close_type = buy_close_type = '到期作废'
+            # 卖出期权的盈亏 = 开仓收取的权利金
+            sell_pnl = sell_position.open_price * abs(sell_position.quantity) * self.config.contract_multiplier
+            # 买入期权的盈亏 = -开仓支付的权利金
+            buy_pnl = -buy_position.open_price * abs(buy_position.quantity) * self.config.contract_multiplier
             
-        sell_close_price = sell_options.iloc[0]['收盘价']
-        
-        # 获取买入期权的当前价格（用于卖出平仓）
-        buy_options = option_data[
-            (option_data['日期'] == current_date) & 
-            (option_data['交易代码'] == buy_position.contract_code)
-        ]
-        
-        if buy_options.empty:
-            return None
+            # 更新现金：确认卖出期权收取的权利金
+            self.cash += sell_position.open_price * abs(sell_position.quantity) * self.config.contract_multiplier
             
-        buy_close_price = buy_options.iloc[0]['收盘价']
-        
-        # 计算平仓成本
-        sell_close_cost = self.calculate_transaction_cost(abs(sell_position.quantity))
-        buy_close_cost = self.calculate_transaction_cost(abs(buy_position.quantity))
-        total_cost = sell_close_cost + buy_close_cost
-        
-        # 计算平仓价值
-        # 买入平仓之前卖出的期权
-        sell_close_value = sell_close_price * abs(sell_position.quantity) * self.config.contract_multiplier
-        # 卖出平仓之前买入的期权
-        buy_close_value = buy_close_price * abs(buy_position.quantity) * self.config.contract_multiplier
-        
-        # 更新资金
-        self.cash -= total_cost
-        self.cash -= sell_close_value  # 买入平仓支付权利金
-        self.cash += buy_close_value   # 卖出平仓收取权利金
-        self.margin = 0  # 释放保证金
+        # 情况2：sell call需要平仓，buy call作废
+        elif sell_position.strike < current_etf_price < buy_position.strike:
+            sell_close_type = '买入平仓'
+            buy_close_type = '到期作废'
+            # 获取卖出期权的当前价格（用于买入平仓）
+            sell_options = option_data[
+                (option_data['日期'] == current_date) & 
+                (option_data['交易代码'] == sell_position.contract_code)
+            ]
+            
+            if sell_options.empty:
+                return None
+                
+            sell_close_price = sell_options.iloc[0]['收盘价']
+            sell_close_cost = self.calculate_transaction_cost(abs(sell_position.quantity))
+            sell_close_value = sell_close_price * abs(sell_position.quantity) * self.config.contract_multiplier
+            
+            # 更新现金：
+            # 1. 确认卖出期权收取的权利金
+            self.cash += sell_position.open_price * abs(sell_position.quantity) * self.config.contract_multiplier
+            # 2. 支付买入平仓的成本
+            self.cash -= sell_close_cost
+            self.cash -= sell_close_value
+            
+            # 计算盈亏
+            sell_pnl = -(sell_close_value - sell_position.open_price * abs(sell_position.quantity) * self.config.contract_multiplier)
+            buy_pnl = -buy_position.open_price * abs(buy_position.quantity) * self.config.contract_multiplier  # 作废损失开仓费用
+            
+        # 情况3：两个期权都需要平仓
+        else:  # current_etf_price >= buy_position.strike
+            sell_close_type = '买入平仓'
+            buy_close_type = '卖出平仓'
+            # 获取两个期权的当前价格
+            sell_options = option_data[
+                (option_data['日期'] == current_date) & 
+                (option_data['交易代码'] == sell_position.contract_code)
+            ]
+            buy_options = option_data[
+                (option_data['日期'] == current_date) & 
+                (option_data['交易代码'] == buy_position.contract_code)
+            ]
+            
+            if sell_options.empty or buy_options.empty:
+                return None
+                
+            sell_close_price = sell_options.iloc[0]['收盘价']
+            buy_close_price = buy_options.iloc[0]['收盘价']
+            
+            # 计算平仓成本和价值
+            sell_close_cost = self.calculate_transaction_cost(abs(sell_position.quantity))
+            buy_close_cost = self.calculate_transaction_cost(abs(buy_position.quantity))
+            sell_close_value = sell_close_price * abs(sell_position.quantity) * self.config.contract_multiplier
+            buy_close_value = buy_close_price * abs(buy_position.quantity) * self.config.contract_multiplier
+            
+            # 更新现金：
+            # 1. 确认卖出期权收取的权利金
+            self.cash += sell_position.open_price * abs(sell_position.quantity) * self.config.contract_multiplier
+            # 2. 支付买入平仓和卖出平仓的成本
+            self.cash -= (sell_close_cost + buy_close_cost)
+            self.cash -= sell_close_value  # 买入平仓支付权利金
+            self.cash += buy_close_value   # 卖出平仓收取权利金
+            
+            # 计算盈亏
+            sell_pnl = -(sell_close_value - sell_position.open_price * abs(sell_position.quantity) * self.config.contract_multiplier)
+            buy_pnl = buy_close_value - buy_position.open_price * abs(buy_position.quantity) * self.config.contract_multiplier
         
         # 记录平仓信息
-        positions_info = [
-            {
-                "position": sell_position,
-                "close_price": sell_close_price,
-                "close_cost": sell_close_cost,
-                "close_value": sell_close_value,
-                "action": "买入平仓"
-            },
-            {
-                "position": buy_position,
-                "close_price": buy_close_price,
-                "close_cost": buy_close_cost,
-                "close_value": buy_close_value,
-                "action": "卖出平仓"
-            }
-        ]
+        records = []
         
-        result = {
-            "action": "close",
-            "positions": positions_info,
-            "total_cost": total_cost,
-            "cash": self.cash,
-            "margin": self.margin
-        }
+        # 卖出期权的平仓记录
+        records.append(TradeRecord(
+            date=current_date,
+            action=sell_close_type,
+            etf_price=current_etf_price,
+            strike=sell_position.strike,
+            price=sell_close_price,
+            quantity=abs(sell_position.quantity),
+            premium=sell_close_value,
+            cost=sell_close_cost,
+            delta=sell_position.delta,
+            pnl=sell_pnl,
+        ))
+        
+        # 买入期权的平仓记录
+        records.append(TradeRecord(
+            date=current_date,
+            action=buy_close_type,
+            etf_price=current_etf_price,
+            strike=buy_position.strike,
+            price=buy_close_price,
+            quantity=abs(buy_position.quantity),
+            premium=buy_close_value,
+            cost=buy_close_cost,
+            delta=buy_position.delta,
+            pnl=buy_pnl,
+        ))
         
         # 清除持仓
         self.positions.clear()
         
-        return result 
+        # 返回平仓结果
+        return TradeResult(
+            records=records,
+            etf_price=current_etf_price,
+            total_pnl=sell_pnl + buy_pnl,
+            total_cost=sell_close_cost + buy_close_cost,
+        )
+    
+    def _calculate_position_size(self, options: pd.DataFrame, contract_codes: list) -> int:
+        """计算可开仓数量
+        
+        解方程计算逻辑：
+        设最大合约数量为x，需要满足：
+        总资金 >= x * buy_premium * multiplier + x * transaction_costs + x * sell_strike * multiplier
+        
+        其中：
+        - x * buy_premium * multiplier 是买入期权的总成本
+        - x * transaction_costs 是交易成本
+        - x * sell_strike * multiplier 是准备接货的资金
+        """
+        if len(contract_codes) != 2:
+            return 0
+            
+        # 获取卖出期权和买入期权的数据
+        sell_option = options[options['交易代码'] == contract_codes[0]].iloc[0]
+        buy_option = options[options['交易代码'] == contract_codes[1]].iloc[0]
+        
+        # 每份合约的成本因子
+        buy_cost = buy_option['收盘价'] * self.config.contract_multiplier  # 买入期权成本
+        transaction_cost = self.config.transaction_cost * 2  # 每组合约的交易成本
+        exercise_cost = sell_option['行权价'] * self.config.contract_multiplier  # 行权资金准备
+        
+        # 解方程：cash >= x * (buy_cost + transaction_cost + exercise_cost)
+        cost_per_contract = buy_cost + transaction_cost + exercise_cost
+        max_contracts = int(self.cash / cost_per_contract)
+        
+        return max_contracts if max_contracts > 0 else 0
+    
+    def calculate_portfolio_value(self, current_date: datetime) -> PortfolioValue:
+        """计算当前投资组合价值
+        
+        对于熊市看涨策略：
+        1. 现金
+        2. 卖出期权的价值：
+           - 开仓时收取的权利金 - 当前市场价值（负值，因为是卖出）
+           - 例如：开仓收取权利金1元，当前价格0.8元，则价值为：1 - (-0.8) = 1.8元
+        3. 买入期权的价值：
+           - 当前市场价值（正值）
+        """
+        portfolio_value = self.cash
+        option_value = 0
+        
+        for code, position in self.positions.items():
+            current_option_price = self._get_current_option_price(code, current_date, self.option_data)
+            if current_option_price is not None:
+                contract_value = current_option_price * abs(position.quantity) * self.config.contract_multiplier
+                if position.quantity < 0:  # 卖出期权
+                    # 开仓收取的权利金 - 当前需要支付的价值
+                    initial_premium = position.open_price * abs(position.quantity) * self.config.contract_multiplier
+                    option_value += initial_premium - contract_value  # contract_value是负值
+                else:  # 买入期权
+                    option_value += contract_value
+        
+        total_value = portfolio_value + option_value
+        
+        # 计算日收益率
+        if hasattr(self, 'last_total_value') and self.last_total_value is not None:
+            daily_return = (total_value - self.last_total_value) / self.last_total_value * 100
+        else:
+            daily_return = 0.0
+            
+        # 更新上一日总市值
+        self.last_total_value = total_value
+        
+        # 返回PortfolioValue对象
+        return PortfolioValue(
+            cash=portfolio_value,
+            option_value=option_value,
+            total_value=total_value,
+            daily_return=daily_return
+        ) 

@@ -3,15 +3,17 @@ from typing import Dict, List, Tuple, Any
 from datetime import datetime
 import pandas as pd
 
+from strategies.types import TradeRecord, PortfolioValue
+
 
 class StrategyVisualizer:
-    def create_plots(self, trades: Dict[datetime, Dict], 
+    def create_plots(self, pvs: Dict[datetime, PortfolioValue],
                     symbol: str, etf_data: pd.DataFrame,
                     analysis_results: Dict[str, Any]) -> Dict[str, Any]:
         """创建所有可视化图表
         
         Args:
-            trades: 交易记录
+            pvs: 每日收益记录
             symbol: ETF代码
             etf_data: ETF数据
             analysis_results: 分析结果
@@ -21,8 +23,8 @@ class StrategyVisualizer:
         """
         # 从交易记录中提取每日投资组合价值
         portfolio_values = {
-            date: {'total_value': trade['cash'] - trade['margin']}
-            for date, trade in trades.items()
+            date: {'total_value': pv.total_value}
+            for date, pv in pvs.items()
         }
         
         # 创建收益率曲线图
@@ -252,4 +254,135 @@ class StrategyVisualizer:
             plot_bgcolor='white'
         )
         
-        return {'data': [trace], 'layout': layout} 
+        return {'data': [trace], 'layout': layout}
+
+    @staticmethod
+    def create_strategy_plot(results: Dict[str, Any]) -> Dict:
+        """创建策略对比图表
+        
+        Args:
+            results: 回测结果字典，包含portfolio_df、etf_buy_hold_df等数据
+            
+        Returns:
+            包含图表数据和布局的字典
+        """
+        portfolio_df = results['portfolio_df']
+        etf_buy_hold_df = results['etf_buy_hold_df']
+        put_trades = results['put_trades']
+        call_trades = results['call_trades']
+        
+        # 创建策略收益曲线
+        trace1 = go.Scatter(
+            x=portfolio_df.index,
+            y=portfolio_df['cumulative_return'],
+            name='期权策略收益率',
+            line=dict(color='blue', width=2)
+        )
+        
+        # 创建ETF持有收益曲线
+        trace2 = go.Scatter(
+            x=etf_buy_hold_df.index,
+            y=etf_buy_hold_df['etf_buy_hold_return'],
+            name=f'持有{results["symbol"]}ETF收益率',
+            line=dict(color='gray', width=2)
+        )
+        
+        # 添加PUT交易点
+        put_dates = [date for date, _ in put_trades]
+        put_returns = [etf_buy_hold_df.loc[date, 'etf_buy_hold_return'] for date, _ in put_trades]
+        trace3 = go.Scatter(
+            x=put_dates,
+            y=put_returns,
+            mode='markers',
+            name='卖出PUT',
+            marker=dict(color='red', size=10, symbol='circle')
+        )
+        
+        # 添加CALL交易点
+        call_dates = [date for date, _ in call_trades]
+        call_returns = [etf_buy_hold_df.loc[date, 'etf_buy_hold_return'] for date, _ in call_trades]
+        trace4 = go.Scatter(
+            x=call_dates,
+            y=call_returns,
+            mode='markers',
+            name='卖出CALL',
+            marker=dict(color='green', size=10, symbol='circle')
+        )
+        
+        # 添加最大回撤区间
+        max_drawdown_start = results.get('max_drawdown_start_date')
+        max_drawdown_end = results.get('max_drawdown_end_date')
+        if max_drawdown_start and max_drawdown_end:
+            # 获取从开始到结束的所有数据
+            drawdown_data = portfolio_df.loc[max_drawdown_start:max_drawdown_end]
+            
+            # 获取最大回撤期间的峰值
+            peak = portfolio_df.loc[:max_drawdown_end]['cumulative_return'].expanding().max()
+            drawdown_peak = peak.loc[max_drawdown_start:max_drawdown_end]
+            
+            # 创建回撤区域
+            trace5 = go.Scatter(
+                x=drawdown_data.index,
+                y=drawdown_peak,
+                mode='lines',
+                line=dict(color='rgba(255,0,0,0)', width=0),
+                showlegend=False,
+                hoverinfo='skip'
+            )
+            
+            trace6 = go.Scatter(
+                x=drawdown_data.index,
+                y=drawdown_data['cumulative_return'],
+                fill='tonextx',
+                mode='lines',
+                fillcolor='rgba(255,0,0,0.2)',
+                line=dict(color='rgba(255,0,0,0)', width=0),
+                showlegend=True,
+                name=f'最大回撤 ({abs(results.get("max_drawdown", 0)):.2f}%)'
+            )
+            
+            # 注意：trace5必须在trace6之前，这样填充才会在两条线之间
+            data = [trace1, trace2, trace3, trace4, trace5, trace6]
+        else:
+            data = [trace1, trace2, trace3, trace4]
+        
+        # 创建图表布局
+        layout = go.Layout(
+            title=dict(
+                text=f'期权策略 vs 持有{results["symbol"]}ETF收益率对比',
+                x=0.5,
+                y=0.95
+            ),
+            width=1200,
+            height=800,
+            xaxis=dict(
+                title='日期',
+                showgrid=True,
+                gridcolor='rgba(0,0,0,0.1)',
+                type='date',
+                dtick='M3',  # 每3个月显示一个刻度
+                tickformat='%y/%m',  # 只显示年份的后两位
+                tickangle=45,  # 45度角显示日期
+                tickfont=dict(size=10)  # 调整字体大小
+            ),
+            yaxis=dict(
+                title='累计收益率 (%)',
+                showgrid=True,
+                gridcolor='rgba(0,0,0,0.1)',
+                zeroline=True,
+                zerolinecolor='rgba(0,0,0,0.2)'
+            ),
+            hovermode='x unified',
+            plot_bgcolor='white',
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=1.15,
+                xanchor="center",
+                x=0.5,
+                bgcolor='rgba(255,255,255,0.8)'
+            ),
+            margin=dict(l=50, r=50, t=150, b=80)  # 增加底部边距，为倾斜的日期留出空间
+        )
+        
+        return {'data': data, 'layout': layout} 

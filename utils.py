@@ -3,18 +3,18 @@ from calendar import monthcalendar
 import pandas as pd
 from typing import Optional, Tuple, List
 
-def get_monthly_expiry(date: datetime, option_data: pd.DataFrame) -> datetime:
+def get_monthly_expiry(current_date: datetime, option_data: pd.DataFrame) -> datetime:
     """获取当月期权到期日（第四个星期三，如果不是交易日则顺延）
     
     Args:
-        date: 当前日期
+        current_date: 当前日期
         option_data: 期权数据DataFrame
     
     Returns:
         datetime: 当月到期日
     """
-    year = date.year
-    month = date.month
+    year = current_date.year
+    month = current_date.month
     
     # 获取当月所有的星期三
     cal = monthcalendar(year, month)
@@ -134,33 +134,26 @@ def calculate_margin_requirement(strike_price: float, etf_price: float,
     # 因为最坏情况下需要以行权价买入ETF
     return strike_price * contract_multiplier
 
-def get_trading_dates(start_date: datetime, end_date: datetime, 
-                     option_data: pd.DataFrame) -> List[datetime]:
-    """获取有效的交易日期列表
+def get_trading_dates(start_date: datetime, end_date: datetime, option_data: pd.DataFrame) -> List[datetime]:
+    """获取交易日期列表
     
     Args:
         start_date: 开始日期
         end_date: 结束日期
-        option_data: 期权数据DataFrame
-    
+        option_data: 期权数据
+        
     Returns:
         List[datetime]: 交易日期列表
     """
-    # 确保日期范围有效
-    if start_date > end_date:
-        raise ValueError(f"开始日期 {start_date} 不能晚于结束日期 {end_date}")
+    # 确保日期列是datetime类型
+    if not pd.api.types.is_datetime64_any_dtype(option_data['日期']):
+        option_data['日期'] = pd.to_datetime(option_data['日期'])
     
-    # 获取交易日期
-    trading_dates = option_data[
-        (option_data['日期'] >= start_date) & 
-        (option_data['日期'] <= end_date)
-    ]['日期'].unique()
+    # 获取日期范围内的所有交易日
+    mask = (option_data['日期'] >= start_date) & (option_data['日期'] <= end_date)
+    trading_dates = sorted(option_data[mask]['日期'].unique())
     
-    # 检查是否找到交易日期
-    if len(trading_dates) == 0:
-        print(f"警告: 在 {start_date} 至 {end_date} 期间没有找到交易日期")
-    
-    return sorted(trading_dates)
+    return trading_dates
 
 def calculate_returns(values: pd.Series, 
                      annualization: int = 252) -> Tuple[float, float, float]:

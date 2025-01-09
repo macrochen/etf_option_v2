@@ -9,7 +9,7 @@ from utils import get_trading_dates, get_next_monthly_expiry, get_monthly_expiry
 from visualization import StrategyVisualizer
 from backtest_params import BacktestConfig, StrategyType, BacktestParam
 from strategies.factory import StrategyFactory
-from strategies.types import PositionConfig
+from strategies.types import PositionConfig, BacktestResult
 from strategies.base import OptionStrategy
 import sqlite3
 import os
@@ -47,128 +47,131 @@ class BacktestEngine:
             contract_multiplier=self.config.contract_multiplier,
             margin_ratio=self.config.margin_ratio,
             stop_loss_ratio=self.config.stop_loss_ratio,
-            transaction_cost=self.config.transaction_cost
+            transaction_cost=self.config.transaction_cost,
+            end_date=param.end_date
         )
         
         try:
-            # 添加调试信息
-            print(f"Debug - Creating strategy of type: {param.strategy_type}")
-            print(f"Debug - Strategy type value: {param.strategy_type.value}")
-            print(f"Debug - Available strategies: {StrategyFactory._strategies}")
-            print(f"Debug - Strategy type in dict: {param.strategy_type in StrategyFactory._strategies}")
-            
-            return StrategyFactory.create_strategy(param.strategy_type, position_config)
+            return StrategyFactory.create_strategy(
+                param.strategy_type, 
+                position_config,
+                self.option_data,
+                self.etf_data
+            )
         except Exception as e:
-            self.logger.log_error(f"创建策略失败: {str(e)}")
+            import traceback
+            self.logger.log_error(
+                f"策略创建失败:\n{str(e)}\n{traceback.format_exc()}"
+            )
             return None
 
-    def run_backtest(self, param: BacktestParam) -> Optional[Dict[str, Any]]:
-        """
-        运行回测
+    def run_backtest(self, param: BacktestParam) -> Optional[BacktestResult]:
+        """运行回测
         
         Args:
-            param: 回测参数对象，包含每次运行需要的参数
+            param: 回测参数对象
+            
+        Returns:
+            Optional[BacktestResult]: 回测结果对象，如果回测失败则返回None
         """
-        if not self.load_data(param):
-            return None
+        try:
+            if not self.load_data(param):
+                return None
+                
+            # 创建策略实例
+            strategy = self._create_strategy(param)
+            if not strategy:
+                return None
+                
+            # 设置策略的期权数据和初始资金
+            strategy.set_option_data(self.option_data)
+            strategy.cash = self.config.initial_capital  # 设置初始资金
             
-        # 创建策略实例
-        strategy = self._create_strategy(param)
-        if not strategy:
-            return None
+            # 获取交易日期列表
+            trading_dates = get_trading_dates(
+                param.start_date,
+                param.end_date,
+                self.option_data
+            )
             
-        # 设置策略的期权数据和初始资金
-        strategy.set_option_data(self.option_data)
-        strategy.cash = self.config.initial_capital  # 设置初始资金
-        
-        # 获取交易日期列表
-        trading_dates = get_trading_dates(
-            param.start_date,
-            param.end_date,
-            self.option_data
-        )
-        
-        # 检查是否有有效的交易日期
-        if not trading_dates:
-            self.logger.log_error("没有找到有效的交易日期，请检查日期范围和数据文件")
-            return None
-        
-        self.logger.log_trade(trading_dates[0], "回测开始", {
-            "初始资金": self.config.initial_capital,
-            "标的": param.etf_code,
-            "策略类型": strategy.__class__.__name__,
-            "开始日期": trading_dates[0].strftime('%Y-%m-%d'),
-            "结束日期": trading_dates[-1].strftime('%Y-%m-%d')
-        })
-        
-        # 遍历每个交易日
-        daily_portfolio_values = {}
-        for current_date in trading_dates:
-            # 获取当日市场数据
-            market_data = {
-                'etf': self.etf_data[self.etf_data.index == current_date],
-                'option': self.option_data[self.option_data['日期'] == current_date]
-            }
+            # 检查是否有有效的交易日期
+            if not trading_dates:
+                self.logger.log_error("没有找到有效的交易日期，请检查日期范围和数据文件")
+                return None
             
-            # 执行策略
-            trade_result = strategy.execute(current_date, market_data)
-            
-            # 计算当日投资组合价值
-            portfolio_value = strategy.cash - strategy.margin
-            for code, position in strategy.positions.items():
-                current_price = strategy._get_current_price(
-                    code, current_date, self.option_data
-                )
-                if current_price is not None:
-                    portfolio_value += current_price * position.quantity * self.config.contract_multiplier
-            
-            # 记录每日投资组合状态
-            self.logger.log_daily_portfolio(current_date, {
-                'cash': strategy.cash,
-                'margin': strategy.margin,
-                'portfolio_value': portfolio_value,
-                'positions': len(strategy.positions)
+            self.logger.log_trade(trading_dates[0], "回测开始", {
+                "初始资金": self.config.initial_capital,
+                "标的": param.etf_code,
+                "策略类型": strategy.__class__.__name__,
+                "开始日期": trading_dates[0].strftime('%Y-%m-%d'),
+                "结束日期": trading_dates[-1].strftime('%Y-%m-%d')
             })
             
-            # 记录每日投资组合价值
-            daily_portfolio_values[current_date] = {
-                'total_value': portfolio_value,
-                'margin_occupied': strategy.margin,
-                'daily_return': (portfolio_value / self.config.initial_capital - 1) * 100
-            }
-        
-        # 分析策略结果
-        analysis_results = StrategyAnalyzer.calculate_metrics(
-            daily_portfolio_values,
-            strategy.trades,
-            self.config.initial_capital,
-            self.etf_data
-        )
-        
-        # 生成策略报告
-        report = StrategyAnalyzer.generate_report(analysis_results)
-        
-        self.logger.log_trade(trading_dates[-1], "回测结束", {
-            "报告": report
-        })
-        
-        # 生成可视化图表
-        plots = self.visualizer.create_plots(
-            strategy.trades,
-            param.etf_code,
-            self.etf_data,
-            analysis_results
-        )
-        
-        # 返回回测结果
-        return {
-            "etf_code": param.etf_code,
-            "strategy_type": strategy.__class__.__name__,
-            "trades": strategy.trades,
-            "analysis": analysis_results,
-            "report": report,
-            "plots": plots
-        }
+            # 遍历每个交易日
+            daily_portfolio_values = {}
+            for current_date in trading_dates:
+                # 获取当日市场数据
+                market_data = {
+                    'etf': self.etf_data[self.etf_data.index == current_date],
+                    'option': self.option_data[self.option_data['日期'] == current_date]
+                }
+                
+                # 执行策略
+                strategy.execute(current_date, market_data)
+                
+                # 计算当日投资组合价值
+                portfolio_value = strategy.calculate_portfolio_value(current_date)
+                
+                # 记录每日投资组合状态
+                self.logger.log_daily_portfolio(current_date, {
+                    'cash': strategy.cash,
+                    'portfolio_value': portfolio_value,
+                    'positions': len(strategy.positions)
+                })
+                
+                # 记录每日投资组合价值
+                daily_portfolio_values[current_date] = portfolio_value
+
+            # 分析策略结果
+            analysis_results = StrategyAnalyzer.calculate_metrics(
+                daily_portfolio_values,
+                strategy.trades,
+                self.config.initial_capital,
+                self.etf_data
+            )
+            
+            # 生成策略报告
+            report = StrategyAnalyzer.generate_report(analysis_results)
+            
+            self.logger.log_trade(trading_dates[-1], "回测结束", {
+                "报告": report
+            })
+            
+            # 生成可视化图表
+            plots = self.visualizer.create_plots(
+                daily_portfolio_values,
+                param.etf_code,
+                self.etf_data,
+                analysis_results
+            )
+            
+            # 返回回测结果
+            return BacktestResult(
+                    etf_code=param.etf_code,
+                    strategy_type=strategy.__class__.__name__,
+                    trades=strategy.trades,
+                    portfolio_values=daily_portfolio_values,
+                    analysis=analysis_results,
+                    report=report,
+                    plots=plots
+                )
+            
+        except Exception as e:
+            import traceback
+            print(f"回测执行过程中发生错误: {str(e)}")
+            print("堆栈信息:")
+            print(traceback.format_exc())
+            return None
 
     def load_data(self, param: BacktestParam) -> bool:
         """加载数据
@@ -179,6 +182,35 @@ class BacktestEngine:
         try:
             # 连接数据库
             conn = sqlite3.connect('market_data.db')
+            
+            # 如果没有指定日期范围，先获取数据的日期范围
+            if param.start_date is None or param.end_date is None:
+                date_query = """
+                    SELECT MIN(date) as min_date, MAX(date) as max_date
+                    FROM option_daily 
+                    WHERE etf_code = ?
+                """
+                date_df = pd.read_sql_query(date_query, conn, params=(param.etf_code,))
+                
+                if date_df.empty:
+                    raise ValueError(f"未找到{param.etf_code}的期权数据")
+                    
+                min_date = pd.to_datetime(date_df['min_date'].iloc[0])
+                max_date = pd.to_datetime(date_df['max_date'].iloc[0])
+                
+                # 设置默认日期范围
+                if param.start_date is None:
+                    param.start_date = min_date
+                if param.end_date is None:
+                    param.end_date = max_date
+                    
+                # 验证日期范围
+                if param.start_date < min_date:
+                    raise ValueError(f"开始日期不能早于数据最早日期: {min_date.strftime('%Y-%m-%d')}")
+                if param.end_date > max_date:
+                    raise ValueError(f"结束日期不能晚于数据最晚日期: {max_date.strftime('%Y-%m-%d')}")
+                if param.end_date < param.start_date:
+                    raise ValueError("结束日期不能早于开始日期")
             
             # 加载期权数据
             option_query = """
@@ -211,10 +243,10 @@ class BacktestEngine:
                 'delta': 'Delta',
                 'option_type': '认购认沽'
             })
+            # self.option_data = self.option_data.set_index('日期')
             
             if self.option_data.empty:
-                print(f"警告: 在指定日期范围内没有找到期权数据")
-                return False
+                raise ValueError(f"在指定日期范围内没有找到期权数据")
 
             # 加载ETF数据
             etf_query = """
@@ -234,21 +266,24 @@ class BacktestEngine:
             
             # 转换日期列并设置为索引
             etf_data['date'] = pd.to_datetime(etf_data['date'])
-            self.etf_data = etf_data.set_index('date')
-            self.etf_data = self.etf_data.rename(columns={
+            self.etf_data = etf_data.rename(columns={
+                'date': '日期',
                 'close_price': '收盘价',
                 'open_price': '开盘价'
             })
-
+            self.etf_data = self.etf_data.set_index('日期')
+            
             if self.etf_data.empty:
-                print(f"警告: 在指定日期范围内没有找到ETF数据")
-                return False
+                raise ValueError(f"在指定日期范围内没有找到ETF数据")
             
             conn.close()
             return True
             
         except Exception as e:
+            import traceback
             print(f"加载数据时出错: {str(e)}")
+            print("堆栈信息:")
+            print(traceback.format_exc())
             return False
 
 def main():
