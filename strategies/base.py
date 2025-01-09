@@ -155,7 +155,6 @@ class OptionStrategy(ABC):
             ValueError: 如果找不到合适的期权
         """
         # 首先移除Delta为NaN的行
-        orgin_options = options
         options = options.dropna(subset=['Delta'])
         
         if options.empty:
@@ -163,32 +162,33 @@ class OptionStrategy(ABC):
                 f"没有找到有效的期权:\n"
                 f"目标Delta: {target_delta}\n"
                 f"期权类型: {option_type.name}\n"
-                f"原始数据行数: {len(orgin_options)}\n"
                 f"筛选条件: Delta不为NaN\n"
             )
-            raise ValueError(error_msg)
-            
+            self.logger.warning(error_msg)
+            return None, None
+        
+        # 确保Delta是数值类型
+        options['Delta'] = pd.to_numeric(options['Delta'], errors='coerce')
+        options = options.dropna(subset=['Delta'])
+        
+        if options.empty:
+            self.logger.warning("转换Delta为数值类型后没有有效数据")
+            return None, None
+        
         if option_type == OptionType.CALL:
+            # CALL期权的Delta为正值
             delta_diff = (options['Delta'] - target_delta).abs()
         else:  # PUT
-            delta_diff = (options['Delta'] + target_delta).abs()
+            # PUT期权的Delta为负值，但target_delta已经是负值，所以直接相减
+            delta_diff = (options['Delta'] - target_delta).abs()
             
         # 找到差异最小的期权
         best_idx = delta_diff.idxmin()
         if pd.isna(best_idx):
-            raise ValueError("无法找到合适的期权（Delta差异计算结果为NaN）")
+            self.logger.warning("无法找到合适的期权（Delta差异计算结果为NaN）")
+            return None, None
             
         best_option = options.loc[best_idx]
-        best_delta = best_option['Delta']
-        
-        # 验证找到的期权是否合理
-        if pd.isna(best_delta):
-            raise ValueError("找到的期权Delta值为NaN")
-            
-        if option_type == OptionType.CALL and not (0 < best_delta < 1):
-            raise ValueError(f"找到的CALL期权Delta值（{best_delta}）不在有效范围内")
-        elif option_type == OptionType.PUT and not (-1 < best_delta < 0):
-            raise ValueError(f"找到的PUT期权Delta值（{best_delta}）不在有效范围内")
         
         return best_option['行权价'], best_option['交易代码']
     

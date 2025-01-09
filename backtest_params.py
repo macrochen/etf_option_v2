@@ -24,16 +24,19 @@ class BacktestParam:
     def _validate_delta_values(self):
         """验证Delta值的有效性"""
         # 验证PUT策略的Delta值
-        if self.put_sell_delta is not None or self.put_buy_delta is not None:
-            if self.put_sell_delta is None or self.put_buy_delta is None:
-                raise ValueError("PUT策略需要同时设置买入和卖出Delta")
+        if self.put_sell_delta is not None:
             try:
                 self.put_sell_delta = float(self.put_sell_delta)
-                self.put_buy_delta = float(self.put_buy_delta)
-                if not (-1 < self.put_sell_delta < 0 and -1 < self.put_buy_delta < 0):
+                if not (-1 < self.put_sell_delta < 0):
                     raise ValueError("PUT Delta值必须在-1到0之间")
-                if self.put_sell_delta >= self.put_buy_delta:
-                    raise ValueError("PUT策略中，卖出Delta必须小于买入Delta")
+                    
+                # 如果存在买入Delta，则验证买入Delta（双腿策略）
+                if self.put_buy_delta is not None:
+                    self.put_buy_delta = float(self.put_buy_delta)
+                    if not (-1 < self.put_buy_delta < 0):
+                        raise ValueError("PUT Delta值必须在-1到0之间")
+                    if self.put_sell_delta >= self.put_buy_delta:
+                        raise ValueError("PUT策略中，卖出Delta必须小于买入Delta")
             except (TypeError, ValueError) as e:
                 raise ValueError(f"PUT Delta值无效: {str(e)}")
 
@@ -53,17 +56,20 @@ class BacktestParam:
 
     def _determine_strategy_type(self) -> StrategyType:
         """根据参数确定策略类型"""
-        has_put = self.put_sell_delta is not None and self.put_buy_delta is not None
+        has_put_sell = self.put_sell_delta is not None
+        has_put_buy = self.put_buy_delta is not None
         has_call = self.call_sell_delta is not None and self.call_buy_delta is not None
 
-        if has_put and has_call:
+        if has_put_sell and has_put_buy and has_call:
             return StrategyType.IRON_CONDOR
-        elif has_put:
+        elif has_put_sell and has_put_buy:
             return StrategyType.BULLISH_PUT
+        elif has_put_sell and not has_put_buy:
+            return StrategyType.NAKED_PUT
         elif has_call:
             return StrategyType.BEARISH_CALL
         else:
-            raise ValueError("至少需要设置一组完整的期权策略参数")
+            raise ValueError("至少需要设置一组有效的期权策略参数")
 
     def __init__(self, params: Dict):
         """初始化回测参数

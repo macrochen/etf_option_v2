@@ -485,7 +485,10 @@
                                 );
                             } else {
                                 throw new Error('Plotly is not loaded');
-                            }
+                            }    
+                                
+                            // 添加调试日志
+                            console.log('Strategy comparison data:', response.strategy_comparison);
                             
                             // 更新表格
                             updateTable('strategy-comparison', response.strategy_comparison);
@@ -510,34 +513,6 @@
                     }
                 });
             });
-            
-            // 更新表格的函数
-            function updateTable(tableId, data, allowHtml = false) {
-                try {
-                    const table = $(`#${tableId}`);
-                    const tbody = table.find('tbody');
-                    tbody.empty();
-                    
-                    if (!data || !data.data) {
-                        console.error(`Invalid data for table ${tableId}`);
-                        return;
-                    }
-                    
-                    data.data.forEach(row => {
-                        const tr = $('<tr>');
-                        row.forEach(cell => {
-                            if (tableId === 'strategy-comparison' || allowHtml) {
-                                tr.append($('<td>').html(cell));
-                            } else {
-                                tr.append($('<td>').text(cell));
-                            }
-                        });
-                        tbody.append(tr);
-                    });
-                } catch (error) {
-                    console.error(`Error updating table ${tableId}:`, error);
-                }
-            }
             
             // Delta值快速选择
             $('.delta-option').click(function(e) {

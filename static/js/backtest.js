@@ -39,14 +39,21 @@ function detectStrategy() {
     const callBuyDelta = parseFloat($('#call_buy_delta').val());
     
     let strategyName = '';
+    let strategyType = '';
     
     // 判断策略类型
-    if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && isNaN(callSellDelta) && isNaN(callBuyDelta)) {
+    if (!isNaN(putSellDelta) && isNaN(putBuyDelta) && isNaN(callSellDelta) && isNaN(callBuyDelta)) {
+        strategyName = '单腿卖出看跌策略 (Naked Put)';
+        strategyType = 'naked_put';
+    } else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && isNaN(callSellDelta) && isNaN(callBuyDelta)) {
         strategyName = '牛市看跌策略 (Bull Put Spread)';
+        strategyType = 'bullish_put';
     } else if (isNaN(putSellDelta) && isNaN(putBuyDelta) && !isNaN(callSellDelta) && !isNaN(callBuyDelta)) {
         strategyName = '熊市看涨策略 (Bear Call Spread)';
+        strategyType = 'bearish_call';
     } else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && !isNaN(callSellDelta) && !isNaN(callBuyDelta)) {
         strategyName = '铁鹰策略 (Iron Condor)';
+        strategyType = 'iron_condor';
     }
     
     const indicator = $('.strategy-type-indicator');
@@ -55,6 +62,8 @@ function detectStrategy() {
     } else {
         indicator.addClass('d-none');
     }
+    
+    return strategyType;
 }
 
 // 验证Delta输入值
@@ -67,12 +76,16 @@ function validateDeltaInputs() {
     let isValid = true;
     let errorMessage = '';
     
-    // 验证PUT策略
-    if (!isNaN(putSellDelta) || !isNaN(putBuyDelta)) {
-        if (isNaN(putSellDelta) || isNaN(putBuyDelta)) {
-            errorMessage = 'PUT策略需要同时设置买入和卖出Delta';
+    // 验证单腿PUT策略
+    if (!isNaN(putSellDelta) && isNaN(putBuyDelta)) {
+        if (putSellDelta >= 0 || putSellDelta <= -1) {
+            errorMessage = '单腿PUT策略的Delta必须在-1到0之间';
             isValid = false;
-        } else if (putSellDelta >= putBuyDelta) {
+        }
+    }
+    // 验证双腿PUT策略
+    else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta)) {
+        if (putSellDelta >= putBuyDelta) {
             errorMessage = 'PUT策略中，卖出Delta必须小于买入Delta';
             isValid = false;
         }
@@ -118,14 +131,8 @@ function initializeFormValidation() {
         }
         
         // 验证是否选择了至少一组完整的策略
-        const putSellDelta = parseFloat($('#put_sell_delta').val());
-        const putBuyDelta = parseFloat($('#put_buy_delta').val());
-        const callSellDelta = parseFloat($('#call_sell_delta').val());
-        const callBuyDelta = parseFloat($('#call_buy_delta').val());
-        
-        if ((isNaN(putSellDelta) || isNaN(putBuyDelta)) && 
-            (isNaN(callSellDelta) || isNaN(callBuyDelta))) {
-            showError('请至少设置一组完整的期权策略');
+        if (isNaN(putSellDelta) && isNaN(callSellDelta)) {
+            showError('请至少设置一个有效的期权策略');
             return false;
         }
         
@@ -168,9 +175,10 @@ function submitBacktest() {
     if (!isNaN(callSellDelta)) strategy_params.call_sell_delta = callSellDelta;
     if (!isNaN(callBuyDelta)) strategy_params.call_buy_delta = callBuyDelta;
     
-    // 构建请求数据，只包含有值的字段
+    // 构建请求数据
     const formData = {
         etf_code: $('#etf_code').val(),
+        strategy_type: detectStrategy(),  // 添加策略类型
         strategy_params: strategy_params
     };
 
@@ -211,157 +219,117 @@ function submitBacktest() {
     });
 }
 
+// 将updateTable函数从index.html移到这里
+function updateTable(tableId, data, allowHtml = false) {
+    try {
+        console.log(`Updating table ${tableId} with data:`, data);  // 调试日志
+        const table = $(`#${tableId}`);
+        const tbody = table.find('tbody');
+        tbody.empty();
+        
+        // 如果数据为空，直接返回
+        if (!data) {
+            console.error(`No data provided for table ${tableId}`);
+            return;
+        }
+        
+        // 处理数据格式
+        let tableData;
+        if (data.data && Array.isArray(data.data)) {
+            // 如果数据是{headers, data}格式
+            tableData = data.data;
+        } else if (Array.isArray(data)) {
+            // 如果数据直接是数组
+            tableData = data;
+        } else {
+            console.error(`Invalid data format for table ${tableId}:`, data);
+            return;
+        }
+        
+        // 生成表格行
+        tableData.forEach(row => {
+            if (!Array.isArray(row)) {
+                console.error(`Invalid row data for table ${tableId}:`, row);
+                return;
+            }
+            
+            const tr = $('<tr>');
+            row.forEach(cell => {
+                const td = $('<td>');
+                if (allowHtml) {
+                    td.html(cell || '');
+                } else {
+                    td.text(cell || '');
+                }
+                tr.append(td);
+            });
+            tbody.append(tr);
+        });
+        
+        console.log(`Table ${tableId} updated successfully`);  // 成功日志
+    } catch (error) {
+        console.error(`Error updating table ${tableId}:`, error);
+    }
+}
+
 // 显示回测结果
 function displayResults(response) {
     try {
         console.log('开始处理回测结果:', response);
         
-        // 验证响应数据
         if (!response) {
             throw new Error('回测结果为空');
         }
         
-        // 清除之前的结果
-        $('#results-container').empty();
+        // 显示结果区域
+        $('#results').show();
         
-        // 创建结果展示区域
-        const resultsHtml = `
-            <div class="results-section mt-4">
-                <h3>回测结果</h3>
-                
-                <!-- 策略收益对比表格 -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">策略表现对比</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-bordered">
-                                <thead>
-                                    <tr>
-                                        <th>指标</th>
-                                        <th>期权策略</th>
-                                        <th>ETF买入持有</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${generateStrategyComparisonTable(response.strategy_comparison)}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 交易记录 -->
-                ${response.trade_records ? `
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">交易记录</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover">
-                                <thead>
-                                    <tr>
-                                        ${response.trade_records.headers ? response.trade_records.headers.map(header => `<th>${header}</th>`).join('') : ''}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${generateTradeRecordsTable(response.trade_records.data)}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                ` : ''}
-
-                <!-- 每日盈亏 -->
-                ${response.daily_pnl ? `
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">每日盈亏</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-striped table-hover">
-                                <thead>
-                                    <tr>
-                                        ${response.daily_pnl.headers ? response.daily_pnl.headers.map(header => `<th>${header}</th>`).join('') : ''}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${generateDailyPnlTable(response.daily_pnl.data)}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                ` : ''}
-
-                <!-- 图表展示 -->
-                ${response.plots ? Object.keys(response.plots).map(plotName => {
-                    const plotId = plotName.replace(/\s+/g, '_');
-                    console.log('创建图表容器:', plotId);
-                    return `
-                    <div class="card mb-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">${plotName}</h5>
-                        </div>
-                        <div class="card-body">
-                            <div id="${plotId}" style="width:100%; height:400px;"></div>
-                        </div>
-                    </div>
-                    `;
-                }).join('') : ''}
-            </div>
-        `;
+        // 更新表格数据
+        if (response.strategy_comparison) {
+            updateTable('strategy-comparison', response.strategy_comparison);
+        }
         
-        // 显示结果
-        $('#results-container').html(resultsHtml);
-
+        if (response.trade_summary) {
+            updateTable('trade-summary', response.trade_summary);
+        }
+        
+        if (response.trade_records) {
+            updateTable('trade-records', response.trade_records);  // 直接传递整个对象
+        }
+        
+        if (response.daily_pnl) {
+            updateTable('daily-pnl', response.daily_pnl, true);  // 允许HTML内容
+        }
+        
         // 渲染图表
         if (response.plots) {
-            Object.entries(response.plots).forEach(([plotName, plotData]) => {
-                try {
-                    const plotId = plotName.replace(/\s+/g, '_');
-                    console.log('渲染图表:', plotId);
-                    const plotJson = JSON.parse(plotData);
-                    Plotly.newPlot(plotId, plotJson.data, plotJson.layout);
-                } catch (error) {
-                    console.error('渲染图表失败:', {plotName, error, plotData});
-                }
-            });
+            if (response.plots.performance) {
+                Plotly.newPlot('performance-plot', 
+                    JSON.parse(response.plots.performance).data,
+                    JSON.parse(response.plots.performance).layout
+                );
+            }
+            
+            if (response.plots.drawdown) {
+                Plotly.newPlot('drawdown-plot',
+                    JSON.parse(response.plots.drawdown).data,
+                    JSON.parse(response.plots.drawdown).layout
+                );
+            }
+            
+            if (response.plots.pnl_distribution) {
+                Plotly.newPlot('pnl-distribution-plot',
+                    JSON.parse(response.plots.pnl_distribution).data,
+                    JSON.parse(response.plots.pnl_distribution).layout
+                );
+            }
         }
         
         console.log('回测结果显示完成');
     } catch (error) {
         console.error('显示回测结果时出错:', error);
         showError('显示回测结果时出错: ' + error.message);
-        throw error;
     }
-}
-
-// 生成策略对比表格
-function generateStrategyComparisonTable(comparisonData) {
-    // 检查数据是否是数组
-    if (Array.isArray(comparisonData)) {
-        return comparisonData.map(row => `
-            <tr>
-                ${row.map(cell => `<td>${cell}</td>`).join('')}
-            </tr>
-        `).join('');
-    }
-    // 如果不是数组，检查是否有data属性
-    if (comparisonData && comparisonData.data) {
-        return comparisonData.data.map(row => `
-            <tr>
-                ${row.map(cell => `<td>${cell}</td>`).join('')}
-            </tr>
-        `).join('');
-    }
-    // 如果都不是，返回空字符串
-    console.error('无效的对比数据格式:', comparisonData);
-    return '';
 }
 
 // 生成交易记录表格

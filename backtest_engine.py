@@ -39,11 +39,25 @@ class BacktestEngine:
         
     def _create_strategy(self, param: BacktestParam) -> Optional[OptionStrategy]:
         """根据参数创建策略实例"""
+        # 根据策略类型选择对应的 delta 参数
+        if param.strategy_type == StrategyType.BEARISH_CALL:
+            sell_delta = param.strategy_params.get('call_sell_delta')
+            buy_delta = param.strategy_params.get('call_buy_delta')
+        elif param.strategy_type == StrategyType.BULLISH_PUT:
+            sell_delta = param.strategy_params.get('put_sell_delta')
+            buy_delta = param.strategy_params.get('put_buy_delta')
+        elif param.strategy_type == StrategyType.NAKED_PUT:  # 添加单腿卖出看跌策略
+            sell_delta = param.strategy_params.get('put_sell_delta')
+            buy_delta = None  # 单腿策略不需要买入 Delta
+        else:
+            self.logger.error(f"不支持的策略类型: {param.strategy_type}")
+            return None
+        
         # 创建持仓配置
         position_config = PositionConfig(
             etf_code=param.etf_code,
-            sell_delta=param.strategy_params.get('call_sell_delta'),
-            buy_delta=param.strategy_params.get('call_buy_delta'),
+            sell_delta=sell_delta,
+            buy_delta=buy_delta,
             contract_multiplier=self.config.contract_multiplier,
             margin_ratio=self.config.margin_ratio,
             stop_loss_ratio=self.config.stop_loss_ratio,
@@ -52,12 +66,23 @@ class BacktestEngine:
         )
         
         try:
-            return StrategyFactory.create_strategy(
-                param.strategy_type, 
-                position_config,
-                self.option_data,
-                self.etf_data
+            # 创建策略实例
+            strategy = StrategyFactory.create_strategy(
+                strategy_type=param.strategy_type,
+                config=position_config,
+                option_data=self.option_data,
+                etf_data=self.etf_data
             )
+            
+            self.logger.log_debug(
+                f"创建策略成功:\n"
+                f"策略类型: {param.strategy_type.name}\n"
+                f"卖出Delta: {sell_delta}\n"
+                f"买入Delta: {buy_delta}"
+            )
+            
+            return strategy
+            
         except Exception as e:
             import traceback
             self.logger.log_error(

@@ -9,11 +9,12 @@ class OptionType(Enum):
     CALL = 'call'
     PUT = 'put'
 
-class StrategyType(Enum):
-    """策略类型"""
-    BEARISH_CALL = 'bearish_call'  # 熊市看涨
-    BULLISH_PUT = 'bullish_put'    # 牛市看跌
-    IRON_CONDOR = 'iron_condor'    # 铁鹰
+class StrategyType(str, Enum):
+    """策略类型枚举"""
+    BULLISH_PUT = 'bullish_put'      # 牛市看跌
+    BEARISH_CALL = 'bearish_call'    # 熊市看涨
+    IRON_CONDOR = 'iron_condor'      # 铁鹰
+    NAKED_PUT = 'naked_put'          # 单腿卖出看跌
 
 @dataclass
 class PositionConfig:
