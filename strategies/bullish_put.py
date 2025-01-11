@@ -2,6 +2,8 @@ from typing import Dict, Any, Tuple, Optional
 import pandas as pd
 from datetime import datetime
 
+from pandas import DataFrame
+
 from . import TradeResult
 from .base import OptionStrategy, SpreadDirection
 from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord, OptionPosition, PriceConditions
@@ -24,34 +26,17 @@ class BullishPutStrategy(OptionStrategy):
     def __init__(self, config, option_data, etf_data):
         super().__init__(config, option_data, etf_data)
     
-    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[Dict, Dict]:
-        """选择合适的期权合约
-        
-        策略逻辑：
-        1. 卖出目标Delta的看跌期权（例如：-0.3）
-        2. 买入更低行权价的看跌期权（例如：-0.2）
-        """
-        # 选择PUT组合
-        sell_options = self.find_options_by_delta(
-            current_options,
-            self.config.sell_delta,
-            OptionType.PUT,
-            expiry
+    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[
+        Optional[DataFrame], Optional[DataFrame]]:
+        """选择合适的期权合约"""
+        return self._select_spread_options(
+            current_options=current_options,
+            expiry=expiry,
+            sell_delta=self.config.sell_delta,
+            buy_delta=self.config.buy_delta,
+            option_type=OptionType.PUT,
+            higher_buy=False  # 看跌价差买入更低行权价
         )
-        self._check_options_selection(sell_options, expiry, "看跌")
-        
-        buy_options = self.find_options_by_delta(
-            current_options,
-            self.config.buy_delta,
-            OptionType.PUT,
-            expiry
-        )
-        self._check_options_selection(buy_options, expiry, "看跌")
-        
-        if sell_options.empty or buy_options.empty:
-            return None, None
-        
-        return sell_options.iloc[[0]], buy_options.iloc[[0]]
 
     def open_position(self, current_date: datetime, 
                      market_data: Dict[str, pd.DataFrame]) -> Optional[TradeResult]:

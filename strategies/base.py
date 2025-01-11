@@ -820,3 +820,60 @@ class OptionStrategy(ABC):
                 return CloseType.PARTIAL_EXPIRE
             else:  # current_etf_price < price_conditions.partial_below
                 return CloseType.ALL_CLOSE
+
+    def _select_spread_options(self,
+                             current_options: pd.DataFrame,
+                             expiry: datetime,
+                             sell_delta: float,
+                             buy_delta: float,
+                             option_type: OptionType,
+                             higher_buy: bool = True) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+        """
+        选择价差策略的期权组合
+        
+        Args:
+            current_options: 当前可用的期权数据
+            expiry: 到期日
+            sell_delta: 卖出期权的目标delta
+            buy_delta: 买入期权的目标delta
+            option_type: 期权类型（看涨/看跌）
+            higher_buy: 买入期权是否需要更高行权价（看涨价差为True，看跌价差为False）
+            
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]: 卖出期权和买入期权
+        """
+        # 选择卖出期权
+        sell_options = self.find_options_by_delta(
+            current_options,
+            sell_delta,
+            option_type,
+            expiry
+        )
+        self._check_options_selection(sell_options, expiry, 
+                                    "看涨" if option_type == OptionType.CALL else "看跌")
+        
+        if sell_options.empty:
+            return None, None
+        
+        sell_option = sell_options.iloc[0]
+        
+        # 根据策略类型筛选行权价
+        if higher_buy:
+            filtered_options = current_options[current_options['行权价'] > sell_option['行权价']]
+        else:
+            filtered_options = current_options[current_options['行权价'] < sell_option['行权价']]
+        
+        # 选择买入期权
+        buy_options = self.find_options_by_delta(
+            filtered_options,
+            buy_delta,
+            option_type,
+            expiry
+        )
+        self._check_options_selection(buy_options, expiry,
+                                    "看涨" if option_type == OptionType.CALL else "看跌")
+        
+        if buy_options.empty:
+            return None, None
+        
+        return sell_options.iloc[[0]], buy_options.iloc[[0]]

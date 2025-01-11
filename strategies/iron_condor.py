@@ -2,6 +2,8 @@ from typing import Dict, Any, Tuple, Optional, List
 import pandas as pd
 from datetime import datetime
 
+from pandas import DataFrame
+
 from .base import OptionStrategy, SpreadDirection
 from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord, OptionPosition, PriceConditions
 
@@ -26,48 +28,33 @@ class IronCondorStrategy(OptionStrategy):
     def __init__(self, config, option_data, etf_data):
         super().__init__(config, option_data, etf_data)
     
-    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[Dict, Dict, Dict, Dict]:
+    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[
+        Optional[DataFrame], Optional[DataFrame], Optional[DataFrame], Optional[DataFrame]]:
         """选择合适的期权合约"""
         # 选择PUT组合
-        put_sell_options = self.find_options_by_delta(
-            current_options, 
-            self.config.put_sell_delta,
-            OptionType.PUT,
-            expiry
-        )
-        
-        put_buy_options = self.find_options_by_delta(
-            current_options,
-            self.config.put_buy_delta,
-            OptionType.PUT,
-            expiry
+        put_sell, put_buy = self._select_spread_options(
+            current_options=current_options,
+            expiry=expiry,
+            sell_delta=self.config.put_sell_delta,
+            buy_delta=self.config.put_buy_delta,
+            option_type=OptionType.PUT,
+            higher_buy=False  # 看跌价差买入更低行权价
         )
         
         # 选择CALL组合
-        call_sell_options = self.find_options_by_delta(
-            current_options,
-            self.config.call_sell_delta,
-            OptionType.CALL,
-            expiry
+        call_sell, call_buy = self._select_spread_options(
+            current_options=current_options,
+            expiry=expiry,
+            sell_delta=self.config.call_sell_delta,
+            buy_delta=self.config.call_buy_delta,
+            option_type=OptionType.CALL,
+            higher_buy=True  # 看涨价差买入更高行权价
         )
         
-        call_buy_options = self.find_options_by_delta(
-            current_options,
-            self.config.call_buy_delta,
-            OptionType.CALL,
-            expiry
-        )
-        
-        if any(x.empty for x in [put_sell_options, put_buy_options, 
-                                call_sell_options, call_buy_options]):
+        if any(x is None for x in [put_sell, put_buy, call_sell, call_buy]):
             return None, None, None, None
         
-        return (
-            put_sell_options.iloc[[0]],
-            put_buy_options.iloc[[0]],
-            call_sell_options.iloc[[0]],
-            call_buy_options.iloc[[0]]
-        )
+        return put_sell, put_buy, call_sell, call_buy
 
     def open_position(self, current_date: datetime, 
                      market_data: Dict[str, pd.DataFrame]) -> Optional[TradeResult]:
