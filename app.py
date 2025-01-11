@@ -122,20 +122,20 @@ def format_trade_summary(result: BacktestResult) -> Dict[str, Any]:
     """格式化交易汇总数据"""
     # todo
     # stats = result.analysis['statistics']
-    # metrics = result.analysis['trade_metrics']
-    # risk_metrics = result.analysis['risk_metrics']
+    metrics = result.analysis['trade_metrics']
+    risk_metrics = result.analysis['risk_metrics']
     
     data = [
-        # ['交易总次数', f"{metrics['total_trades']}次"],
-        # ['盈利交易', f"{metrics['winning_trades']}次"],
-        # ['亏损交易', f"{metrics['losing_trades']}次"],
-        # ['胜率', f"{metrics['win_rate']*100:.2f}%"],
-        # ['平均盈利', f"{metrics['avg_win']:.2f}"],
-        # ['平均亏损', f"{metrics['avg_loss']:.2f}"],
-        # ['最大单笔盈利', f"{metrics['max_win']:.2f}"],
-        # ['最大单笔亏损', f"{metrics['max_loss']:.2f}"],
-        # ['总交易成本', f"{metrics['total_cost']:.2f}"],
-        # ['总实现盈亏', f"{metrics['total_pnl']:.2f}"],
+        ['交易总次数', f"{metrics['total_trades']}次"],
+        ['盈利交易', f"{metrics['winning_trades']}次"],
+        ['亏损交易', f"{metrics['losing_trades']}次"],
+        ['胜率', f"{metrics['win_rate']*100:.2f}%"],
+        ['平均盈利', f"{metrics['avg_win']:.2f}"],
+        ['平均亏损', f"{metrics['avg_loss']:.2f}"],
+        ['最大单笔盈利', f"{metrics['max_win']:.2f}"],
+        ['最大单笔亏损', f"{metrics['max_loss']:.2f}"],
+        ['总交易成本', f"{metrics['total_cost']:.2f}"],
+        ['总实现盈亏', f"{metrics['total_pnl']:.2f}"],
         # ['最大保证金占用', f"{risk_metrics['max_margin_ratio']*100:.2f}%"],
         # ['平均保证金占用', f"{risk_metrics['avg_margin_ratio']*100:.2f}%"]
     ]

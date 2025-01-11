@@ -8,7 +8,7 @@ class BacktestConfig:
     """固定的回测配置信息"""
     initial_capital: float = 1000000  # 初始资金100万
     contract_multiplier: int = 10000  # 合约乘数
-    transaction_cost: float = 5.0     # 每张合约交易成本
+    transaction_cost: float = 3.6     # 每张合约交易成本
     margin_ratio: float = 0.12        # 保证金比例
     stop_loss_ratio: float = 0.5      # 止损比例
 

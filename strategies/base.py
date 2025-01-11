@@ -326,15 +326,17 @@ class OptionStrategy(ABC):
             (交易记录, 盈亏, 成本)
         """
         action = '到期作废' if is_expire else ('买入平仓' if position.quantity < 0 else '卖出平仓')
-        close_cost = 0 if is_expire else self.calculate_transaction_cost(abs(position.quantity))
+        close_cost = 0 if is_expire else position.open_cost
         close_value = close_price * abs(position.quantity) * position.contract_multiplier
         
         # 计算盈亏
         if position.quantity < 0:  # 卖出期权
             pnl = position.premium - (0 if is_expire else close_value)
         else:  # 买入期权
-            pnl = (close_value if not is_expire else 0) + position.premium
-            
+            pnl = (close_value if not is_expire else 0)
+
+        pnl -= close_cost
+
         record = TradeRecord(
             date=current_date,
             action=action,
@@ -402,7 +404,7 @@ class OptionStrategy(ABC):
             premium=position.premium,
             cost=position.open_cost,
             delta=position.delta,
-            pnl=None  # 开仓时没有盈亏
+            pnl=-position.open_cost + (position.premium if position.quantity > 0 else 0)
         )
         
         return record

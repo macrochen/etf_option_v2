@@ -141,14 +141,7 @@ class StrategyAnalyzer:
 
     @staticmethod
     def _calculate_trade_metrics(trades: Dict[datetime, List[TradeRecord]]) -> Dict[str, Any]:
-        """计算交易相关指标
-        
-        Args:
-            trades: 交易记录字典，键为日期，值为当日交易列表
-            
-        Returns:
-            Dict[str, Any]: 交易指标字典
-        """
+        """计算交易相关指标"""
         if not trades:
             return {
                 'total_trades': 0,
@@ -163,43 +156,92 @@ class StrategyAnalyzer:
                 'total_cost': 0
             }
         
-        # 将所有交易记录展平为一个列表
-        trade_records = []
-        for date, trades_list in trades.items():
-            # 遍历每个日期下的所有交易记录
-            for trade in trades_list:
-                trade_records.append({
-                    'date': date,
-                    'type': trade.action,
-                    'pnl': trade.pnl,
-                    'total_pnl': trade.total_pnl,
-                })
+        # 按组合统计交易
+        strategy_trades = []
+        current_trade = None
+        
+        for date, trades_list in sorted(trades.items()):
+            # 按开平仓分组
+            open_trades = [trade for trade in trades_list if '开仓' in trade.action]
+            close_trades = [trade for trade in trades_list if '平仓' in trade.action or '到期' in trade.action]
+            
+            # 记录开仓
+            if open_trades:
+                if current_trade is not None:
+                    strategy_trades.append(current_trade)
+                
+                current_trade = {
+                    'open_date': date,
+                    'close_date': None,
+                    'open_cost': sum(trade.cost for trade in open_trades),
+                    'close_cost': 0,
+                    'open_premium': sum(trade.premium for trade in open_trades),
+                    'close_premium': 0,
+                    'total_pnl': None
+                }
+            
+            # 记录平仓
+            if close_trades and current_trade is not None:
+                current_trade['close_date'] = date
+                current_trade['close_cost'] = sum(trade.cost for trade in close_trades)
+                current_trade['close_premium'] = sum(trade.premium for trade in close_trades)
+                current_trade['total_pnl'] = close_trades[-1].total_pnl
+                strategy_trades.append(current_trade)
+                current_trade = None
+        
+        # 添加最后一个未完成的交易（如果有）
+        if current_trade is not None:
+            strategy_trades.append(current_trade)
         
         # 转换为DataFrame
-        trades_df = pd.DataFrame(trade_records)
+        trades_df = pd.DataFrame(strategy_trades)
         
-        # 计算指标
-        total_trades = len(trades_df)
-        total_pnl = trades_df['total_pnl'].iloc[-1]
+        if trades_df.empty:
+            return {
+                'total_trades': 0,
+                'winning_trades': 0,
+                'losing_trades': 0,
+                'win_rate': 0,
+                'avg_win': 0,
+                'avg_loss': 0,
+                'max_win': 0,
+                'max_loss': 0,
+                'total_pnl': 0,
+                'total_cost': 0
+            }
         
-        # 计算每笔交易的盈亏
-        winning_trades = trades_df[trades_df['pnl'] > 0]
-        losing_trades = trades_df[trades_df['pnl'] < 0]
+        # 计算每个组合策略的盈亏
+        completed_trades = trades_df[trades_df['total_pnl'].notna()]
+        if completed_trades.empty:
+            return {
+                'total_trades': len(trades_df),
+                'winning_trades': 0,
+                'losing_trades': 0,
+                'win_rate': 0,
+                'avg_win': 0,
+                'avg_loss': 0,
+                'max_win': 0,
+                'max_loss': 0,
+                'total_pnl': 0,
+                'total_cost': trades_df['open_cost'].sum()
+            }
         
-        metrics = {
-            'total_trades': total_trades,
+        # 计算每个完整组合的盈亏
+        winning_trades = completed_trades[completed_trades['total_pnl'] > 0]
+        losing_trades = completed_trades[completed_trades['total_pnl'] < 0]
+        
+        return {
+            'total_trades': len(trades_df),
             'winning_trades': len(winning_trades),
             'losing_trades': len(losing_trades),
-            'win_rate': len(winning_trades) / total_trades if total_trades > 0 else 0,
-            'avg_win': winning_trades['pnl'].mean() if not winning_trades.empty else 0,
-            'avg_loss': losing_trades['pnl'].mean() if not losing_trades.empty else 0,
-            'max_win': winning_trades['pnl'].max() if not winning_trades.empty else 0,
-            'max_loss': losing_trades['pnl'].min() if not losing_trades.empty else 0,
-            'total_pnl': total_pnl,
-            'total_cost': 0  # 暂时不计算总成本
+            'win_rate': len(winning_trades) / len(completed_trades) if not completed_trades.empty else 0,
+            'avg_win': winning_trades['total_pnl'].mean() if not winning_trades.empty else 0,
+            'avg_loss': losing_trades['total_pnl'].mean() if not losing_trades.empty else 0,
+            'max_win': winning_trades['total_pnl'].max() if not winning_trades.empty else 0,
+            'max_loss': losing_trades['total_pnl'].min() if not losing_trades.empty else 0,
+            'total_pnl': completed_trades['total_pnl'].iloc[-1] if not completed_trades.empty else 0,
+            'total_cost': trades_df['open_cost'].sum() + trades_df['close_cost'].sum()
         }
-        
-        return metrics
 
     @staticmethod
     def _calculate_risk_metrics(portfolio_values: Dict[datetime, PortfolioValue]) -> Dict[str, Any]:
@@ -209,7 +251,7 @@ class StrategyAnalyzer:
             {
                 'date': date,
                 'total_value': data.total_value,
-                # 'margin_occupied': data['margin_occupied'],
+                # 'margin_occupied': data.margin_occupied,
                 'daily_return': data.daily_return
             } for date, data in portfolio_values.items()
         ])
