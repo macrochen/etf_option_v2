@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
-from models import DailyPortfolio
 from strategies import PortfolioValue
 from strategies.types import TradeRecord
 from utils import calculate_returns, format_number
@@ -153,7 +152,8 @@ class StrategyAnalyzer:
                 'max_win': 0,
                 'max_loss': 0,
                 'total_pnl': 0,
-                'total_cost': 0
+                'total_cost': 0,
+                'strategy_trades': []  # 添加空的交易记录列表
             }
         
         # 按组合统计交易
@@ -185,7 +185,7 @@ class StrategyAnalyzer:
                 current_trade['close_date'] = date
                 current_trade['close_cost'] = sum(trade.cost for trade in close_trades)
                 current_trade['close_premium'] = sum(trade.premium for trade in close_trades)
-                current_trade['total_pnl'] = close_trades[-1].total_pnl
+                current_trade['total_pnl'] = sum(trade.pnl for trade in close_trades)
                 strategy_trades.append(current_trade)
                 current_trade = None
         
@@ -207,7 +207,8 @@ class StrategyAnalyzer:
                 'max_win': 0,
                 'max_loss': 0,
                 'total_pnl': 0,
-                'total_cost': 0
+                'total_cost': 0,
+                'strategy_trades': []  # 添加空的交易记录列表
             }
         
         # 计算每个组合策略的盈亏
@@ -223,7 +224,8 @@ class StrategyAnalyzer:
                 'max_win': 0,
                 'max_loss': 0,
                 'total_pnl': 0,
-                'total_cost': trades_df['open_cost'].sum()
+                'total_cost': trades_df['open_cost'].sum(),
+                'strategy_trades': strategy_trades  # 添加交易记录列表
             }
         
         # 计算每个完整组合的盈亏
@@ -239,8 +241,10 @@ class StrategyAnalyzer:
             'avg_loss': losing_trades['total_pnl'].mean() if not losing_trades.empty else 0,
             'max_win': winning_trades['total_pnl'].max() if not winning_trades.empty else 0,
             'max_loss': losing_trades['total_pnl'].min() if not losing_trades.empty else 0,
-            'total_pnl': completed_trades['total_pnl'].iloc[-1] if not completed_trades.empty else 0,
-            'total_cost': trades_df['open_cost'].sum() + trades_df['close_cost'].sum()
+            # 'total_pnl': completed_trades['total_pnl'].iloc[-1] if not completed_trades.empty else 0,
+            'total_pnl': trades_df['total_pnl'].sum(),
+            'total_cost': trades_df['open_cost'].sum() + trades_df['close_cost'].sum(),
+            'strategy_trades': strategy_trades  # 添加交易记录列表
         }
 
     @staticmethod

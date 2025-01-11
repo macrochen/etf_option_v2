@@ -118,22 +118,6 @@ def get_next_monthly_expiry(date: datetime, option_data: pd.DataFrame) -> Option
         print(f"警告: 无法获取下月到期日: {str(e)}")
         return None
 
-def calculate_margin_requirement(strike_price: float, etf_price: float, 
-                               contract_multiplier: int = 10000) -> float:
-    """计算期权保证金要求（按照实际行权需求计算）
-    
-    Args:
-        strike_price: 行权价
-        etf_price: 当前ETF价格
-        contract_multiplier: 合约乘数，默认10000
-    
-    Returns:
-        float: 每张合约需要的保证金（等于行权时需要的现金）
-    """
-    # 对于卖出PUT，需要准备行权价 × 合约乘数的现金
-    # 因为最坏情况下需要以行权价买入ETF
-    return strike_price * contract_multiplier
-
 def get_trading_dates(start_date: datetime, end_date: datetime, option_data: pd.DataFrame) -> List[datetime]:
     """获取交易日期列表
     

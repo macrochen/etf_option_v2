@@ -8,6 +8,7 @@ from strategies.types import TradeRecord, PortfolioValue
 
 class StrategyVisualizer:
     def create_plots(self, pvs: Dict[datetime, PortfolioValue],
+                    trades: Dict[datetime, List[TradeRecord]],
                     symbol: str, etf_data: pd.DataFrame,
                     analysis_results: Dict[str, Any]) -> Dict[str, Any]:
         """创建所有可视化图表
@@ -27,10 +28,13 @@ class StrategyVisualizer:
             for date, pv in pvs.items()
         }
         
+        # 获取交易DataFrame
+        trades_df = pd.DataFrame(analysis_results['trade_metrics']['strategy_trades'])
+        
         # 创建收益率曲线图
         performance_plot = self.create_performance_plot(
             portfolio_values,
-            [],  # 暂时不显示交易点
+            trades_df,
             symbol,
             etf_data
         )
@@ -53,9 +57,8 @@ class StrategyVisualizer:
             'pnl_distribution': pnl_distribution_plot
         }
 
-    @staticmethod
-    def create_performance_plot(portfolio_values: Dict[datetime, Dict],
-                              put_trades: List[Tuple[datetime, float]],
+    def create_performance_plot(self, portfolio_values: Dict[datetime, Dict],
+                              trades_df: pd.DataFrame,
                               symbol: str,
                               etf_data: pd.DataFrame = None) -> Dict:
         """创建收益率曲线图"""
@@ -75,40 +78,81 @@ class StrategyVisualizer:
         ]
         
         # 创建策略收益曲线
-        trace1 = go.Scatter(
-            x=dates,
-            y=portfolio_returns,
-            name='期权策略收益率',
-            line=dict(color='blue', width=2)
-        )
+        traces = [
+            go.Scatter(
+                x=dates,
+                y=portfolio_returns,
+                name='期权策略收益率',
+                line=dict(color='blue', width=2)
+            )
+        ]
         
-        # 创建ETF持有收益曲线（如果提供了ETF数据）
-        traces = [trace1]
+        # 添加ETF基准线
         if etf_data is not None:
-            # 获取相同时间段的ETF数据
             etf_prices = etf_data.loc[dates[0]:dates[-1]]['收盘价']
             if not etf_prices.empty:
                 etf_returns = [(price / etf_prices.iloc[0] - 1) * 100 for price in etf_prices]
-                
-                trace2 = go.Scatter(
-                    x=etf_prices.index,
-                    y=etf_returns,
-                    name=f'持有{symbol}ETF收益率',
-                    line=dict(color='gray', width=2)
+                traces.append(
+                    go.Scatter(
+                        x=etf_prices.index,
+                        y=etf_returns,
+                        name=f'持有{symbol}ETF收益率',
+                        line=dict(color='gray', width=2)
+                    )
                 )
-                traces.append(trace2)
         
-        # 添加交易点标记
-        if put_trades:
-            trade_dates, trade_returns = zip(*put_trades)
-            trace3 = go.Scatter(
-                x=trade_dates,
-                y=trade_returns,
-                mode='markers',
-                name='期权交易',
-                marker=dict(color='red', size=8, symbol='circle')
-            )
-            traces.append(trace3)
+        # 添加交易盈亏标记
+        if not trades_df.empty:
+            # 获取已完成的交易
+            completed_trades = trades_df[trades_df['total_pnl'].notna()]
+            
+            # 盈利交易标记
+            winning_trades = completed_trades[completed_trades['total_pnl'] > 0]
+            if not winning_trades.empty:
+                winning_returns = [
+                    (portfolio_values[date]['total_value'] / initial_value - 1) * 100
+                    for date in winning_trades['close_date']
+                ]
+                traces.append(
+                    go.Scatter(
+                        x=winning_trades['close_date'],
+                        y=winning_returns,
+                        mode='markers',
+                        name='盈利平仓',
+                        marker=dict(
+                            color='red',
+                            size=10,
+                            symbol='circle',
+                            line=dict(color='white', width=1)
+                        ),
+                        text=[f"盈利: {pnl:.2f}" for pnl in winning_trades['total_pnl']],
+                        hovertemplate='%{text}<extra></extra>'
+                    )
+                )
+            
+            # 亏损交易标记
+            losing_trades = completed_trades[completed_trades['total_pnl'] < 0]
+            if not losing_trades.empty:
+                losing_returns = [
+                    (portfolio_values[date]['total_value'] / initial_value - 1) * 100
+                    for date in losing_trades['close_date']
+                ]
+                traces.append(
+                    go.Scatter(
+                        x=losing_trades['close_date'],
+                        y=losing_returns,
+                        mode='markers',
+                        name='亏损平仓',
+                        marker=dict(
+                            color='green',
+                            size=10,
+                            symbol='circle',
+                            line=dict(color='white', width=1)
+                        ),
+                        text=[f"亏损: {pnl:.2f}" for pnl in losing_trades['total_pnl']],
+                        hovertemplate='%{text}<extra></extra>'
+                    )
+                )
         
         # 创建图表布局
         layout = go.Layout(
@@ -127,9 +171,7 @@ class StrategyVisualizer:
                 dtick='M1',
                 tickformat='%y-%m',
                 tickangle=45,
-                tickfont=dict(size=10),
-                tickmode='auto',
-                nticks=15
+                tickfont=dict(size=10)
             ),
             yaxis=dict(
                 title='累计收益率 (%)',
@@ -142,12 +184,13 @@ class StrategyVisualizer:
             plot_bgcolor='white',
             legend=dict(
                 orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                yanchor="top",
+                y=1.15,
+                xanchor="center",
+                x=0.5,
+                bgcolor='rgba(255,255,255,0.8)'
             ),
-            margin=dict(b=80)
+            margin=dict(l=50, r=50, t=150, b=80)
         )
         
         return {'data': traces, 'layout': layout}

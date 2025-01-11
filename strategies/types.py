@@ -15,10 +15,17 @@ class StrategyType(str, Enum):
     BEARISH_CALL = 'bearish_call'    # 熊市看涨
     IRON_CONDOR = 'iron_condor'      # 铁鹰
     NAKED_PUT = 'naked_put'          # 单腿卖出看跌
+    WHEEL = "wheel"  # 添加新的策略类型
 
 @dataclass
 class PositionConfig:
     """持仓配置"""
+    initial_cash: float           # 初始资金
+    contract_multiplier: int      # 合约乘数
+    commission_rate: float        # 手续费率
+    min_commission: float        # 最低手续费
+    etf_commission_rate: float = 0.0003  # ETF交易费率（默认万分之三）
+    exercise_fee: float = 1.0     # 期权每张行权费用（默认1元）
     def __init__(self,
                  etf_code: str,
                  # 支持单个 delta 参数或分开的四个 delta 参数
@@ -31,7 +38,7 @@ class PositionConfig:
                  contract_multiplier: int = 10000,
                  margin_ratio: float = 0.1,
                  stop_loss_ratio: float = 0.5,
-                 transaction_cost: float = 0.0003,
+                 transaction_cost: Optional[float] = None,
                  end_date: Optional[datetime] = None):
         self.etf_code = etf_code
         
@@ -135,6 +142,7 @@ class OptionPosition:
     contract_multiplier: int    # 合约乘数
     premium: float             # 权利金（正数表示收取，负数表示支付，已考虑合约乘数）
     open_cost: float             # 开仓成本（佣金+交易费）
+    close_cost: float             # 平仓成本（佣金+交易费）
 
     def __init__(self, contract_code: str, option_type: OptionType, 
                  expiry: datetime, strike: float, delta: float,
@@ -155,6 +163,8 @@ class OptionPosition:
         self.premium = open_price * -quantity * contract_multiplier
         # 卖出开仓不收费
         self.open_cost = 0 if quantity < 0 else transaction_cost * quantity
+        # 平仓不管是 buy 还是 sell 都要收费
+        self.close_cost = transaction_cost * abs(quantity)
 
     def __str__(self) -> str:
         """返回持仓的字符串表示"""

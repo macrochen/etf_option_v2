@@ -42,7 +42,12 @@ function detectStrategy() {
     let strategyType = '';
     
     // 判断策略类型
-    if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && 
+    if (putSellDelta === -0.5 && isNaN(putBuyDelta) && 
+        callSellDelta === 0.5 && isNaN(callBuyDelta)) {
+        // Wheel策略: PUT卖出Delta=-0.5，CALL卖出Delta=0.5
+        strategyName = '轮转型期权策略 (Wheel Strategy)';
+        strategyType = 'wheel';
+    } else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && 
         !isNaN(callSellDelta) && !isNaN(callBuyDelta)) {
         strategyName = '铁鹰策略 (Iron Condor)';
         strategyType = 'iron_condor';
@@ -74,6 +79,12 @@ function validateDeltaInputs() {
     const putBuyDelta = parseFloat($('#put_buy_delta').val());
     const callSellDelta = parseFloat($('#call_sell_delta').val());
     const callBuyDelta = parseFloat($('#call_buy_delta').val());
+    
+    // 检测是否为Wheel策略
+    if (putSellDelta === -0.5 && isNaN(putBuyDelta) && 
+        callSellDelta === 0.5 && isNaN(callBuyDelta)) {
+        return { isValid: true, errorMessage: '' };
+    }
     
     let isValid = true;
     let errorMessage = '';
@@ -213,8 +224,19 @@ function initializeFormValidation() {
 }
 
 // 显示错误信息
-function showError(message) {
+function showError(message, error = null) {
     clearError();
+    
+    // 打印详细的错误堆栈
+    if (error) {
+        console.error('Error details:', {
+            message: message,
+            error: error,
+            stack: error.stack,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
     const alertHtml = `
         <div class="alert alert-danger alert-dismissible fade show" role="alert">
             ${message}
@@ -283,9 +305,15 @@ function submitBacktest() {
         },
         error: function(xhr, status, error) {
             $('.loading').hide();
-            console.error('回测请求失败:', {xhr, status, error});
+            console.error('回测请求失败:', {
+                xhr: xhr,
+                status: status,
+                error: error,
+                timestamp: new Date().toISOString(),
+                requestData: formData
+            });
             const errorMessage = xhr.responseJSON?.error || error || '未知错误';
-            showError('回测执行失败：' + errorMessage);
+            showError('回测执行失败：' + errorMessage, error);
         }
     });
 }
@@ -398,8 +426,13 @@ function displayResults(response) {
         
         console.log('回测结果显示完成');
     } catch (error) {
-        console.error('显示回测结果时出错:', error);
-        showError('显示回测结果时出错: ' + error.message);
+        console.error('显示回测结果时出错:', {
+            error: error,
+            stack: error.stack,
+            timestamp: new Date().toISOString(),
+            responseData: response
+        });
+        showError('显示回测结果时出错: ' + error.message, error);
     }
 }
 
@@ -435,4 +468,17 @@ function formatMoney(amount) {
         style: 'currency',
         currency: 'CNY'
     }).format(amount);
+}
+
+// 添加快速设置Wheel策略的函数
+function setupWheelStrategy() {
+    // 清空所有Delta输入
+    $('#put_buy_delta, #call_buy_delta').val('');
+    
+    // 设置卖出Delta
+    $('#put_sell_delta').val(-0.5);
+    $('#call_sell_delta').val(0.5);
+    
+    // 触发策略检测
+    detectStrategy();
 } 

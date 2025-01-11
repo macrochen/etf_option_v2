@@ -54,29 +54,42 @@ class DataImporter:
 
     def import_etf_data(self, etf_code):
         """导入ETF数据"""
-        csv_path = f'data/{etf_code}/{etf_code}.XSHG_2020-01-02_2024-12-31.csv'
-        if not os.path.exists(csv_path):
-            print(f"找不到ETF数据文件: {csv_path}")
+        etf_dir = f'data/{etf_code}'
+        if not os.path.exists(etf_dir):
+            print(f"找不到ETF数据目录: {etf_dir}")
             return
+            
+        # 获取目录下所有的CSV文件
+        csv_files = [f for f in os.listdir(etf_dir) if f.endswith('.csv')]
+        if not csv_files:
+            print(f"目录 {etf_dir} 中没有找到CSV文件")
+            return
+            
+        for csv_file in csv_files:
+            csv_path = os.path.join(etf_dir, csv_file)
+            try:
+                df = pd.read_csv(csv_path)
+                df['etf_code'] = etf_code
+                
+                # 准备数据
+                records = df.apply(lambda row: (
+                    row['etf_code'],
+                    row['日期'],
+                    row['开盘价'],
+                    row['收盘价']
+                ), axis=1).tolist()
 
-        df = pd.read_csv(csv_path)
-        df['etf_code'] = etf_code
-        
-        # 准备数据
-        records = df.apply(lambda row: (
-            row['etf_code'],
-            row['日期'],
-            row['开盘价'],
-            row['收盘价']
-        ), axis=1).tolist()
-
-        # 批量插入数据
-        self.cursor.executemany(
-            'INSERT OR REPLACE INTO etf_daily (etf_code, date, open_price, close_price) VALUES (?, ?, ?, ?)',
-            records
-        )
-        self.conn.commit()
-        print(f"已导入ETF {etf_code}的数据")
+                # 批量插入数据
+                self.cursor.executemany(
+                    'INSERT OR REPLACE INTO etf_daily (etf_code, date, open_price, close_price) VALUES (?, ?, ?, ?)',
+                    records
+                )
+                self.conn.commit()
+                print(f"已导入ETF {etf_code}的数据文件: {csv_file}")
+                
+            except Exception as e:
+                print(f"处理文件 {csv_file} 时发生错误: {str(e)}")
+                continue
 
     def clean_excel_data(self, df):
         """清理Excel数据，移除非数据行"""

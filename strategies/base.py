@@ -310,9 +310,12 @@ class OptionStrategy(ABC):
             daily_return=daily_return
         )
 
-    def _create_close_record(self, current_date: datetime, position: OptionPosition, 
-                            close_price: float, etf_price: float, 
-                            is_expire: bool = False) -> Tuple[TradeRecord, float, float]:
+    def _create_close_record(self,
+                             current_date: datetime,
+                             position: OptionPosition,
+                             close_price: float,
+                             etf_price: float,
+                             is_expire: bool = False) -> Tuple[TradeRecord, float, float]:
         """创建平仓记录
         
         Args:
@@ -326,7 +329,7 @@ class OptionStrategy(ABC):
             (交易记录, 盈亏, 成本)
         """
         action = '到期作废' if is_expire else ('买入平仓' if position.quantity < 0 else '卖出平仓')
-        close_cost = 0 if is_expire else position.open_cost
+        close_cost = 0 if is_expire else position.close_cost
         close_value = close_price * abs(position.quantity) * position.contract_multiplier
         
         # 计算盈亏

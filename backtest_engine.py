@@ -1,8 +1,6 @@
 from typing import Optional, Dict, Any
 import pandas as pd
 from datetime import datetime
-from portfolio_manager import PortfolioManager
-from option_trader import OptionTrader
 from strategy_analyzer import StrategyAnalyzer
 from logger import TradeLogger
 from utils import get_trading_dates, get_next_monthly_expiry, get_monthly_expiry
@@ -60,9 +58,29 @@ class BacktestEngine:
             put_buy_delta = param.strategy_params.get('put_buy_delta')
             call_sell_delta = param.strategy_params.get('call_sell_delta')
             call_buy_delta = param.strategy_params.get('call_buy_delta')
+        elif param.strategy_type == StrategyType.WHEEL:
+            # 检查Wheel策略的Delta值
+            put_sell_delta = param.strategy_params.get('put_sell_delta')
+            call_sell_delta = param.strategy_params.get('call_sell_delta')
+            
+            # 检查PUT和CALL的Delta值
+            if put_sell_delta != -0.5 or call_sell_delta != 0.5:
+                self.logger.log_error(
+                    f"Wheel策略的Delta值不正确: "
+                    f"PUT卖出Delta必须为-0.5 (当前值: {put_sell_delta}), "
+                    f"CALL卖出Delta必须为0.5 (当前值: {call_sell_delta})"
+                )
+                return None
+                    
+            # 确保没有设置买入Delta
+            if 'put_buy_delta' in param.strategy_params or 'call_buy_delta' in param.strategy_params:
+                self.logger.log_error("Wheel策略不应设置买入Delta值")
+                return None
         else:
             self.logger.log_error(f"不支持的策略类型: {param.strategy_type}")
             return None
+        
+        
         
         # 创建持仓配置
         try:
@@ -202,6 +220,7 @@ class BacktestEngine:
             # 生成可视化图表
             plots = self.visualizer.create_plots(
                 daily_portfolio_values,
+                strategy.trades,
                 param.etf_code,
                 self.etf_data,
                 analysis_results
@@ -298,7 +317,11 @@ class BacktestEngine:
             # self.option_data = self.option_data.set_index('日期')
             
             if self.option_data.empty:
-                raise ValueError(f"在指定日期范围内没有找到期权数据")
+                raise ValueError(
+                    f"在指定日期范围内没有找到期权数据\n"
+                    f"查询日期范围: {param.start_date.strftime('%Y-%m-%d')} 至 "
+                    f"{param.end_date.strftime('%Y-%m-%d')}"
+                )
 
             # 加载ETF数据
             etf_query = """
@@ -326,7 +349,11 @@ class BacktestEngine:
             self.etf_data = self.etf_data.set_index('日期')
             
             if self.etf_data.empty:
-                raise ValueError(f"在指定日期范围内没有找到ETF数据")
+                raise ValueError(
+                    f"在指定日期范围内没有找到ETF数据\n"
+                    f"查询日期范围: {param.start_date.strftime('%Y-%m-%d')} 至 "
+                    f"{param.end_date.strftime('%Y-%m-%d')}"
+                )
             
             conn.close()
             return True

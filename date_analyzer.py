@@ -77,19 +77,21 @@ class DateAnalyzer:
         
         # 处理每个目录
         for directory in dir_list:
-            print(f"\n分析目录: {directory}")
+            # 构建完整的目录路径
+            full_path = os.path.join('data', directory)
+            print(f"\n分析目录: {full_path}")
             
             # 获取所有Excel文件
             try:
-                excel_files = [f for f in os.listdir(directory) 
+                excel_files = [f for f in os.listdir(full_path) 
                              if f.endswith('.xlsx') and not f.startswith('~$')]
                 excel_files.sort()  # 按文件名排序
             except Exception as e:
-                print(f"读取目录 {directory} 时出错: {str(e)}")
+                print(f"读取目录 {full_path} 时出错: {str(e)}")
                 continue
             
             if not excel_files:
-                print(f"在 {directory} 目录中没有找到Excel文件")
+                print(f"在 {full_path} 目录中没有找到Excel文件")
                 continue
             
             # 处理目录中的每个文件
@@ -97,7 +99,7 @@ class DateAnalyzer:
             dir_end_date = None
             
             for file in excel_files:
-                input_path = os.path.join(directory, file)
+                input_path = os.path.join(full_path, file)
                 start_date, end_date = self.analyze_file(input_path)
                 
                 if start_date and end_date:
