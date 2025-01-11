@@ -42,23 +42,25 @@ function detectStrategy() {
     let strategyType = '';
     
     // 判断策略类型
-    if (!isNaN(putSellDelta) && isNaN(putBuyDelta) && isNaN(callSellDelta) && isNaN(callBuyDelta)) {
-        strategyName = '单腿卖出看跌策略 (Naked Put)';
-        strategyType = 'naked_put';
-    } else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && isNaN(callSellDelta) && isNaN(callBuyDelta)) {
-        strategyName = '牛市看跌策略 (Bull Put Spread)';
-        strategyType = 'bullish_put';
-    } else if (isNaN(putSellDelta) && isNaN(putBuyDelta) && !isNaN(callSellDelta) && !isNaN(callBuyDelta)) {
-        strategyName = '熊市看涨策略 (Bear Call Spread)';
-        strategyType = 'bearish_call';
-    } else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && !isNaN(callSellDelta) && !isNaN(callBuyDelta)) {
+    if (!isNaN(putSellDelta) && !isNaN(putBuyDelta) && 
+        !isNaN(callSellDelta) && !isNaN(callBuyDelta)) {
         strategyName = '铁鹰策略 (Iron Condor)';
         strategyType = 'iron_condor';
+    } else if (!isNaN(putSellDelta) && isNaN(putBuyDelta)) {
+        strategyName = '单腿卖出看跌策略 (Naked Put)';
+        strategyType = 'naked_put';
+    } else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta)) {
+        strategyName = '牛市看跌策略 (Bull Put Spread)';
+        strategyType = 'bullish_put';
+    } else if (!isNaN(callSellDelta) && !isNaN(callBuyDelta)) {
+        strategyName = '熊市看涨策略 (Bear Call Spread)';
+        strategyType = 'bearish_call';
     }
     
     const indicator = $('.strategy-type-indicator');
     if (strategyName) {
-        indicator.removeClass('d-none').find('.strategy-name').text(strategyName);
+        indicator.removeClass('d-none alert-danger').addClass('alert-info')
+            .find('.strategy-name').text(strategyName);
     } else {
         indicator.addClass('d-none');
     }
@@ -75,41 +77,107 @@ function validateDeltaInputs() {
     
     let isValid = true;
     let errorMessage = '';
+
+    // 根据策略类型进行验证
+    const strategyType = detectStrategy();
     
-    // 验证单腿PUT策略
-    if (!isNaN(putSellDelta) && isNaN(putBuyDelta)) {
-        if (putSellDelta >= 0 || putSellDelta <= -1) {
-            errorMessage = '单腿PUT策略的Delta必须在-1到0之间';
-            isValid = false;
-        }
-    }
-    // 验证双腿PUT策略
-    else if (!isNaN(putSellDelta) && !isNaN(putBuyDelta)) {
-        if (putSellDelta >= putBuyDelta) {
-            errorMessage = 'PUT策略中，卖出Delta必须小于买入Delta';
-            isValid = false;
-        }
+    switch(strategyType) {
+        case 'iron_condor':
+            // 验证铁鹰策略
+            const putValidation = validatePutLegs(putSellDelta, putBuyDelta);
+            if (!putValidation.isValid) {
+                return putValidation;
+            }
+            
+            const callValidation = validateCallLegs(callSellDelta, callBuyDelta);
+            if (!callValidation.isValid) {
+                return callValidation;
+            }
+            break;
+            
+        case 'naked_put':
+            // 验证单腿看跌策略
+            if (!validatePutDelta(putSellDelta)) {
+                return {
+                    isValid: false,
+                    errorMessage: '单腿PUT策略的Delta必须在-1到0之间'
+                };
+            }
+            break;
+            
+        case 'bullish_put':
+            // 验证牛市看跌策略
+            return validatePutLegs(putSellDelta, putBuyDelta);
+            
+        case 'bearish_call':
+            // 验证熊市看涨策略
+            return validateCallLegs(callSellDelta, callBuyDelta);
     }
     
-    // 验证CALL策略
-    if (!isNaN(callSellDelta) || !isNaN(callBuyDelta)) {
-        if (isNaN(callSellDelta) || isNaN(callBuyDelta)) {
-            errorMessage = 'CALL策略需要同时设置买入和卖出Delta';
-            isValid = false;
-        } else if (callSellDelta <= callBuyDelta) {
-            errorMessage = 'CALL策略中，卖出Delta必须大于买入Delta';
-            isValid = false;
-        }
+    return { isValid: true, errorMessage: '' };
+}
+
+// 验证PUT腿
+function validatePutLegs(sellDelta, buyDelta) {
+    // 验证Delta范围
+    if (!validatePutDelta(sellDelta) || !validatePutDelta(buyDelta)) {
+        return {
+            isValid: false,
+            errorMessage: 'PUT Delta值必须在-1到0之间'
+        };
     }
     
-    // 显示或清除错误信息
-    if (!isValid) {
-        showError(errorMessage);
+    // 验证Delta关系
+    if (sellDelta >= buyDelta) {
+        return {
+            isValid: false,
+            errorMessage: 'PUT策略中，卖出Delta必须小于买入Delta'
+        };
+    }
+    
+    return { isValid: true, errorMessage: '' };
+}
+
+// 验证CALL腿
+function validateCallLegs(sellDelta, buyDelta) {
+    // 验证Delta范围
+    if (!validateCallDelta(sellDelta) || !validateCallDelta(buyDelta)) {
+        return {
+            isValid: false,
+            errorMessage: 'CALL Delta值必须在0到1之间'
+        };
+    }
+    
+    // 验证Delta关系
+    if (sellDelta <= buyDelta) {
+        return {
+            isValid: false,
+            errorMessage: 'CALL策略中，卖出Delta必须大于买入Delta'
+        };
+    }
+    
+    return { isValid: true, errorMessage: '' };
+}
+
+// 验证单个PUT Delta值
+function validatePutDelta(delta) {
+    return !isNaN(delta) && delta < 0 && delta > -1;
+}
+
+// 验证单个CALL Delta值
+function validateCallDelta(delta) {
+    return !isNaN(delta) && delta > 0 && delta < 1;
+}
+
+// 显示或清除错误信息
+function updateValidationUI(validation) {
+    if (!validation.isValid) {
+        showError(validation.errorMessage);
+        $('.strategy-type-indicator').removeClass('alert-info').addClass('alert-danger');
     } else {
         clearError();
+        $('.strategy-type-indicator').removeClass('alert-danger').addClass('alert-info');
     }
-    
-    return isValid;
 }
 
 // 初始化表单验证
@@ -117,7 +185,10 @@ function initializeFormValidation() {
     $('#backtest-form').on('submit', function(e) {
         e.preventDefault();
         
-        if (!validateDeltaInputs()) {
+        const validation = validateDeltaInputs();
+        updateValidationUI(validation);
+        
+        if (!validation.isValid) {
             return false;
         }
         

@@ -39,6 +39,11 @@ class BacktestEngine:
         
     def _create_strategy(self, param: BacktestParam) -> Optional[OptionStrategy]:
         """根据参数创建策略实例"""
+        # 初始化 delta 参数
+        sell_delta = buy_delta = None
+        put_sell_delta = put_buy_delta = None
+        call_sell_delta = call_buy_delta = None
+        
         # 根据策略类型选择对应的 delta 参数
         if param.strategy_type == StrategyType.BEARISH_CALL:
             sell_delta = param.strategy_params.get('call_sell_delta')
@@ -46,26 +51,39 @@ class BacktestEngine:
         elif param.strategy_type == StrategyType.BULLISH_PUT:
             sell_delta = param.strategy_params.get('put_sell_delta')
             buy_delta = param.strategy_params.get('put_buy_delta')
-        elif param.strategy_type == StrategyType.NAKED_PUT:  # 添加单腿卖出看跌策略
+        elif param.strategy_type == StrategyType.NAKED_PUT:
             sell_delta = param.strategy_params.get('put_sell_delta')
             buy_delta = None  # 单腿策略不需要买入 Delta
+        elif param.strategy_type == StrategyType.IRON_CONDOR:
+            # 铁鹰策略需要四个 delta 参数
+            put_sell_delta = param.strategy_params.get('put_sell_delta')
+            put_buy_delta = param.strategy_params.get('put_buy_delta')
+            call_sell_delta = param.strategy_params.get('call_sell_delta')
+            call_buy_delta = param.strategy_params.get('call_buy_delta')
         else:
-            self.logger.error(f"不支持的策略类型: {param.strategy_type}")
+            self.logger.log_error(f"不支持的策略类型: {param.strategy_type}")
             return None
         
         # 创建持仓配置
-        position_config = PositionConfig(
-            etf_code=param.etf_code,
-            sell_delta=sell_delta,
-            buy_delta=buy_delta,
-            contract_multiplier=self.config.contract_multiplier,
-            margin_ratio=self.config.margin_ratio,
-            stop_loss_ratio=self.config.stop_loss_ratio,
-            transaction_cost=self.config.transaction_cost,
-            end_date=param.end_date
-        )
-        
         try:
+            position_config = PositionConfig(
+                etf_code=param.etf_code,
+                # 传入统一的 delta 参数（用于非铁鹰策略）
+                sell_delta=sell_delta,
+                buy_delta=buy_delta,
+                # 传入分开的 delta 参数（用于铁鹰策略）
+                put_sell_delta=put_sell_delta,
+                put_buy_delta=put_buy_delta,
+                call_sell_delta=call_sell_delta,
+                call_buy_delta=call_buy_delta,
+                # 其他配置参数
+                contract_multiplier=self.config.contract_multiplier,
+                margin_ratio=self.config.margin_ratio,
+                stop_loss_ratio=self.config.stop_loss_ratio,
+                transaction_cost=self.config.transaction_cost,
+                end_date=param.end_date
+            )
+            
             # 创建策略实例
             strategy = StrategyFactory.create_strategy(
                 strategy_type=param.strategy_type,
@@ -73,16 +91,25 @@ class BacktestEngine:
                 option_data=self.option_data,
                 etf_data=self.etf_data
             )
-            
-            self.logger.log_debug(
-                f"创建策略成功:\n"
-                f"策略类型: {param.strategy_type.name}\n"
-                f"卖出Delta: {sell_delta}\n"
-                f"买入Delta: {buy_delta}"
-            )
-            
+
+            # 根据策略类型记录不同的日志信息
+            if param.strategy_type == StrategyType.IRON_CONDOR:
+                self.logger.log_debug(
+                    f"创建策略成功:\n"
+                    f"策略类型: {param.strategy_type.name}\n"
+                    f"PUT价差: sell_delta={put_sell_delta}, buy_delta={put_buy_delta}\n"
+                    f"CALL价差: sell_delta={call_sell_delta}, buy_delta={call_buy_delta}"
+                )
+            else:
+                self.logger.log_debug(
+                    f"创建策略成功:\n"
+                    f"策略类型: {param.strategy_type.name}\n"
+                    f"卖出Delta: {sell_delta}\n"
+                    f"买入Delta: {buy_delta}"
+                )
+
             return strategy
-            
+
         except Exception as e:
             import traceback
             self.logger.log_error(
