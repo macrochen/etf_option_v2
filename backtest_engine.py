@@ -252,7 +252,8 @@ class BacktestEngine:
         """
         try:
             # 连接数据库
-            conn = sqlite3.connect('market_data.db')
+            db_path = os.path.join('db', 'market_data.db')
+            conn = sqlite3.connect(db_path)
             
             # 如果没有指定日期范围，先获取数据的日期范围
             if param.start_date is None or param.end_date is None:

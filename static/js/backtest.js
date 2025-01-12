@@ -196,6 +196,14 @@ function initializeFormValidation() {
     $('#backtest-form').on('submit', function(e) {
         e.preventDefault();
         
+        // 显示加载动画
+        $('.loading').show();
+        $('#results').hide();
+        
+        // 获取方案保存相关参数
+        const saveScheme = $('#saveScheme').is(':checked');
+        const schemeName = saveScheme ? $('#schemeName').val() : null;
+        
         const validation = validateDeltaInputs();
         updateValidationUI(validation);
         
@@ -218,8 +226,52 @@ function initializeFormValidation() {
             return false;
         }
         
-        // 提交表单
-        submitBacktest();
+        // 发送回测请求
+        $.ajax({
+            url: '/api/backtest',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                etf_code: $('#etf_code').val(),
+                start_date: $('#start_date').val() || undefined,
+                end_date: $('#end_date').val() || undefined,
+                strategy_params: {
+                    put_sell_delta: parseFloat($('#put_sell_delta').val()) || undefined,
+                    put_buy_delta: parseFloat($('#put_buy_delta').val()) || undefined,
+                    call_sell_delta: parseFloat($('#call_sell_delta').val()) || undefined,
+                    call_buy_delta: parseFloat($('#call_buy_delta').val()) || undefined
+                },
+                save_scheme: saveScheme,
+                scheme_name: schemeName
+            }),
+            success: function(response) {
+                console.log('收到回测响应:', response);
+                if (response.error) {
+                    showError(response.error);
+                    $('.loading').hide();
+                    return;
+                }
+                // 如果保存方案成功，显示提示
+                if (saveScheme && schemeName) {
+                    showSuccess('方案保存成功！');
+                }
+                $('.loading').hide();
+                try {
+                    displayResults(response);
+                } catch (error) {
+                    console.error('显示结果时出错:', error);
+                    showError('显示回测结果时出错: ' + error.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Ajax request failed:', status, error);
+                alert('回测执行失败，请重试');
+            },
+            complete: function() {
+                // 隐藏加载动画
+                $('.loading').hide();
+            }
+        });
     });
 }
 
@@ -249,73 +301,6 @@ function showError(message, error = null) {
 // 清除错误信息
 function clearError() {
     $('#error-container').empty();
-}
-
-// 提交回测请求
-function submitBacktest() {
-    $('.loading').show();
-    
-    // 构建策略参数
-    const strategy_params = {};
-    const putSellDelta = parseFloat($('#put_sell_delta').val());
-    const putBuyDelta = parseFloat($('#put_buy_delta').val());
-    const callSellDelta = parseFloat($('#call_sell_delta').val());
-    const callBuyDelta = parseFloat($('#call_buy_delta').val());
-    
-    // 只添加有效的参数
-    if (!isNaN(putSellDelta)) strategy_params.put_sell_delta = putSellDelta;
-    if (!isNaN(putBuyDelta)) strategy_params.put_buy_delta = putBuyDelta;
-    if (!isNaN(callSellDelta)) strategy_params.call_sell_delta = callSellDelta;
-    if (!isNaN(callBuyDelta)) strategy_params.call_buy_delta = callBuyDelta;
-    
-    // 构建请求数据
-    const formData = {
-        etf_code: $('#etf_code').val(),
-        strategy_type: detectStrategy(),  // 添加策略类型
-        strategy_params: strategy_params
-    };
-
-    // 只添加有值的日期字段
-    const startDate = $('#start_date').val();
-    const endDate = $('#end_date').val();
-    if (startDate) formData.start_date = startDate;
-    if (endDate) formData.end_date = endDate;
-    
-    console.log('发送回测请求:', formData);
-    
-    $.ajax({
-        url: '/api/backtest',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(formData),
-        success: function(response) {
-            console.log('收到回测响应:', response);
-            if (response.error) {
-                showError(response.error);
-                $('.loading').hide();
-                return;
-            }
-            $('.loading').hide();
-            try {
-                displayResults(response);
-            } catch (error) {
-                console.error('显示结果时出错:', error);
-                showError('显示回测结果时出错: ' + error.message);
-            }
-        },
-        error: function(xhr, status, error) {
-            $('.loading').hide();
-            console.error('回测请求失败:', {
-                xhr: xhr,
-                status: status,
-                error: error,
-                timestamp: new Date().toISOString(),
-                requestData: formData
-            });
-            const errorMessage = xhr.responseJSON?.error || error || '未知错误';
-            showError('回测执行失败：' + errorMessage, error);
-        }
-    });
 }
 
 // 将updateTable函数从index.html移到这里
@@ -481,4 +466,22 @@ function setupWheelStrategy() {
     
     // 触发策略检测
     detectStrategy();
+}
+
+// 显示成功提示
+function showSuccess(message) {
+    const alertDiv = $('<div>')
+        .addClass('alert alert-success alert-dismissible fade show')
+        .attr('role', 'alert')
+        .html(`
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `);
+    
+    $('#error-container').empty().append(alertDiv);
+    
+    // 3秒后自动消失
+    setTimeout(() => {
+        alertDiv.alert('close');
+    }, 3000);
 } 

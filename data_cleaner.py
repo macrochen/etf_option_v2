@@ -63,29 +63,31 @@ class DataCleaner:
         
         # 处理每个目录
         for directory in dir_list:
-            print(f"\n开始处理目录: {directory}")
+            # 构建完整的目录路径
+            full_dir_path = os.path.join('data', directory)
+            print(f"\n开始处理目录: {full_dir_path}")
             
             # 获取所有Excel文件
             try:
-                excel_files = [f for f in os.listdir(directory) 
+                excel_files = [f for f in os.listdir(full_dir_path) 
                              if f.endswith('.xlsx') and not f.startswith('~$')]
             except Exception as e:
-                print(f"读取目录 {directory} 时出错: {str(e)}")
+                print(f"读取目录 {full_dir_path} 时出错: {str(e)}")
                 continue
             
             if not excel_files:
-                print(f"在 {directory} 目录中没有找到Excel文件")
+                print(f"在 {full_dir_path} 目录中没有找到Excel文件")
                 continue
             
             # 处理目录中的每个文件
             success_count = 0
             for file in excel_files:
-                input_path = os.path.join(directory, file)
+                input_path = os.path.join(full_dir_path, file)
                 if self.clean_file(input_path):
                     success_count += 1
             
             # 打印当前目录的统计信息
-            print(f"\n{directory} 目录处理完成:")
+            print(f"\n{full_dir_path} 目录处理完成:")
             print(f"文件数: {len(excel_files)}")
             print(f"成功数: {success_count}")
             print(f"失败数: {len(excel_files) - success_count}")
@@ -131,8 +133,11 @@ def remove_wind_source_lines(directory: str):
     Args:
         directory: 数据目录路径
     """
+    # 构建完整的目录路径
+    full_dir_path = os.path.join('data', directory)
+    
     # 遍历目录及子目录
-    for root, dirs, files in os.walk(directory):
+    for root, dirs, files in os.walk(full_dir_path):
         # 过滤出 Excel 文件
         excel_files = [f for f in files if f.endswith('.xlsx')]
         
@@ -153,6 +158,6 @@ def main():
     cleaner.process_directories(input_dirs)
 
 if __name__ == "__main__":
-    # main()
+    main()
     # 如果直接运行此脚本，则处理 data 目录及其所有子目录
-    remove_wind_source_lines("data")
+    # remove_wind_source_lines("data")
