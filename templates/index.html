@@ -296,7 +296,12 @@
 
                             <!-- 执行回测按钮 -->
                             <div class="text-center mt-4">
-                                <button type="submit" class="btn btn-primary">执行回测</button>
+                                <div class="btn-group">
+                                    <button type="submit" class="btn btn-primary">执行回测</button>
+                                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#schemeModal">
+                                        <i class="fas fa-tasks"></i> 方案管理
+                                    </button>
+                                </div>
                             </div>
                         </form>
                     </div>
@@ -452,13 +457,6 @@
                 </div>
             </div>
         </div>
-    </div>
-
-    <!-- 在container div内部,回测表单之前添加方案管理按钮 -->
-    <div class="d-flex justify-content-end mb-3">
-        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#schemeModal">
-            <i class="fas fa-tasks"></i> 方案管理
-        </button>
     </div>
 
     <!-- 在body标签结束前添加方案管理模态框 -->

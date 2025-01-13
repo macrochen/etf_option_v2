@@ -80,13 +80,19 @@ function renderSchemeList(schemes) {
         row.append($('<td>').text(formatDateTime(scheme.updated_at)));
         
         const actions = $('<td>').html(`
-            <button class="btn btn-sm btn-outline-primary me-1" onclick="loadScheme('${scheme.id}')">
+            <button class="btn btn-sm btn-outline-primary me-1" 
+                    title="加载方案" 
+                    onclick="loadScheme('${scheme.id}')">
                 <i class="fas fa-upload"></i>
             </button>
-            <button class="btn btn-sm btn-outline-danger me-1" onclick="deleteScheme('${scheme.id}')">
+            <button class="btn btn-sm btn-outline-danger me-1" 
+                    title="删除方案" 
+                    onclick="deleteScheme('${scheme.id}')">
                 <i class="fas fa-trash"></i>
             </button>
-            <button class="btn btn-sm btn-outline-secondary" onclick="renameScheme('${scheme.id}')">
+            <button class="btn btn-sm btn-outline-secondary" 
+                    title="重命名方案" 
+                    onclick="renameScheme('${scheme.id}')">
                 <i class="fas fa-edit"></i>
             </button>
         `);
@@ -107,7 +113,18 @@ function loadScheme(schemeId) {
         url: `/api/schemes/${schemeId}`,
         method: 'GET',
         success: function(response) {
+            // 填充表单参数
             fillBacktestForm(response.params);
+            
+            // 直接显示保存的回测结果
+            if (response.backtest_results) {
+                $('#results').show();
+                displayResults(response.backtest_results);
+            } else {
+                showError('未找到保存的回测结果');
+            }
+            
+            // 关闭模态框
             $('#schemeModal').modal('hide');
         },
         error: function(xhr, status, error) {
@@ -150,23 +167,3 @@ function renameScheme(schemeId) {
         }
     });
 }
-
-// 填充回测表单
-function fillBacktestForm(params) {
-    $('#etf_code').val(params.etf_code);
-    $('#start_date').val(params.start_date);
-    $('#end_date').val(params.end_date);
-    
-    // 填充Delta值
-    if (params.delta_list) {
-        const deltas = params.delta_list.split(',');
-        ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta'].forEach((id, index) => {
-            if (deltas[index]) {
-                $(`#${id}`).val(deltas[index]);
-            }
-        });
-    }
-    
-    // 触发策略检测
-    detectStrategy();
-} 

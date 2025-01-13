@@ -472,41 +472,62 @@ function showSuccess(message) {
 
 // 获取完整的方案参数
 function getSchemeParams() {
+    // 获取所有 delta 值
+    const deltaInputs = ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta'];
+    const strategyParams = {};
+    const deltaList = [];
+    
+    deltaInputs.forEach(id => {
+        const value = parseFloat($(`#${id}`).val());
+        if (!isNaN(value)) {
+            strategyParams[id] = value;
+            deltaList.push(value);
+        }
+    });
+
     return {
         etf_code: $('#etf_code').val(),
         start_date: $('#start_date').val(),
         end_date: $('#end_date').val(),
-        delta_list: getDeltaList(),
-        strategy_params: {
-            put_sell_delta: parseFloat($('#put_sell_delta').val()) || undefined,
-            put_buy_delta: parseFloat($('#put_buy_delta').val()) || undefined,
-            call_sell_delta: parseFloat($('#call_sell_delta').val()) || undefined,
-            call_buy_delta: parseFloat($('#call_buy_delta').val()) || undefined
-        }
+        delta_list: deltaList,
+        strategy_params: strategyParams
     };
 }
 
 // 获取 Delta 列表
 function getDeltaList() {
+    const deltaInputs = ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta'];
     const deltas = [];
-    // 假设有多个输入框，ID 为 delta_input_1, delta_input_2, ...
-    $('.delta-input').each(function() {
-        const value = parseFloat($(this).val());
+    
+    deltaInputs.forEach(id => {
+        const value = parseFloat($(`#${id}`).val());
         if (!isNaN(value)) {
             deltas.push(value);
         }
     });
-    return deltas;
+    
+    return deltas;  // 返回数组格式
 }
 
 // 生成默认方案名称
 function generateDefaultSchemeName() {
-    const etfCode = $('#etf_code').val();
-    const deltaList = getDeltaList().join(','); // 确保 getDeltaList 返回一个数组
-    const startDate = $('#start_date').val();
-    const endDate = $('#end_date').val();
+    const etfCode = $('#etf_code').val() || '';
+    const deltaList = getDeltaList();
+    const startDate = $('#start_date').val()?.replace(/-/g, '') || '';
+    const endDate = $('#end_date').val()?.replace(/-/g, '') || '';
     
-    return `${etfCode}_${deltaList}_${startDate}_${endDate}`;
+    let name = etfCode || '方案';
+    if (deltaList.length > 0) {
+        name += `_${deltaList.join(',')}`;
+    }
+    if (startDate) {
+        name += `_${startDate}`;
+    }
+    if (endDate) {
+        name += `_${endDate}`;
+    }
+    
+    return name;
 }
 
 // 在保存方案的逻辑中
@@ -558,4 +579,42 @@ function checkIfSchemeExists(schemeName) {
             }
         });
     });
+}
+
+// 修改 fillBacktestForm 函数
+function fillBacktestForm(params) {
+    // 基础参数填充
+    $('#etf_code').val(params.etf_code || '');
+    $('#start_date').val(params.start_date || '');
+    $('#end_date').val(params.end_date || '');
+    
+    // 清空所有 Delta 输入框
+    ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta'].forEach(id => {
+        $(`#${id}`).val('');
+    });
+    
+    // 优先使用 delta_list
+    if (params.delta_list) {
+        const deltaInputs = ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta'];
+        const deltaValues = Array.isArray(params.delta_list) ? 
+            params.delta_list : 
+            JSON.parse(JSON.stringify(params.delta_list));
+            
+        deltaValues.forEach((delta, index) => {
+            if (index < deltaInputs.length && delta !== null && !isNaN(delta)) {
+                $(`#${deltaInputs[index]}`).val(delta);
+            }
+        });
+    }
+    // 如果没有 delta_list 但有 strategy_params，则使用 strategy_params
+    else if (params.strategy_params) {
+        Object.entries(params.strategy_params).forEach(([key, value]) => {
+            if (value !== null && !isNaN(value)) {
+                $(`#${key}`).val(value);
+            }
+        });
+    }
+    
+    // 触发策略检测
+    detectStrategy();
 } 

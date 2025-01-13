@@ -30,11 +30,31 @@ def get_scheme(scheme_id):
             'status': 'error',
             'message': '方案不存在'
         }), 404
+    
+    try:
+        # 解析存储的JSON字符串
+        params = json.loads(scheme['params']) if scheme['params'] else {}
+        backtest_results = json.loads(scheme['results']) if scheme['results'] else {}
         
-    return jsonify({
-        'status': 'success',
-        'scheme': scheme
-    })
+        # 构建参数对象，使用get方法安全地获取可选参数
+        formatted_params = {
+            'etf_code': params.get('etf_code', ''),  # 提供默认值
+            'start_date': params.get('start_date', ''),
+            'end_date': params.get('end_date', ''),
+            'delta_list': params.get('delta_list', [])  # 默认空列表
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'params': formatted_params,
+            'backtest_results': backtest_results
+        })
+    except json.JSONDecodeError as e:
+        log_error(e, "解析方案数据时发生错误")
+        return jsonify({
+            'status': 'error',
+            'message': '方案数据格式错误'
+        }), 500
 
 @scheme_bp.route('/api/schemes', methods=['POST'])
 @api_error_handler

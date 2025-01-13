@@ -62,21 +62,67 @@ def run_backtest():
         return jsonify({'error': str(e)}), 400
 
 def update_scheme(scheme_id, params, results):
-    # 更新已有方案的逻辑
-    scheme_db.update_scheme(scheme_id, params=json.dumps(params), results=json.dumps(results))
+    """更新方案时的数据处理"""
+    # 确保参数格式统一
+    formatted_params = {
+        'etf_code': params.get('etf_code'),
+        'start_date': params.get('start_date'),
+        'end_date': params.get('end_date'),
+        'delta_list': params.get('delta_list', []),  # 确保包含 delta_list
+        'strategy_params': params.get('strategy_params', {})  # 保存策略参数
+    }
+    
+    # 移除空值，但保留空列表
+    formatted_params = {k: v for k, v in formatted_params.items() 
+                       if v is not None and (not isinstance(v, (list, dict)) or v)}
+    
+    # 处理日期时间对象
+    for key, value in formatted_params.items():
+        if isinstance(value, datetime):
+            formatted_params[key] = value.strftime('%Y-%m-%d')
+    
+    # 更新方案
+    scheme_db.update_scheme(
+        scheme_id,
+        params=json.dumps(formatted_params, ensure_ascii=False),
+        results=json.dumps(results, ensure_ascii=False)
+    )
 
 def create_scheme(name, params, results):
-    # 创建新方案的逻辑
-    # 遍历 params 和 results，转换所有 Timestamp 对象
-    for key, value in params.items():
-        if isinstance(value, datetime):
-            params[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+    """创建新方案时的数据处理"""
+    # 确保参数格式统一
+    formatted_params = {
+        'etf_code': params.get('etf_code'),
+        'start_date': params.get('start_date'),
+        'end_date': params.get('end_date'),
+        'strategy_params': params.get('strategy_params', {}),
+        'delta_list': params.get('delta_list', [])
+    }
     
-    for key, value in results.items():
+    # 如果没有 delta_list 但有 strategy_params，从 strategy_params 构建 delta_list
+    if not formatted_params['delta_list'] and formatted_params['strategy_params']:
+        delta_list = []
+        for key in ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta']:
+            value = formatted_params['strategy_params'].get(key)
+            if value is not None:
+                delta_list.append(value)
+        formatted_params['delta_list'] = delta_list
+    
+    # 移除空值，但保留空列表和字典
+    formatted_params = {k: v for k, v in formatted_params.items() 
+                       if v is not None and (not isinstance(v, (list, dict)) or v)}
+    
+    # 处理日期时间对象
+    for key, value in formatted_params.items():
         if isinstance(value, datetime):
-            results[key] = value.strftime('%Y-%m-%d %H:%M:%S')
-
-    scheme_db.create_scheme(name=name, params=json.dumps(params), results=json.dumps(results))
+            formatted_params[key] = value.strftime('%Y-%m-%d')
+    
+    # 保存方案
+    scheme_db.create_scheme(
+        name=name,
+        params=json.dumps(formatted_params, ensure_ascii=False),
+        results=json.dumps(results, ensure_ascii=False)
+    )
 
 @backtest_bp.route('/save_scheme', methods=['POST'])
 @api_error_handler
@@ -111,13 +157,14 @@ def save_scheme():
     })
 
 def format_backtest_result(result: BacktestResult) -> Dict[str, Any]:
-    """格式化回测结果"""
+    """格式化回测结果，确保返回格式与方案加载时一致"""
     # 转换图表数据
     plots = {}
     if result.plots:
         for plot_name, plot_data in result.plots.items():
             plots[plot_name] = json.dumps(plot_data, cls=plotly.utils.PlotlyJSONEncoder)
 
+    # 构建统一的返回格式
     return {
         'plots': plots,
         'trade_records': format_trade_records(result),
