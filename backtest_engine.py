@@ -284,6 +284,10 @@ class BacktestEngine:
                 if param.end_date < param.start_date:
                     raise ValueError("结束日期不能早于开始日期")
             
+            # 确保 param.end_date 是 datetime 类型
+            if isinstance(param.end_date, str):
+                param.end_date = datetime.strptime(param.end_date, '%Y-%m-%d')
+
             # 加载期权数据
             option_query = """
                 SELECT *, 

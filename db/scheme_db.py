@@ -1,6 +1,9 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 from .database import Database
+from utils.error_handler import log_error
+import sqlite3
+import json
 
 class SchemeDatabase:
     def __init__(self, db_path: str = 'db/backtest_schemes.db'):
@@ -36,13 +39,17 @@ class SchemeDatabase:
         Returns:
             int: 新创建方案的ID
         """
-        now = datetime.now().isoformat()
-        self.db.execute('''
-            INSERT INTO backtest_schemes (name, params, results, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (name, params, results, now, now))
-        
-        return self.db.fetch_one('SELECT last_insert_rowid()')[0]
+        try:
+            now = datetime.now().isoformat()
+            self.db.execute('''
+                INSERT INTO backtest_schemes (name, params, results, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (name, params, results, now, now))
+            
+            return self.db.fetch_one('SELECT last_insert_rowid()')[0]
+        except Exception as e:
+            log_error(e, "创建方案失败")
+            raise
         
     def get_scheme(self, scheme_id: int) -> Optional[Dict]:
         """获取方案详情
@@ -127,3 +134,23 @@ class SchemeDatabase:
         """
         self.db.execute('DELETE FROM backtest_schemes WHERE id = ?', (scheme_id,))
         return True 
+
+
+    def get_scheme_by_name(self, name: str):
+        """根据方案名称获取方案"""
+        row = self.db.fetch_one('''
+            SELECT id, name, params, results, created_at, updated_at
+            FROM backtest_schemes
+            WHERE name = ?
+        ''', (name,))
+        
+        if row:
+            return {
+                'id': row[0],
+                'name': row[1],
+                'params': json.loads(row[2]),
+                'results': json.loads(row[3]),
+                'created_at': row[4],
+                'updated_at': row[5]
+            }
+        return None

@@ -291,3 +291,31 @@ class BacktestParam:
             raise ValueError("CALL策略需要设置买入Delta")
         if params['call_sell_delta'] <= params['call_buy_delta']:
             raise ValueError("CALL策略中卖出Delta必须大于买入Delta")
+
+    # def __init__(self, data):
+    #     # 初始化参数
+    #     self.etf_code = data.get('etf_code', '')
+    #
+    #     # 将日期字符串转换为 datetime 对象
+    #     self.start_date = self._parse_date(data.get('start_date'))
+    #     self.end_date = self._parse_date(data.get('end_date'))
+    #
+    #     self.strategy_params = data.get('strategy_params', {})
+    #
+    #     # 调用 __post_init__ 方法
+    #     self.__post_init__()
+    #
+    # def _parse_date(self, date_str):
+    #     """将日期字符串转换为 datetime 对象"""
+    #     if date_str:
+    #         return datetime.strptime(date_str, '%Y-%m-%d')
+    #     return None
+
+    def to_dict(self):
+        # 返回可序列化的字典
+        return {
+            'etf_code': self.etf_code,
+            'start_date': self.start_date.strftime('%Y-%m-%d'),  # 格式化为只包含日期
+            'end_date': self.end_date.strftime('%Y-%m-%d'),      # 格式化为只包含日期
+            'strategy_params': self.strategy_params
+        }

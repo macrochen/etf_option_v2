@@ -8,8 +8,10 @@ from db.scheme_db import SchemeDatabase
 from db.config import DB_CONFIG
 import json
 import plotly
-import traceback
 from typing import Dict, Any, List
+from datetime import datetime
+from models.scheme_model import SchemeModel
+from utils.error_handler import api_error_handler, log_error
 
 # 创建蓝图
 backtest_bp = Blueprint('backtest', __name__)
@@ -18,59 +20,95 @@ backtest_bp = Blueprint('backtest', __name__)
 scheme_db = SchemeDatabase(DB_CONFIG['backtest_schemes']['path'])
 
 @backtest_bp.route('/api/backtest', methods=['POST'])
+@api_error_handler
 def run_backtest():
-    logger = TradeLogger()
+    data = request.get_json()
+    
+    # 检查是否需要保存方案
+    save_scheme = data.pop('save_scheme', False)
+    scheme_id = data.pop('scheme_id', None)  # 获取方案 ID
+    scheme_name = data.get('scheme_name')  # 获取方案名称
+    
+    # 解析和验证参数
+    params = BacktestParam(data)  # 这里会自动验证参数
+
+    # 创建回测引擎
+    engine = BacktestEngine(BacktestConfig())
+    
+    # 执行回测
+    result = engine.run_backtest(params)
+
+    if not result:
+        error_msg = "回测执行失败，未返回结果"
+        # 注解: 回测执行失败，返回错误信息
+        return jsonify({'error': error_msg}), 400
+
+    # 转换图表为JSON格式
     try:
-        data = request.get_json()
+        response_data = format_backtest_result(result)
         
-        # 检查是否需要保存方案
-        save_scheme = data.pop('save_scheme', False)
-        scheme_name = data.pop('scheme_name', None)
+        # 如果需要保存方案
+        if save_scheme:
+            if scheme_id:  # 更新已有方案
+                update_scheme(scheme_id, params.to_dict(), response_data)
+            else:  # 创建新方案
+                create_scheme(scheme_name, params.to_dict(), response_data)
         
-        # 解析和验证参数
-        params = BacktestParam(data)
-        
-        # 创建回测引擎
-        engine = BacktestEngine(BacktestConfig())
-        
-        # 执行回测
-        result = engine.run_backtest(params)
-
-        if not result:
-            error_msg = "回测执行失败，未返回结果"
-            logger.log_error(error_msg)
-            return jsonify({'error': error_msg}), 400
-
-        # 转换图表为JSON格式
-        try:
-            response_data = format_backtest_result(result)
-            
-            # 如果需要保存方案
-            if save_scheme and scheme_name:
-                try:
-                    scheme_db.create_scheme(
-                        name=scheme_name,
-                        params=json.dumps(data, ensure_ascii=False),
-                        results=json.dumps(response_data, ensure_ascii=False)
-                    )
-                except Exception as e:
-                    logger.log_error(f"保存方案失败: {str(e)}")
-                    # 保存方案失败不影响回测结果返回
-            
-            logger.log_info("回测执行成功，返回结果")
-            return jsonify(response_data)
-
-        except Exception as e:
-            stack_trace = traceback.format_exc()
-            error_msg = f'处理回测结果失败: {str(e)}\n堆栈信息:\n{stack_trace}'
-            logger.log_error(error_msg)
-            return jsonify({'error': str(e)}), 400
+        return jsonify(response_data)
 
     except Exception as e:
-        stack_trace = traceback.format_exc()
-        error_msg = f"回测执行过程中发生未知错误: {str(e)}\n堆栈信息:\n{stack_trace}"
-        logger.log_error(error_msg)
-        return jsonify({'error': str(e)}), 500
+        # 注解: 处理回测结果时发生错误
+        error_msg = log_error(e, "处理回测结果时发生错误")  # 记录错误堆栈信息
+        return jsonify({'error': str(e)}), 400
+
+def update_scheme(scheme_id, params, results):
+    # 更新已有方案的逻辑
+    scheme_db.update_scheme(scheme_id, params=json.dumps(params), results=json.dumps(results))
+
+def create_scheme(name, params, results):
+    # 创建新方案的逻辑
+    # 遍历 params 和 results，转换所有 Timestamp 对象
+    for key, value in params.items():
+        if isinstance(value, datetime):
+            params[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+    
+    for key, value in results.items():
+        if isinstance(value, datetime):
+            results[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+
+    scheme_db.create_scheme(name=name, params=json.dumps(params), results=json.dumps(results))
+
+@backtest_bp.route('/save_scheme', methods=['POST'])
+@api_error_handler
+def save_scheme():
+    """保存方案"""
+    data = request.json
+    
+    # 验证输入数据
+    if not data or 'scheme_name' not in data or 'params' not in data:
+        return jsonify({'status': 'error', 'message': '缺少必要参数'}), 400
+        
+    scheme_name = data['scheme_name']
+    params = data['params']
+    
+    # 检查方案名称是否已存在
+    if SchemeModel.check_scheme_exists(scheme_name):
+        return jsonify({
+            'status': 'error',
+            'message': f'方案"{scheme_name}"已存在，请选择其他名称'
+        }), 400
+        
+    # 保存方案
+    SchemeModel.save_scheme({
+        'name': scheme_name,
+        'params': params,
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    })
+    
+    return jsonify({
+        'status': 'success',
+        'message': '方案保存成功'
+    })
 
 def format_backtest_result(result: BacktestResult) -> Dict[str, Any]:
     """格式化回测结果"""

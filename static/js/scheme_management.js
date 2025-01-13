@@ -28,21 +28,24 @@ function generateSchemeName() {
     const etfCode = $('#etf_code').val();
     const startDate = $('#start_date').val()?.replace(/-/g, '');
     const endDate = $('#end_date').val()?.replace(/-/g, '');
-    const deltaList = getDeltaList();
     
-    const schemeName = `${etfCode}_${deltaList}_${startDate}_${endDate}`;
-    $('#schemeName').val(schemeName);
-}
-
-// 获取Delta列表
-function getDeltaList() {
+    // 获取Delta值列表
     const deltas = [];
     ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta'].forEach(id => {
         const value = $(`#${id}`).val();
         if (value) deltas.push(value);
     });
-    return deltas.join(',');
+    const deltaList = deltas.join(',');
+    
+    // 严格按照文档格式生成方案名称
+    let name = etfCode || '方案';
+    if (deltaList) name += `_${deltaList}`;
+    if (startDate) name += `_${startDate}`;
+    if (endDate) name += `_${endDate}`;
+    
+    $('#schemeName').val(name);
 }
+
 
 // 初始化方案管理模态框
 function initSchemeModal() {

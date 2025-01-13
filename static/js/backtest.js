@@ -191,7 +191,7 @@ function updateValidationUI(validation) {
     }
 }
 
-// 初始化表单验证
+
 function initializeFormValidation() {
     $('#backtest-form').on('submit', function(e) {
         e.preventDefault();
@@ -202,73 +202,56 @@ function initializeFormValidation() {
         
         // 获取方案保存相关参数
         const saveScheme = $('#saveScheme').is(':checked');
+        const schemeId = $('#schemeId').val(); // 获取方案 ID
         const schemeName = saveScheme ? $('#schemeName').val() : null;
         
-        const validation = validateDeltaInputs();
-        updateValidationUI(validation);
-        
-        if (!validation.isValid) {
+        // 验证方案名称
+        if (saveScheme && !schemeName) {
+            showError('请输入方案名称');
+            $('.loading').hide();
             return false;
         }
         
-        // 验证日期
-        const startDate = new Date($('#start_date').val());
-        const endDate = new Date($('#end_date').val());
-        
-        if (startDate >= endDate) {
-            showError('结束日期必须晚于开始日期');
-            return false;
-        }
-        
-        // 验证是否选择了至少一组完整的策略
-        if (isNaN(putSellDelta) && isNaN(callSellDelta)) {
-            showError('请至少设置一个有效的期权策略');
-            return false;
-        }
+        // 构建请求数据
+        const requestData = {
+            etf_code: $('#etf_code').val(),
+            start_date: $('#start_date').val() || undefined,
+            end_date: $('#end_date').val() || undefined,
+            strategy_params: {
+                put_sell_delta: parseFloat($('#put_sell_delta').val()) || undefined,
+                put_buy_delta: parseFloat($('#put_buy_delta').val()) || undefined,
+                call_sell_delta: parseFloat($('#call_sell_delta').val()) || undefined,
+                call_buy_delta: parseFloat($('#call_buy_delta').val()) || undefined
+            },
+            save_scheme: saveScheme,  // 添加保存方案标志
+            scheme_name: schemeName,   // 添加方案名称
+            scheme_id: schemeId        // 添加方案 ID
+        };
         
         // 发送回测请求
         $.ajax({
             url: '/api/backtest',
             method: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({
-                etf_code: $('#etf_code').val(),
-                start_date: $('#start_date').val() || undefined,
-                end_date: $('#end_date').val() || undefined,
-                strategy_params: {
-                    put_sell_delta: parseFloat($('#put_sell_delta').val()) || undefined,
-                    put_buy_delta: parseFloat($('#put_buy_delta').val()) || undefined,
-                    call_sell_delta: parseFloat($('#call_sell_delta').val()) || undefined,
-                    call_buy_delta: parseFloat($('#call_buy_delta').val()) || undefined
-                },
-                save_scheme: saveScheme,
-                scheme_name: schemeName
-            }),
+            data: JSON.stringify(requestData),
             success: function(response) {
-                console.log('收到回测响应:', response);
                 if (response.error) {
                     showError(response.error);
-                    $('.loading').hide();
                     return;
                 }
+                
                 // 如果保存方案成功，显示提示
                 if (saveScheme && schemeName) {
                     showSuccess('方案保存成功！');
                 }
-                $('.loading').hide();
-                try {
-                    displayResults(response);
-                } catch (error) {
-                    console.error('显示结果时出错:', error);
-                    showError('显示回测结果时出错: ' + error.message);
-                }
+                
+                // 处理回测结果
+                displayResults(response);
             },
-            error: function(xhr, status, error) {
-                console.error('Ajax request failed:', status, error);
-                alert('回测执行失败，请重试');
+            error: function(xhr) {
+                showError('请求失败: ' + xhr.statusText);
             },
             complete: function() {
-                // 隐藏加载动画
                 $('.loading').hide();
             }
         });
@@ -484,4 +467,95 @@ function showSuccess(message) {
     setTimeout(() => {
         alertDiv.alert('close');
     }, 3000);
+}
+
+
+// 获取完整的方案参数
+function getSchemeParams() {
+    return {
+        etf_code: $('#etf_code').val(),
+        start_date: $('#start_date').val(),
+        end_date: $('#end_date').val(),
+        delta_list: getDeltaList(),
+        strategy_params: {
+            put_sell_delta: parseFloat($('#put_sell_delta').val()) || undefined,
+            put_buy_delta: parseFloat($('#put_buy_delta').val()) || undefined,
+            call_sell_delta: parseFloat($('#call_sell_delta').val()) || undefined,
+            call_buy_delta: parseFloat($('#call_buy_delta').val()) || undefined
+        }
+    };
+}
+
+// 获取 Delta 列表
+function getDeltaList() {
+    const deltas = [];
+    // 假设有多个输入框，ID 为 delta_input_1, delta_input_2, ...
+    $('.delta-input').each(function() {
+        const value = parseFloat($(this).val());
+        if (!isNaN(value)) {
+            deltas.push(value);
+        }
+    });
+    return deltas;
+}
+
+// 生成默认方案名称
+function generateDefaultSchemeName() {
+    const etfCode = $('#etf_code').val();
+    const deltaList = getDeltaList().join(','); // 确保 getDeltaList 返回一个数组
+    const startDate = $('#start_date').val();
+    const endDate = $('#end_date').val();
+    
+    return `${etfCode}_${deltaList}_${startDate}_${endDate}`;
+}
+
+// 在保存方案的逻辑中
+$('#saveScheme').on('change', function() {
+    const saveScheme = $(this).is(':checked');
+
+    if (saveScheme) {
+        // 生成默认方案名称
+        const schemeName = generateDefaultSchemeName(); // 生成默认方案名称
+
+        // 显示输入弹窗
+        const userInput = prompt("请输入方案名称:", schemeName);
+        if (userInput === null) {
+            $(this).prop('checked', false); // 用户取消，取消勾选
+            return;
+        }
+
+        // 检查当前方案名称是否已存在
+        checkIfSchemeExists(userInput).then(response => {
+            if (response.status === 'exists') {
+                // 提示用户是否覆盖已有方案
+                if (confirm(`方案"${userInput}"已存在，是否覆盖原有的回测结果？`)) {
+                    // 保存方案 ID 以便在执行回测时使用
+                    $('#schemeId').val(response.existing_scheme_id); // 假设在 HTML 中有一个隐藏的输入框
+                    $('#schemeName').val(userInput); // 更新输入框
+                } else {
+                    $(this).prop('checked', false); // 用户选择不覆盖，取消勾选
+                }
+            } else {
+                $('#schemeName').val(userInput); // 更新输入框
+            }
+        });
+    }
+});
+
+// 检查方案名称是否已存在
+function checkIfSchemeExists(schemeName) {
+    return new Promise((resolve, reject) => {
+        $.ajax({
+            url: '/api/schemes/check_exists', // 假设的 API 路径
+            method: 'POST',
+            data: JSON.stringify({ name: schemeName }),
+            contentType: 'application/json',
+            success: function(response) {
+                resolve(response); // 确保解析为响应
+            },
+            error: function(err) {
+                reject(err); // 处理错误
+            }
+        });
+    });
 } 
