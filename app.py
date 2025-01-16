@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 from datetime import datetime
 from routes.scheme_routes import scheme_bp
 from routes.backtest_routes import backtest_bp
+from routes.volatility_routes import volatility_bp
 
 
 app = Flask(__name__)
@@ -9,6 +10,7 @@ app = Flask(__name__)
 # 注册蓝图
 app.register_blueprint(scheme_bp)
 app.register_blueprint(backtest_bp)
+app.register_blueprint(volatility_bp)
 
 # ETF选项列表
 ETF_OPTIONS = [

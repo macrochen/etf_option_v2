@@ -1,12 +1,14 @@
 from datetime import datetime
 from typing import Dict, List, Optional
+
+from .config import BACKTEST_SCHEMES_DB
 from .database import Database
 from utils.error_handler import log_error
 import sqlite3
 import json
 
 class SchemeDatabase:
-    def __init__(self, db_path: str = 'db/backtest_schemes.db'):
+    def __init__(self, db_path: str = BACKTEST_SCHEMES_DB):
         """初始化方案数据库
         
         Args:

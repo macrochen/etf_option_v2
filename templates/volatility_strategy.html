@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h4 class="mb-4 text-center">期权波动率策略回测系统</h4>
+            
+            <!-- ETF选择 -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">ETF标的物</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col">
+                            <select class="form-select" id="etf_code">
+                                {% for etf in etf_options %}
+                                <option value="{{ etf.value }}">{{ etf.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 波动率统计图表 -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">历史波动率数据</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-12">
+                            <div id="volatilityCharts" style="width: 100%; min-width: 1200px; overflow-x: auto;">
+                                <div id="volatility_boxplot" style="height: 400px;"></div>
+                                <div class="row mt-4">
+                                    <div class="col-md-6">
+                                        <div id="downward_volatility_dist" style="height: 400px;"></div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div id="upward_volatility_dist" style="height: 400px;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 推荐参数设置 -->
+            <div class="alert alert-info">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="alert-heading">PUT期权波动率范围：</h6>
+                        <div id="put_vol_range"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="alert-heading">CALL期权波动率范围：</h6>
+                        <div id="call_vol_range"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 波动率参数设置 -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h5 class="card-title mb-0">PUT期权策略</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">卖出波动率</label>
+                                <div class="input-group">
+                                    <input type="number" 
+                                           class="form-control volatility-input" 
+                                           id="sell_put_vol_input" 
+                                           step="0.1" 
+                                           min="0" 
+                                           max="100"
+                                           placeholder="输入0-100之间的值">
+                                    <span class="input-group-text">%</span>
+                                    <button class="btn btn-outline-secondary dropdown-toggle" 
+                                            type="button" 
+                                            data-bs-toggle="dropdown" 
+                                            aria-expanded="false">
+                                        分位数
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end" id="sell_put_vol_options">
+                                        <!-- 动态填充 -->
+                                    </ul>
+                                </div>
+                                <div class="form-text">可直接输入或从分位数中选择</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">买入波动率</label>
+                                <div class="input-group">
+                                    <input type="number" 
+                                           class="form-control volatility-input" 
+                                           id="buy_put_vol_input" 
+                                           step="0.1" 
+                                           min="0" 
+                                           max="100"
+                                           placeholder="输入0-100之间的值">
+                                    <span class="input-group-text">%</span>
+                                    <button class="btn btn-outline-secondary dropdown-toggle" 
+                                            type="button" 
+                                            data-bs-toggle="dropdown" 
+                                            aria-expanded="false">
+                                        分位数
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end" id="buy_put_vol_options">
+                                        <!-- 动态填充 -->
+                                    </ul>
+                                </div>
+                                <div class="form-text">可直接输入或从分位数中选择</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h5 class="card-title mb-0">CALL期权策略</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">卖出波动率</label>
+                                <div class="input-group">
+                                    <input type="number" 
+                                           class="form-control volatility-input" 
+                                           id="sell_call_vol_input" 
+                                           step="0.1" 
+                                           min="0" 
+                                           max="100"
+                                           placeholder="输入0-100之间的值">
+                                    <span class="input-group-text">%</span>
+                                    <button class="btn btn-outline-secondary dropdown-toggle" 
+                                            type="button" 
+                                            data-bs-toggle="dropdown" 
+                                            aria-expanded="false">
+                                        分位数
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end" id="sell_call_vol_options">
+                                        <!-- 动态填充 -->
+                                    </ul>
+                                </div>
+                                <div class="form-text">可直接输入或从分位数中选择</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">买入波动率</label>
+                                <div class="input-group">
+                                    <input type="number" 
+                                           class="form-control volatility-input" 
+                                           id="buy_call_vol_input" 
+                                           step="0.1" 
+                                           min="0" 
+                                           max="100"
+                                           placeholder="输入0-100之间的值">
+                                    <span class="input-group-text">%</span>
+                                    <button class="btn btn-outline-secondary dropdown-toggle" 
+                                            type="button" 
+                                            data-bs-toggle="dropdown" 
+                                            aria-expanded="false">
+                                        分位数
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end" id="buy_call_vol_options">
+                                        <!-- 动态填充 -->
+                                    </ul>
+                                </div>
+                                <div class="form-text">可直接输入或从分位数中选择</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 回测周期设置 -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">回测周期设置</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-5">
+                            <label class="form-label">开始日期</label>
+                            <input type="date" class="form-control" id="start_date">
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label">结束日期</label>
+                            <input type="date" class="form-control" id="end_date">
+                        </div>
+                    </div>
+                    <div class="row align-items-center">
+                        <div class="col-8">
+                            <div class="btn-group" style="width: 400px;">
+                                <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="1M">近1月</button>&nbsp;&nbsp;
+                                <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="3M">近3月</button>&nbsp;&nbsp;
+                                <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="6M">近6月</button>&nbsp;&nbsp;
+                                <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="1Y">近1年</button>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="input-group">
+                                <div class="input-group-text">
+                                    <input class="form-check-input mt-0" type="checkbox" id="save_scheme">
+                                </div>
+                                <input type="text" class="form-control" id="scheme_name" placeholder="回测方案名称" readonly>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 回测按钮 -->
+            <div class="text-center mb-4">
+                <button type="button" class="btn btn-primary" id="run_backtest">执行回测</button>
+            </div>
+
+            <!-- 回测结果 -->
+            <div id="backtest_results" style="display: none;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 引入相关JS文件 -->
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/volatility_strategy.js') }}"></script>
+{% endblock %}
+{% endblock %}
