@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 import pandas as pd
 from .base import OptionStrategy
+from .option_selector import DeltaOptionSelector
 from .types import OptionType, OptionPosition, TradeResult, PortfolioValue, PriceConditions
 import traceback
 
@@ -27,19 +28,20 @@ class WheelStrategy(OptionStrategy):
     """
     
     def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data)
+        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
         self.has_stock = False  # 是否持有标的资产
         self.stock_position = 0  # 持有的标的数量
         self.stock_cost = 0     # 标的持仓成本
     
-    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[Optional[pd.DataFrame], None]:
+    def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[Optional[pd.DataFrame], None]:
         """选择合适的期权合约"""
         # 根据当前阶段选择期权类型
         option_type = OptionType.CALL if self.has_stock else OptionType.PUT
         
         # 选择delta=0.5的期权
-        selected_options = self.find_options_by_delta(
+        selected_options = self.find_best_options(
             current_options,
+            current_price,
             0.5 if self.has_stock else -0.5,  # 应该配置为0.5
             option_type,
             expiry
@@ -105,7 +107,7 @@ class WheelStrategy(OptionStrategy):
         current_options = option_data[option_data['日期'] == current_date]
         
         # 选择合适的期权
-        sell_option, _ = self._select_options(current_options, expiry)
+        sell_option, _ = self._select_options(current_options, current_etf_price, expiry)
         if sell_option is None:
             return None
             

@@ -3,6 +3,8 @@ from typing import Dict, Any, Optional, Tuple, List
 import pandas as pd
 from datetime import datetime
 import numpy as np
+
+from strategies.option_selector import OptionSelector
 from .types import OptionType, PositionConfig, OptionPosition, TradeResult, PortfolioValue, TradeRecord, PriceConditions
 from utils import get_monthly_expiry, get_next_monthly_expiry
 import logging
@@ -23,13 +25,15 @@ class CloseType(Enum):
 class OptionStrategy(ABC):
     """期权策略抽象基类"""
     
-    def __init__(self, config: PositionConfig, option_data, etf_data):
+    def __init__(self, config: PositionConfig, option_data, etf_data, option_selector: OptionSelector):
         self.config = config
         self.positions: Dict[str, OptionPosition] = {}  # 当前持仓
         self.trades: Dict[datetime, List[TradeRecord]] = {}  # 交易记录
         self.cash: float = 0                           # 现金余额
         self.option_data = option_data                 # 期权数据，将在加载数据时设置
         self.etf_data = etf_data                      # ETF数据，将在加载数据时设置
+
+        self.option_selector = option_selector
         
         # 初始化logger
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -150,60 +154,7 @@ class OptionStrategy(ABC):
                 record.total_pnl = details.total_pnl
                 record.total_cost = details.total_cost
             self.trades[date].append(record)
-    
-    def find_best_strike(self, options: pd.DataFrame, 
-                        target_delta: float, 
-                        option_type: OptionType) -> Tuple[float, str]:
-        """找到最接近目标Delta的期权
-        
-        Args:
-            options: 期权数据
-            target_delta: 目标Delta值
-            option_type: 期权类型
-            
-        Returns:
-            Tuple[float, str]: (行权价, 合约代码)
-            
-        Raises:
-            ValueError: 如果找不到合适的期权
-        """
-        # 首先移除Delta为NaN的行
-        options = options.dropna(subset=['Delta'])
-        
-        if options.empty:
-            error_msg = (
-                f"没有找到有效的期权:\n"
-                f"目标Delta: {target_delta}\n"
-                f"期权类型: {option_type.name}\n"
-                f"筛选条件: Delta不为NaN\n"
-            )
-            self.logger.warning(error_msg)
-            return None, None
-        
-        # 确保Delta是数值类型
-        options['Delta'] = pd.to_numeric(options['Delta'], errors='coerce')
-        options = options.dropna(subset=['Delta'])
-        
-        if options.empty:
-            self.logger.warning("转换Delta为数值类型后没有有效数据")
-            return None, None
-        
-        if option_type == OptionType.CALL:
-            # CALL期权的Delta为正值
-            delta_diff = (options['Delta'] - target_delta).abs()
-        else:  # PUT
-            # PUT期权的Delta为负值，但target_delta已经是负值，所以直接相减
-            delta_diff = (options['Delta'] - target_delta).abs()
-            
-        # 找到差异最小的期权
-        best_idx = delta_diff.idxmin()
-        if pd.isna(best_idx):
-            self.logger.warning("无法找到合适的期权（Delta差异计算结果为NaN）")
-            return None, None
-            
-        best_option = options.loc[best_idx]
-        
-        return best_option['行权价'], best_option['交易代码']
+
     
     def calculate_transaction_cost(self, quantity: int) -> float:
         """计算交易成本"""
@@ -355,31 +306,13 @@ class OptionStrategy(ABC):
         
         return record, pnl, close_cost 
 
-    def find_options_by_delta(self, 
-                             options: pd.DataFrame,
-                             target_delta: float,
-                             option_type: OptionType,
-                             expiry: datetime) -> pd.DataFrame:
-        """查找目标Delta的期权"""
-        # 创建数据副本而不是视图
-        # 根据期权类型选择代码前缀
-        code_prefix = 'P' if option_type == OptionType.PUT else 'C'
-        expiry_code = expiry.strftime('%y%m')
-
-        # 筛选目标月份的期权
-        target_options = options[
-            (options['交易代码'].str.contains(f"{code_prefix}{expiry_code}")) &
-            (options['Delta'].notna())
-            ].copy()
-        
-        if target_options.empty:
-            return target_options
-        
-        # 使用 loc 赋值
-        target_options.loc[:, 'Delta_Diff'] = abs(target_options['Delta'] - target_delta)
-        
-        # 按Delta差值排序并返回最接近的
-        return target_options.sort_values('Delta_Diff')
+    def find_best_options(self,
+                          options: pd.DataFrame,
+                          current_price:float,
+                          target_delta: float,
+                          option_type: OptionType,
+                          expiry: datetime) -> pd.DataFrame:
+        return self.option_selector.find_best_options(options, current_price, target_delta, option_type, expiry)
     
     def _create_open_record(self, current_date: datetime, position: OptionPosition, 
                            etf_price: float) -> TradeRecord:
@@ -828,6 +761,7 @@ class OptionStrategy(ABC):
 
     def _select_spread_options(self,
                              current_options: pd.DataFrame,
+                             current_etf_price: float,
                              expiry: datetime,
                              sell_delta: float,
                              buy_delta: float,
@@ -848,8 +782,9 @@ class OptionStrategy(ABC):
             Tuple[pd.DataFrame, pd.DataFrame]: 卖出期权和买入期权
         """
         # 选择卖出期权
-        sell_options = self.find_options_by_delta(
+        sell_options = self.find_best_options(
             current_options,
+            current_etf_price,
             sell_delta,
             option_type,
             expiry
@@ -869,8 +804,9 @@ class OptionStrategy(ABC):
             filtered_options = current_options[current_options['行权价'] < sell_option['行权价']]
         
         # 选择买入期权
-        buy_options = self.find_options_by_delta(
+        buy_options = self.find_best_options(
             filtered_options,
+            current_etf_price,
             buy_delta,
             option_type,
             expiry

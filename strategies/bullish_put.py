@@ -6,6 +6,7 @@ from pandas import DataFrame
 
 from . import TradeResult
 from .base import OptionStrategy, SpreadDirection
+from .option_selector import DeltaOptionSelector
 from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord, OptionPosition, PriceConditions
 
 
@@ -24,13 +25,14 @@ class BullishPutStrategy(OptionStrategy):
     """
     
     def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data)
+        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
     
-    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[
+    def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[
         Optional[DataFrame], Optional[DataFrame]]:
         """选择合适的期权合约"""
         return self._select_spread_options(
             current_options=current_options,
+            current_etf_price=current_price,
             expiry=expiry,
             sell_delta=self.config.sell_delta,
             buy_delta=self.config.buy_delta,
@@ -58,7 +60,7 @@ class BullishPutStrategy(OptionStrategy):
         current_options = option_data[option_data['日期'] == current_date]
         
         # 选择合适的期权对
-        sell_option, buy_option = self._select_options(current_options, expiry)
+        sell_option, buy_option = self._select_options(current_options, current_etf_price, expiry)
         if sell_option is None or buy_option is None:
             return None
             

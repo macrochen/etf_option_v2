@@ -36,6 +36,13 @@ class PositionConfig:
                  put_buy_delta: Optional[float] = None,
                  call_sell_delta: Optional[float] = None,
                  call_buy_delta: Optional[float] = None,
+                 # 新增波动率参数
+                 sell_volatility: Optional[float] = None,
+                 buy_volatility: Optional[float] = None,
+                 put_sell_volatility: Optional[float] = None,
+                 put_buy_volatility: Optional[float] = None,
+                 call_sell_volatility: Optional[float] = None,
+                 call_buy_volatility: Optional[float] = None,
                  contract_multiplier: int = 10000,
                  margin_ratio: float = 0.1,
                  stop_loss_ratio: float = 0.5,
@@ -52,6 +59,14 @@ class PositionConfig:
         self.put_buy_delta = put_buy_delta or buy_delta
         self.call_sell_delta = call_sell_delta or sell_delta
         self.call_buy_delta = call_buy_delta or buy_delta
+        
+        # 新增波动率参数
+        self.sell_volatility = sell_volatility
+        self.buy_volatility = buy_volatility
+        self.put_sell_volatility = put_sell_volatility or sell_volatility
+        self.put_buy_volatility = put_buy_volatility or buy_volatility
+        self.call_sell_volatility = call_sell_volatility or sell_volatility
+        self.call_buy_volatility = call_buy_volatility or buy_volatility
         
         self.contract_multiplier = contract_multiplier
         self.margin_ratio = margin_ratio

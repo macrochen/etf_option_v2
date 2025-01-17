@@ -4,6 +4,7 @@ from datetime import datetime
 
 from . import TradeResult
 from .base import OptionStrategy
+from .option_selector import DeltaOptionSelector
 from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord, OptionPosition, PriceConditions
 
 
@@ -22,17 +23,18 @@ class NakedPutStrategy(OptionStrategy):
     """
     
     def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data)
+        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
     
-    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[Dict, None]:
+    def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[Dict, None]:
         """选择合适的期权合约
         
         策略逻辑：
         1. 卖出目标Delta的看跌期权（例如：-0.3）
         """
         # 选择PUT
-        sell_options = self.find_options_by_delta(
+        sell_options = self.find_best_options(
             current_options,
+            current_price,
             self.config.sell_delta,
             OptionType.PUT,
             expiry
@@ -64,7 +66,7 @@ class NakedPutStrategy(OptionStrategy):
         current_options = option_data[option_data['日期'] == current_date]
         
         # 选择合适的期权
-        sell_option, _ = self._select_options(current_options, expiry)
+        sell_option, _ = self._select_options(current_options, current_etf_price, expiry)
         if sell_option is None:
             return None
             

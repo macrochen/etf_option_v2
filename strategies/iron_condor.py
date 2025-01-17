@@ -5,6 +5,7 @@ from datetime import datetime
 from pandas import DataFrame
 
 from .base import OptionStrategy, SpreadDirection
+from .option_selector import DeltaOptionSelector
 from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord, OptionPosition, PriceConditions
 
 class IronCondorStrategy(OptionStrategy):
@@ -26,14 +27,15 @@ class IronCondorStrategy(OptionStrategy):
     """
     
     def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data)
+        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
     
-    def _select_options(self, current_options: pd.DataFrame, expiry: datetime) -> Tuple[
+    def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[
         Optional[DataFrame], Optional[DataFrame], Optional[DataFrame], Optional[DataFrame]]:
         """选择合适的期权合约"""
         # 选择PUT组合
         put_sell, put_buy = self._select_spread_options(
             current_options=current_options,
+            current_etf_price=current_price,
             expiry=expiry,
             sell_delta=self.config.put_sell_delta,
             buy_delta=self.config.put_buy_delta,
@@ -44,6 +46,7 @@ class IronCondorStrategy(OptionStrategy):
         # 选择CALL组合
         call_sell, call_buy = self._select_spread_options(
             current_options=current_options,
+            current_etf_price=current_price,
             expiry=expiry,
             sell_delta=self.config.call_sell_delta,
             buy_delta=self.config.call_buy_delta,
@@ -73,7 +76,7 @@ class IronCondorStrategy(OptionStrategy):
             return None
         
         # 选择期权合约
-        put_sell, put_buy, call_sell, call_buy = self._select_options(option_data, expiry)
+        put_sell, put_buy, call_sell, call_buy = self._select_options(option_data, current_etf_price, expiry)
         if any(x is None for x in [put_sell, put_buy, call_sell, call_buy]):
             return None
         
