@@ -16,7 +16,8 @@ class StrategyType(str, Enum):
     IRON_CONDOR = 'iron_condor'      # 铁鹰
     NAKED_PUT = 'naked_put'          # 单腿卖出看跌
     WHEEL = "wheel"                  # 轮式策略
-    VOLATILITY = "volatility"        # 波动率策略
+    VOLATILITY_BULLISH_PUT = "volatility_bullish_put"        # 波动率策略
+    VOLATILITY_BEARISH_CALL = "volatility_bearish_call"        # 波动率策略
 
 @dataclass
 class PositionConfig:

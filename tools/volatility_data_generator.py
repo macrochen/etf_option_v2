@@ -106,7 +106,7 @@ class VolatilityDataGenerator:
             }
         }
 
-    def calculate_volatility_stats(self, symbol):
+    def calculate_volatility_stats(self, etf_code):
         """计算波动率统计数据"""
         try:
             # 获取历史数据
@@ -117,11 +117,11 @@ class VolatilityDataGenerator:
                     FROM etf_daily 
                     WHERE etf_code = ? 
                     ORDER BY date
-                """, (symbol,))
+                """, (etf_code,))
                 data = cursor.fetchall()
 
             if not data:
-                raise ValueError(f"未找到{symbol}的历史数据")
+                raise ValueError(f"未找到{etf_code}的历史数据")
 
             # 转换为DataFrame
             df = pd.DataFrame(data, columns=['date', 'close'])
@@ -243,7 +243,7 @@ class VolatilityDataGenerator:
                     (etf_code, calc_date, stats_data, display_data, start_date, end_date)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (
-                    symbol,
+                    etf_code,
                     calc_date,
                     stats_json,
                     display_json,

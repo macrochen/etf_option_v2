@@ -218,11 +218,10 @@
                 <button type="button" class="btn btn-primary" id="run_backtest">执行回测</button>
             </div>
 
-            <!-- 回测结果 -->
-            <div id="backtest_results" style="display: none;"></div>
-        </div>
-    </div>
-</div>
+
+            <!-- 引入回测结果组件 -->
+            {% include 'components/backtest_results.html' %}
+
 
 <!-- 引入相关JS文件 -->
 {% block scripts %}

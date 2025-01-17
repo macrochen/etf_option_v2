@@ -23,6 +23,7 @@ $(document).ready(function() {
     };
 
     // 初始化事件处理
+    // 使用 jQuery 的 off().on() 方法确保事件只绑定一次
     bindEvents();
     
     // 初始化图表并加载默认ETF数据
@@ -34,13 +35,13 @@ $(document).ready(function() {
     
     function bindEvents() {
         // ETF选择变更
-        $('#etf_code').change(function() {
+        $('#etf_code').off('change').on('change', function() {
             loadETFData($(this).val());
         });
 
         // 波动率选择按钮点击事件
         ['sell_put', 'buy_put', 'sell_call', 'buy_call'].forEach(type => {
-            $(`#${type}_vol_select`).click(function() {
+            $(`#${type}_vol_select`).off('click').on('click', function() {
                 const stats = type.includes('call') ? 
                     etfData.volatilityStats.upward : 
                     etfData.volatilityStats.downward;
@@ -50,7 +51,7 @@ $(document).ready(function() {
         });
 
         // 波动率选择和输入联动
-        $('#put_volatility_select').change(function() {
+        $('#put_volatility_select').off('change').on('change', function() {
             const stats = etfData.volatilityStats.downward;
             const value = $(this).val();
             if (value) {
@@ -58,7 +59,7 @@ $(document).ready(function() {
             }
         });
 
-        $('#call_volatility_select').change(function() {
+        $('#call_volatility_select').off('change').on('change', function() {
             const stats = etfData.volatilityStats.upward;
             const value = $(this).val();
             if (value) {
@@ -67,7 +68,7 @@ $(document).ready(function() {
         });
 
         // 快捷日期选择
-        $('.btn-group .btn').click(function() {
+        $('.btn-group .btn').off('click').on('click', function() {
             if ($(this).prop('disabled')) return;
             
             const period = $(this).data('period');
@@ -93,45 +94,79 @@ $(document).ready(function() {
             $('#end_date').val(endDate.toISOString().split('T')[0]);
         });
 
-        // 执行回测
-        $('#run_backtest').click(function() {
+        // 回测按钮点击事件
+        $('#run_backtest').off('click').on('click', function() {
+
+            // 显示加载动画
+            $('.loading').show();
+            $('#results').hide();
+
+            const strategy_params = {}
+            
+            // 只在有值时才添加参数
+            const sell_put_vol = $('#sell_put_vol_input').val();
+            const buy_put_vol = $('#buy_put_vol_input').val();
+            const sell_call_vol = $('#sell_call_vol_input').val();
+            const buy_call_vol = $('#buy_call_vol_input').val();
+
+            if (sell_put_vol) {
+                strategy_params.sell_put_volatility = parseFloat(sell_put_vol);
+            }
+            if (buy_put_vol) {
+                strategy_params.buy_put_volatility = parseFloat(buy_put_vol);
+            }
+            if (sell_call_vol) {
+                strategy_params.sell_call_volatility = parseFloat(sell_call_vol);
+            }
+            if (buy_call_vol) {
+                strategy_params.buy_call_volatility = parseFloat(buy_call_vol);
+            }
+
             const params = {
-                symbol: $('#etf_code').val(),
-                put_volatility: [
-                    parseFloat($('#sell_put_vol_input').val()),
-                    parseFloat($('#buy_put_vol_input').val())
-                ],
-                call_volatility: [
-                    parseFloat($('#sell_call_vol_input').val()),
-                    parseFloat($('#buy_call_vol_input').val())
-                ],
+                etf_code: $('#etf_code').val(),
+                strategy_params: strategy_params,
                 start_date: $('#start_date').val(),
                 end_date: $('#end_date').val(),
-                save_scheme: $('#save_scheme').is(':checked')
+//                save_scheme: $('#save_scheme').is(':checked')
             };
 
+            // 发送回测请求
             $.ajax({
                 url: '/api/backtest/volatility',
                 method: 'POST',
-                contentType: 'application/json',
                 data: JSON.stringify(params),
-                success: function(result) {
-                    displayBacktestResults(result);
+                contentType: 'application/json',
+                success: function(response) {
+                    if (response.error) {
+                        showError(response.error);
+                        return;
+                    }
+
+                    // 如果保存方案成功，显示提示
+//                    if (saveScheme && schemeName) {
+//                        showSuccess('方案保存成功！');
+//                    }
+
+                    // 处理回测结果
+                    displayResults(response);
                 },
                 error: function(xhr) {
-                    alert('回测执行失败：' + (xhr.responseJSON ? xhr.responseJSON.error : '未知错误'));
+                    showError('请求失败: ' + xhr.statusText);
+                },
+                complete: function() {
+                    $('.loading').hide();
                 }
             });
         });
 
         // 方案管理
-        $('#manage_scheme').click(function() {
+        $('#manage_scheme').off('click').on('click', function() {
             window.location.href = '/schemes';
         });
     }
 
-    function loadETFData(symbol) {
-        $.get('/api/etf/volatility', { symbol: symbol }, function(data) {
+    function loadETFData(etf_code) {
+        $.get('/api/etf/volatility', { etf_code: etf_code }, function(data) {
             etfData.volatilityStats = data.volatility_stats;
             etfData.tradingRange = data.trading_range;
             
@@ -194,13 +229,13 @@ $(document).ready(function() {
         });
 
         // 绑定点击事件
-        $(`${selector.sell} .dropdown-item`).click(function(e) {
+        $(`${selector.sell} .dropdown-item`).off('click').on('click', function(e) {
             e.preventDefault();
             const value = $(this).data('value');
             $(selector.sellInput).val(value);
         });
 
-        $(`${selector.buy} .dropdown-item`).click(function(e) {
+        $(`${selector.buy} .dropdown-item`).off('click').on('click', function(e) {
             e.preventDefault();
             const value = $(this).data('value');
             $(selector.buyInput).val(value);
@@ -212,7 +247,7 @@ $(document).ready(function() {
             const $input = $(inputSelector);
             
             // 输入验证
-            $input.on('input', function() {
+            $input.off('input').on('input', function() {
                 let value = parseFloat(this.value);
                 if (isNaN(value)) {
                     this.value = '';
@@ -525,6 +560,29 @@ $(document).ready(function() {
                                     fontSize: 10
                                 }
                             }
+                        ]
+                    },
+                    markArea: {
+                        silent: true,
+                        data: [
+                            [{
+                                name: '一个标准差',
+                                xAxis: displayData.distribution.downward.ranges['1std'][0],
+                                itemStyle: {
+                                    color: 'rgba(255, 107, 107, 0.1)'
+                                }
+                            }, {
+                                xAxis: displayData.distribution.downward.ranges['1std'][1]
+                            }],
+                            [{
+                                name: '两个标准差',
+                                xAxis: displayData.distribution.downward.ranges['2std'][0],
+                                itemStyle: {
+                                    color: 'rgba(255, 107, 107, 0.05)'
+                                }
+                            }, {
+                                xAxis: displayData.distribution.downward.ranges['2std'][1]
+                            }]
                         ]
                     }
                 },
@@ -922,73 +980,72 @@ $(document).ready(function() {
             }]
         };
 
-        // 初始化图表
-        const boxPlotChart = echarts.init(document.getElementById('volatility_boxplot'));
-        const upwardVolatilityDistChart = echarts.init(document.getElementById('upward_volatility_dist'));
-        const downwardVolatilityDistChart = echarts.init(document.getElementById('downward_volatility_dist'));
-
         // 设置图表选项
-        boxPlotChart.setOption(boxPlotOption);
+        boxplotChart.setOption(boxPlotOption);
         upwardVolatilityDistChart.setOption(upwardDistOption);
         downwardVolatilityDistChart.setOption(downwardDistOption);
 
         // 监听窗口大小变化，调整图表大小
         window.addEventListener('resize', function() {
-            boxPlotChart.resize();
+            boxplotChart.resize();
             upwardVolatilityDistChart.resize();
             downwardVolatilityDistChart.resize();
         });
     }
 
-    // 窗口大小改变时重绘图表
-    window.addEventListener('resize', function() {
-        if (boxplotChart) {
-            boxplotChart.resize();
-        }
-        if (upwardVolatilityDistChart) {
-            upwardVolatilityDistChart.resize();
-        }
-        if (downwardVolatilityDistChart) {
-            downwardVolatilityDistChart.resize();
-        }
-    });
-
-    // 添加回测按钮事件处理
-    $('#run_backtest').click(function() {
-        const params = {
-            symbol: $('#etf_code').val(),
-            put_volatility: [
-                parseFloat($('#sell_put_vol_input').val()),
-                parseFloat($('#buy_put_vol_input').val())
-            ],
-            call_volatility: [
-                parseFloat($('#sell_call_vol_input').val()),
-                parseFloat($('#buy_call_vol_input').val())
-            ],
-            start_date: $('#start_date').val(),
-            end_date: $('#end_date').val(),
-            save_scheme: $('#save_scheme').is(':checked')
-        };
-
-        $.ajax({
-            url: '/api/backtest/volatility',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify(params),
-            success: function(result) {
-                displayBacktestResults(result);
-            },
-            error: function(xhr) {
-                alert('回测执行失败：' + (xhr.responseJSON ? xhr.responseJSON.error : '未知错误'));
+    function updateTable(tableId, data, allowHtml = false) {
+        try {
+            const table = $(`#${tableId}`);
+            if (!table.length) {
+                throw new Error(`找不到表格: ${tableId}`);
             }
-        });
-    });
-
-    function displayBacktestResults(results) {
-        const resultsDiv = $('#backtest_results');
-        resultsDiv.empty().show();
-
-        // TODO: 实现回测结果展示
-        // 参考backtest.js中的结果展示逻辑
+            
+            // 清空表格内容
+            table.find('tbody').empty();
+            
+            // 如果有表头数据，更新表头
+            if (data.headers) {
+                const headerRow = $('<tr>');
+                data.headers.forEach(header => {
+                    headerRow.append($('<th>').text(header));
+                });
+                table.find('thead').html(headerRow);
+            }
+            
+            // 添加数据行
+            if (data.data) {
+                data.data.forEach(row => {
+                    const tr = $('<tr>');
+                    row.forEach(cell => {
+                        if (allowHtml) {
+                            tr.append($('<td>').html(cell));
+                        } else {
+                            tr.append($('<td>').text(cell));
+                        }
+                    });
+                    table.find('tbody').append(tr);
+                });
+            } else if (Array.isArray(data)) {
+                // 如果直接是数组，就直接添加
+                data.forEach(row => {
+                    const tr = $('<tr>');
+                    row.forEach(cell => {
+                        if (allowHtml) {
+                            tr.append($('<td>').html(cell));
+                        } else {
+                            tr.append($('<td>').text(cell));
+                        }
+                    });
+                    table.find('tbody').append(tr);
+                });
+            }
+        } catch (error) {
+            console.error('更新表格时出错:', {
+                tableId: tableId,
+                error: error,
+                data: data
+            });
+            throw error;
+        }
     }
 });

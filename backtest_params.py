@@ -137,6 +137,17 @@ class DeltaBearishCallBacktestParam(BacktestParam):
         super().__post_init__()
 
 
+class VolatilityBearishCallBacktestParam(BacktestParam):
+    def __init__(self, strategy_type, buy_call_volatility: float, sell_call_volatility: float, **kwargs):
+        super().__init__(**kwargs)
+        self.strategy_type = strategy_type
+        self.buy_call_volatility = self.buy_value = buy_call_volatility
+        self.sell_call_volatility = self.sell_value = sell_call_volatility
+
+    def __post_init__(self):
+        super().__post_init__()
+
+
 class BullishPutBacktestParam(BacktestParam):
     def __init__(self, strategy_type, put_sell_delta: float, put_buy_delta: float, **kwargs):
         super().__init__(**kwargs)
@@ -171,10 +182,20 @@ class BacktestParamFactory:
                                                  start_date=start_date,
                                                  end_date=end_date)
 
+        elif 'buy_call_volatility' in sp and 'sell_call_volatility' in sp:
+            from strategies.types import StrategyType
+            strategy_type = StrategyType.VOLATILITY_BEARISH_CALL
+            return VolatilityBearishCallBacktestParam(strategy_type=strategy_type,
+                                           buy_call_volatility=sp['buy_call_volatility'],
+                                           sell_call_volatility=sp['sell_call_volatility'],
+                                           etf_code=etf_code,
+                                           start_date=start_date,
+                                           end_date=end_date)
+
         elif 'put_sell_delta' in sp and 'put_buy_delta' in sp:
             from strategies.types import StrategyType
             strategy_type = StrategyType.BULLISH_PUT
-            return BullishPutBacktestParam(strategy_type=strategy_type,
+            return VolatilityBearishCallBacktestParam(strategy_type=strategy_type,
                                            put_sell_delta=sp['put_sell_delta'],
                                            put_buy_delta=sp['put_buy_delta'],
                                            etf_code=etf_code,

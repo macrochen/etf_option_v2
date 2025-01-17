@@ -35,7 +35,7 @@ def download_option_data(etf_code, start_date, end_date, output_dir='./'):
         datetime.strptime(end_date, '%Y-%m-%d')
 
         # 获取 ETF 期权交易数据
-        option_data = ak.option_finance_board(symbol=full_etf_code, end_month=end_date[:7])
+        option_data = ak.option_finance_board(etf_code=full_etf_code, end_month=end_date[:7])
         option_data['日期'] = pd.to_datetime(option_data['日期']).dt.strftime('%Y-%m-%d')
 
         if option_data.empty:

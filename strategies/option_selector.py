@@ -81,6 +81,36 @@ class VolatilityOptionSelector(OptionSelector):
                           target_value: float,
                           option_type: OptionType,
                           expiry: datetime) -> pd.DataFrame:
-        """查找最佳的期权组合"""
-        # 选择卖出期权
-        pass
+        """查找最佳的期权
+        
+        Args:
+            options: 当前可用的期权数据
+            current_price: 当前价格
+            target_value: 目标涨跌幅（百分数）
+            option_type: 期权类型（看涨/看跌）
+            expiry: 到期日
+            
+        Returns:
+            pd.DataFrame: 最佳期权组合
+        """
+        # 计算目标行权价
+        target_strike = current_price * (1 + target_value * 0.01)
+        
+        # 根据期权类型选择代码前缀
+        code_prefix = 'P' if option_type == OptionType.PUT else 'C'
+        expiry_code = expiry.strftime('%y%m')
+        
+        # 筛选目标月份的期权
+        target_options = options[
+            (options['交易代码'].str.contains(f"{code_prefix}{expiry_code}")) &
+            (options['行权价'].notna())
+        ].copy()
+        
+        if target_options.empty:
+            return target_options
+            
+        # 计算行权价与目标价格的差值
+        target_options.loc[:, 'Strike_Diff'] = abs(target_options['行权价'] - target_strike)
+        
+        # 按行权价差值排序并返回最接近的
+        return target_options.sort_values('Strike_Diff')

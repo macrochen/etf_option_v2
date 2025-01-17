@@ -37,7 +37,7 @@ class VolatilityStrategy(OptionStrategy):
         # 处理PUT期权
         for i, vol in enumerate(self.put_volatility):
             strike = find_strike_price_by_volatility(
-                self.symbol,
+                self.etf_code,
                 current_price,
                 vol,
                 expiry_date,
@@ -54,7 +54,7 @@ class VolatilityStrategy(OptionStrategy):
         # 处理CALL期权
         for i, vol in enumerate(self.call_volatility):
             strike = find_strike_price_by_volatility(
-                self.symbol,
+                self.etf_code,
                 current_price,
                 vol,
                 expiry_date,

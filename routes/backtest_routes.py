@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify
 from backtest_params import BacktestParam, BacktestConfig, BacktestParamFactory
 from backtest_engine import BacktestEngine
 import backtest_params
-from strategies.types import BacktestResult
+from strategies.types import TradeRecord, PortfolioValue, BacktestResult
+from visualization import format_backtest_result
 from strategy_analyzer import StrategyAnalyzer
 from logger import TradeLogger
 from db.scheme_db import SchemeDatabase
@@ -47,23 +48,17 @@ def run_backtest():
         # 注解: 回测执行失败，返回错误信息
         return jsonify({'error': error_msg}), 400
 
-    # 转换图表为JSON格式
-    try:
-        response_data = format_backtest_result(result)
+    # 格式化结果
+    formatted_result = format_backtest_result(result)
+    
+    # 如果需要保存方案
+    if save_scheme:
+        if scheme_id:  # 更新已有方案
+            update_scheme(scheme_id, params.to_dict(), formatted_result)
+        else:  # 创建新方案
+            create_scheme(scheme_name, params.to_dict(), formatted_result)
         
-        # 如果需要保存方案
-        if save_scheme:
-            if scheme_id:  # 更新已有方案
-                update_scheme(scheme_id, params.to_dict(), response_data)
-            else:  # 创建新方案
-                create_scheme(scheme_name, params.to_dict(), response_data)
-        
-        return jsonify(response_data)
-
-    except Exception as e:
-        # 注解: 处理回测结果时发生错误
-        error_msg = log_error(e, "处理回测结果时发生错误")  # 记录错误堆栈信息
-        return jsonify({'error': str(e)}), 400
+    return jsonify(formatted_result)
 
 def update_scheme(scheme_id, params, results):
     """更新方案时的数据处理"""
@@ -159,82 +154,3 @@ def save_scheme():
         'status': 'success',
         'message': '方案保存成功'
     })
-
-def format_backtest_result(result: BacktestResult) -> Dict[str, Any]:
-    """格式化回测结果，确保返回格式与方案加载时一致"""
-    # 转换图表数据
-    plots = {}
-    if result.plots:
-        for plot_name, plot_data in result.plots.items():
-            plots[plot_name] = json.dumps(plot_data, cls=plotly.utils.PlotlyJSONEncoder)
-
-    # 构建统一的返回格式
-    return {
-        'plots': plots,
-        'trade_records': format_trade_records(result),
-        'trade_summary': format_trade_summary(result),
-        'daily_pnl': format_daily_pnl(result),
-        'strategy_comparison': format_strategy_comparison(result)
-    }
-
-def format_trade_records(result: BacktestResult) -> Dict[str, Any]:
-    """格式化交易记录"""
-    trade_data = []
-    
-    # 获取所有交易记录
-    for date, trades_list in result.trades.items():
-        # 处理当日的每笔交易
-        for trade in trades_list:
-            trade_data.append(trade.to_list())
-    
-    return {
-        'headers': ['日期', '交易类型', 'ETF价格', '行权价', '期权价格', 
-                   '合约数量', '权利金', '交易成本', 'Delta', '实现盈亏'],
-        'data': sorted(trade_data, key=lambda x: x[0])  # 按日期排序
-    }
-
-def format_daily_pnl(result: BacktestResult) -> Dict[str, Any]:
-    """格式化每日盈亏数据"""
-    daily_data = []
-    
-    # 获取每日盈亏数据
-    for date, portfolio in result.portfolio_values.items():
-        daily_data.append([
-            date.strftime('%Y-%m-%d'),
-            f"{portfolio.cash:.2f}",
-            f"{portfolio.option_value:.2f}",
-            f"{portfolio.total_value:.2f}",
-            portfolio.formatted_daily_return
-        ])
-    
-    return {
-        'headers': ['日期', '现金', '期权市值', '总市值', '当日收益率'],
-        'data': sorted(daily_data, key=lambda x: x[0])  # 按日期排序
-    }
-
-def format_strategy_comparison(result: BacktestResult) -> List[List[str]]:
-    """格式化策略对比数据"""
-    return StrategyAnalyzer.generate_comparison_table(result.analysis)
-
-def format_trade_summary(result: BacktestResult) -> Dict[str, Any]:
-    """格式化交易汇总数据"""
-    metrics = result.analysis['trade_metrics']
-    risk_metrics = result.analysis['risk_metrics']
-    
-    data = [
-        ['交易总次数', f"{metrics['total_trades']}次"],
-        ['盈利交易', f"{metrics['winning_trades']}次"],
-        ['亏损交易', f"{metrics['losing_trades']}次"],
-        ['胜率', f"{metrics['win_rate']*100:.2f}%"],
-        ['平均盈利', f"{metrics['avg_win']:.2f}"],
-        ['平均亏损', f"{metrics['avg_loss']:.2f}"],
-        ['最大单笔盈利', f"{metrics['max_win']:.2f}"],
-        ['最大单笔亏损', f"{metrics['max_loss']:.2f}"],
-        ['总交易成本', f"{metrics['total_cost']:.2f}"],
-        ['总实现盈亏', f"{metrics['total_pnl']:.2f}"]
-    ]
-    
-    return {
-        'headers': ['统计项', '数值'],
-        'data': data
-    } 
