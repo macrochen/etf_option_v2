@@ -78,7 +78,7 @@ class DateAnalyzer:
         # 处理每个目录
         for directory in dir_list:
             # 构建完整的目录路径
-            full_path = os.path.join('data', directory)
+            full_path = os.path.join('../data', directory)
             print(f"\n分析目录: {full_path}")
             
             # 获取所有Excel文件

@@ -22,8 +22,8 @@ class NakedPutStrategy(OptionStrategy):
         - 到期日自动平仓
     """
     
-    def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, param, option_data, etf_data):
+        super().__init__(param, option_data, etf_data, DeltaOptionSelector())
     
     def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[Dict, None]:
         """选择合适的期权合约
@@ -35,7 +35,7 @@ class NakedPutStrategy(OptionStrategy):
         sell_options = self.find_best_options(
             current_options,
             current_price,
-            self.config.sell_delta,
+            self.param.sell_delta,
             OptionType.PUT,
             expiry
         )

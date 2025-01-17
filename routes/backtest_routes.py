@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
-from backtest_params import BacktestParam, BacktestConfig
+from backtest_params import BacktestParam, BacktestConfig, BacktestParamFactory
 from backtest_engine import BacktestEngine
+import backtest_params
 from strategies.types import BacktestResult
 from strategy_analyzer import StrategyAnalyzer
 from logger import TradeLogger
@@ -29,8 +30,11 @@ def run_backtest():
     scheme_id = data.pop('scheme_id', None)  # 获取方案 ID
     scheme_name = data.get('scheme_name')  # 获取方案名称
     
+    backtest_config = BacktestConfig()
+
     # 解析和验证参数
-    params = BacktestParam(data)  # 这里会自动验证参数
+    # 可以传递backtest_config参数，以便自定义回测配置
+    params = BacktestParamFactory.create_param(data)  # 这里会自动验证参数
 
     # 创建回测引擎
     engine = BacktestEngine(BacktestConfig())

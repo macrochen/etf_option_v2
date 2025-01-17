@@ -26,8 +26,8 @@ class IronCondorStrategy(OptionStrategy):
         - 触及止损线平仓
     """
     
-    def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, param, option_data, etf_data):
+        super().__init__(param, option_data, etf_data, DeltaOptionSelector())
     
     def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[
         Optional[DataFrame], Optional[DataFrame], Optional[DataFrame], Optional[DataFrame]]:
@@ -37,8 +37,8 @@ class IronCondorStrategy(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_price,
             expiry=expiry,
-            sell_delta=self.config.put_sell_delta,
-            buy_delta=self.config.put_buy_delta,
+            sell_delta=self.param.put_sell_delta,
+            buy_delta=self.param.put_buy_delta,
             option_type=OptionType.PUT,
             higher_buy=False  # 看跌价差买入更低行权价
         )
@@ -48,8 +48,8 @@ class IronCondorStrategy(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_price,
             expiry=expiry,
-            sell_delta=self.config.call_sell_delta,
-            buy_delta=self.config.call_buy_delta,
+            sell_delta=self.param.call_sell_delta,
+            buy_delta=self.param.call_buy_delta,
             option_type=OptionType.CALL,
             higher_buy=True  # 看涨价差买入更高行权价
         )
@@ -147,15 +147,15 @@ class IronCondorStrategy(OptionStrategy):
         call_buy = options[options['交易代码'] == contract_codes[3]].iloc[0]
         
         # 计算买入期权的成本
-        put_buy_cost = put_buy['收盘价'] * self.config.contract_multiplier
-        call_buy_cost = call_buy['收盘价'] * self.config.contract_multiplier
+        put_buy_cost = put_buy['收盘价'] * self.param.contract_multiplier
+        call_buy_cost = call_buy['收盘价'] * self.param.contract_multiplier
         
         # 计算交易成本（4个合约）
-        transaction_cost = self.config.transaction_cost * 4
+        transaction_cost = self.param.transaction_cost * 4
         
         # 计算接货资金需求
-        put_exercise_cost = put_sell['行权价'] * self.config.contract_multiplier
-        call_exercise_cost = call_sell['行权价'] * self.config.contract_multiplier
+        put_exercise_cost = put_sell['行权价'] * self.param.contract_multiplier
+        call_exercise_cost = call_sell['行权价'] * self.param.contract_multiplier
         
         # 计算每组合约的总成本
         cost_per_combo = (

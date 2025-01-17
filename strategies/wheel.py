@@ -27,8 +27,8 @@ class WheelStrategy(OptionStrategy):
     3. CALL期权阶段需要持有足够的标的资产
     """
     
-    def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, param, option_data, etf_data):
+        super().__init__(param, option_data, etf_data, DeltaOptionSelector())
         self.has_stock = False  # 是否持有标的资产
         self.stock_position = 0  # 持有的标的数量
         self.stock_cost = 0     # 标的持仓成本
@@ -75,11 +75,11 @@ class WheelStrategy(OptionStrategy):
         
         if self.has_stock:
             # CALL阶段：根据持有的ETF数量计算
-            quantity = self.stock_position // self.config.contract_multiplier
+            quantity = self.stock_position // self.param.contract_multiplier
             self.logger.debug(
                 f"CALL阶段计算开仓数量:\n"
                 f"持有ETF数量: {self.stock_position}\n"
-                f"合约乘数: {self.config.contract_multiplier}\n"
+                f"合约乘数: {self.param.contract_multiplier}\n"
                 f"可开仓数量: {quantity}"
             )
             return quantity
@@ -121,7 +121,7 @@ class WheelStrategy(OptionStrategy):
             self.logger.debug(
                 f"可用资金不足，无法开仓\n"
                 f"当前现金: {self.cash}\n"
-                f"所需保证金: {sell_option.iloc[0]['行权价'] * self.config.contract_multiplier}"
+                f"所需保证金: {sell_option.iloc[0]['行权价'] * self.param.contract_multiplier}"
             )
             return None
         
@@ -219,10 +219,10 @@ class WheelStrategy(OptionStrategy):
         pnl = 0.0
         total_commission = 0.0
         quantity = abs(position.quantity)
-        total_quantity = quantity * self.config.contract_multiplier
+        total_quantity = quantity * self.param.contract_multiplier
         
         # 计算行权费用
-        exercise_fee = quantity * self.config.exercise_fee
+        exercise_fee = quantity * self.param.exercise_fee
 
         is_exercise = False
         
@@ -231,7 +231,7 @@ class WheelStrategy(OptionStrategy):
             # PUT被行权，买入标的
             # 计算买入成本和手续费
             trade_amount = position.strike * total_quantity
-            etf_commission = trade_amount * self.config.etf_commission_rate
+            etf_commission = trade_amount * self.param.etf_commission_rate
             total_commission = etf_commission + exercise_fee
 
             # 盈亏 = (行权价 - 当前价格) * 数量 + 总手续费
@@ -262,7 +262,7 @@ class WheelStrategy(OptionStrategy):
             # CALL被行权，卖出标的
             # 计算卖出收入和手续费
             trade_amount = position.strike * total_quantity
-            etf_commission = trade_amount * self.config.etf_commission_rate
+            etf_commission = trade_amount * self.param.etf_commission_rate
             total_commission = etf_commission + exercise_fee
 
             # 盈亏 = (当前价格 - 行权价) * 数量 - 总手续费

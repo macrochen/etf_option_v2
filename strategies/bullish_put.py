@@ -24,8 +24,8 @@ class BullishPutStrategy(OptionStrategy):
         - 到期日自动平仓
     """
     
-    def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, param, option_data, etf_data):
+        super().__init__(param, option_data, etf_data, DeltaOptionSelector())
     
     def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[
         Optional[DataFrame], Optional[DataFrame]]:
@@ -34,8 +34,8 @@ class BullishPutStrategy(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_price,
             expiry=expiry,
-            sell_delta=self.config.sell_delta,
-            buy_delta=self.config.buy_delta,
+            sell_delta=self.param.sell_delta,
+            buy_delta=self.param.buy_delta,
             option_type=OptionType.PUT,
             higher_buy=False  # 看跌价差买入更低行权价
         )

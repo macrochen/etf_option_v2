@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 import numpy as np
 
+from backtest_params import BacktestParam
 from strategies.option_selector import OptionSelector
 from .types import OptionType, PositionConfig, OptionPosition, TradeResult, PortfolioValue, TradeRecord, PriceConditions
 from utils import get_monthly_expiry, get_next_monthly_expiry
@@ -25,8 +26,8 @@ class CloseType(Enum):
 class OptionStrategy(ABC):
     """期权策略抽象基类"""
     
-    def __init__(self, config: PositionConfig, option_data, etf_data, option_selector: OptionSelector):
-        self.config = config
+    def __init__(self, param: BacktestParam, option_data, etf_data, option_selector: OptionSelector):
+        self.param = param
         self.positions: Dict[str, OptionPosition] = {}  # 当前持仓
         self.trades: Dict[datetime, List[TradeRecord]] = {}  # 交易记录
         self.cash: float = 0                           # 现金余额
@@ -51,8 +52,8 @@ class OptionStrategy(ABC):
         """设置期权数据"""
         self.option_data = option_data
         # 如果没有指定结束日期，使用数据集的最后日期
-        if self.config.end_date is None:
-            self.config.end_date = self.option_data['日期'].max()
+        if self.param.end_date is None:
+            self.param.end_date = self.option_data['日期'].max()
             
     def set_etf_data(self, etf_data: pd.DataFrame):
         """设置ETF数据"""
@@ -84,8 +85,8 @@ class OptionStrategy(ABC):
             target_expiry = get_next_monthly_expiry(current_date, self.option_data)
             
         # 如果目标到期日超过了回测结束日期，则使用结束日期
-        if not target_expiry or target_expiry > self.config.end_date:
-            target_expiry = self.config.end_date
+        if not target_expiry or target_expiry > self.param.end_date:
+            target_expiry = self.param.end_date
             
         return target_expiry
 
@@ -93,7 +94,7 @@ class OptionStrategy(ABC):
                            market_data: Dict[str, pd.DataFrame]) -> bool:
         """判断是否应该开仓"""
         # 默认实现：只在没有持仓且当前日期不是回测结束日时开仓
-        return not bool(self.positions) and current_date.date() < self.config.end_date.date()
+        return not bool(self.positions) and current_date.date() < self.param.end_date.date()
     
     def should_close_position(self, current_date: datetime,
                             market_data: Dict[str, pd.DataFrame]) -> bool:
@@ -158,7 +159,7 @@ class OptionStrategy(ABC):
     
     def calculate_transaction_cost(self, quantity: int) -> float:
         """计算交易成本"""
-        return abs(quantity) * self.config.transaction_cost
+        return abs(quantity) * self.param.transaction_cost
     
     def _get_current_option_price(self, contract_code: str,
                                   current_date: datetime,
@@ -211,8 +212,8 @@ class OptionStrategy(ABC):
             quantity=quantity,
             open_price=option_data['收盘价'],
             open_date=current_date,
-            contract_multiplier=self.config.contract_multiplier,
-            transaction_cost=self.config.transaction_cost
+            contract_multiplier=self.param.contract_multiplier,
+            transaction_cost=self.param.transaction_cost
         )
 
         # 卖出虽然收到的权利金，但是要到期才能最终确认，这里不能直接加到现金中，买入则需要立即确认
@@ -236,7 +237,7 @@ class OptionStrategy(ABC):
         for code, position in self.positions.items():
             current_option_price = self._get_current_option_price(code, current_date, self.option_data)
             if current_option_price is not None:
-                contract_value = current_option_price * abs(position.quantity) * self.config.contract_multiplier
+                contract_value = current_option_price * abs(position.quantity) * self.param.contract_multiplier
                 if position.quantity < 0:  # 卖出期权
                     # 开仓收取的权利金 - 当前需要支付的价值
                     option_value += position.premium - contract_value
@@ -643,9 +644,9 @@ class OptionStrategy(ABC):
         buy_option = options[options['交易代码'] == buy_code].iloc[0]
         
         # 每份合约的成本因子
-        buy_cost = buy_option['收盘价'] * self.config.contract_multiplier  # 买入期权成本
-        transaction_cost = self.config.transaction_cost * 2  # 每组合约的交易成本
-        exercise_cost = sell_option['行权价'] * self.config.contract_multiplier  # 行权资金准备
+        buy_cost = buy_option['收盘价'] * self.param.contract_multiplier  # 买入期权成本
+        transaction_cost = self.param.transaction_cost * 2  # 每组合约的交易成本
+        exercise_cost = sell_option['行权价'] * self.param.contract_multiplier  # 行权资金准备
         
         # 解方程：cash >= x * (buy_cost + transaction_cost + exercise_cost)
         cost_per_contract = buy_cost + transaction_cost + exercise_cost
@@ -673,8 +674,8 @@ class OptionStrategy(ABC):
         option = options[options['交易代码'] == contract_code].iloc[0]
         
         # 每份合约的成本因子
-        transaction_cost = self.config.transaction_cost  # 每个合约的交易成本
-        exercise_cost = option['行权价'] * self.config.contract_multiplier  # 行权资金准备
+        transaction_cost = self.param.transaction_cost  # 每个合约的交易成本
+        exercise_cost = option['行权价'] * self.param.contract_multiplier  # 行权资金准备
         
         # 解方程：cash >= x * (transaction_cost + exercise_cost)
         cost_per_contract = transaction_cost + exercise_cost
@@ -709,7 +710,7 @@ class OptionStrategy(ABC):
         # 获取期权的当前价格
         close_price = self._get_current_option_price(position.contract_code,current_date,option_data)
         close_cost = self.calculate_transaction_cost(abs(position.quantity))
-        close_value = close_price * abs(position.quantity) * self.config.contract_multiplier
+        close_value = close_price * abs(position.quantity) * self.param.contract_multiplier
 
         self.cash -= close_cost
 

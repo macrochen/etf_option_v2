@@ -64,7 +64,7 @@ class DataCleaner:
         # 处理每个目录
         for directory in dir_list:
             # 构建完整的目录路径
-            full_dir_path = os.path.join('data', directory)
+            full_dir_path = os.path.join('../data', directory)
             print(f"\n开始处理目录: {full_dir_path}")
             
             # 获取所有Excel文件
@@ -134,7 +134,7 @@ def remove_wind_source_lines(directory: str):
         directory: 数据目录路径
     """
     # 构建完整的目录路径
-    full_dir_path = os.path.join('data', directory)
+    full_dir_path = os.path.join('../data', directory)
     
     # 遍历目录及子目录
     for root, dirs, files in os.walk(full_dir_path):

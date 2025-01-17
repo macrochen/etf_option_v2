@@ -11,6 +11,6 @@ from .option_selector import VolatilityOptionSelector
 class VolatilityBearishCallStrategy(BearishCallStrategyBase):
     """基于波动率的熊市看涨价差策略"""
     
-    def __init__(self, config, option_data, etf_data):
-        super().__init__(config, option_data, etf_data, VolatilityOptionSelector())
+    def __init__(self, param, option_data, etf_data):
+        super().__init__(param, option_data, etf_data, VolatilityOptionSelector())
 
