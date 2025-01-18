@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, render_template
 from db.scheme_db import SchemeDatabase
 from db.config import DB_CONFIG
 import json
@@ -76,7 +76,6 @@ def create_scheme():
     return jsonify({'status': 'success', 'scheme_id': scheme_id})
 
 @scheme_bp.route('/api/schemes/<int:scheme_id>', methods=['PATCH'])
-@api_error_handler
 def update_scheme(scheme_id):
     """更新方案"""
     data = request.get_json()
@@ -91,21 +90,26 @@ def update_scheme(scheme_id):
         
     # 准备更新数据
     update_data = {}
+    
+    # 更新参数
     if 'params' in data:
         update_data['params'] = json.dumps(data['params'], ensure_ascii=False)
     
+    # 更新名称
+    if 'name' in data:
+        update_data['name'] = data['name']  # 添加名称更新
+
+    # 更新回测结果
+    if 'results' in data:
+        update_data['results'] = json.dumps(data['results'], ensure_ascii=False)  # 添加回测结果更新
+
     # 更新方案
     success = scheme_db.update_scheme(scheme_id, **update_data)
     
-    if not success:
-        return jsonify({
-            'status': 'error',
-            'message': '更新失败'
-        }), 500
-        
-    return jsonify({
-        'status': 'success'
-    })
+    if success:
+        return jsonify({'status': 'success', 'message': '方案更新成功'}), 200
+    else:
+        return jsonify({'status': 'error', 'message': '方案更新失败'}), 500
 
 @scheme_bp.route('/api/schemes/<int:scheme_id>', methods=['DELETE'])
 @api_error_handler
@@ -174,3 +178,8 @@ def check_scheme_exists():
         }), 409  # 409 Conflict
 
     return jsonify({'status': 'success'}), 200 
+
+@scheme_bp.route('/scheme_management', methods=['GET'])
+def scheme_management():
+    """方案管理页面"""
+    return render_template('scheme_management.html') 

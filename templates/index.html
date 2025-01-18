@@ -2,7 +2,7 @@
 
 {% block content %}
     <div class="container mt-4">
-        <h1 class="text-center mb-4">期权策略回测系统</h1>
+        <h1 class="text-center mb-4">基于Delta的期权策略回测</h1>
         
         <!-- 参数输入表单 -->
         <div class="row justify-content-center mb-4">
@@ -220,9 +220,6 @@
                                 <div class="btn-group">
                                     <button type="button" class="btn btn-secondary" id="reset-button">重置参数</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
                                     <button type="submit" class="btn btn-primary">执行回测</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                                    <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#schemeModal">
-                                        <i class="fas fa-tasks"></i> 方案管理
-                                    </button>
                                 </div>
                             </div>
                         </form>
@@ -231,6 +228,8 @@
             </div>
         </div>
 
+        
+        
         <!-- 引入回测结果组件 -->
             {% include 'components/backtest_results.html' %}
 

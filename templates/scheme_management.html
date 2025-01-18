@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .table thead th {
+        position: sticky;
+        top: 0; /* 表头固定在顶部 */
+        z-index: 10; /* 确保表头在内容之上 */
+        background-color: #f8f9fa; /* 表头背景色 */
+    }
+   #scheme-name {
+       text-align: center; /* 居中对齐 */
+   }
+</style>
+
+<div class="container mt-4">
+    <h1 class="text-center mb-4">回测方案管理</h1>
+
+    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+        <table class="table table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th class="text-center">方案名称</th>
+                    <th class="text-center">更新时间</th>
+                    <th class="text-center">操作</th>
+                </tr>
+            </thead>
+            <tbody id="scheme-table-body" class="text-center">
+                <!-- 方案数据将通过JavaScript动态填充 -->
+            </tbody>
+        </table>
+    </div>
+    <br/><br/>
+    <!-- 参数展示区 -->
+    <div id="parameter-section" class="mb-4" style="display: none;">
+        <h5 id="scheme-name" style="text-align: center;"></h5>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>参数名称</th>
+                    <th>参数值</th>
+                </tr>
+            </thead>
+            <tbody id="parameter-display">
+                <!-- 用于展示参数 -->
+            </tbody>
+        </table>
+    </div>
+
+    
+    <!-- 引入回测结果组件 -->
+    {% include 'components/backtest_results.html' %}
+</div>
+
+<script>
+    $(document).ready(function() {
+        loadSchemeList(); // 加载方案列表
+    });
+
+    // 加载方案列表
+    function loadSchemeList() {
+        $.ajax({
+            url: '/api/schemes',
+            method: 'GET',
+            success: function(response) {
+                renderSchemeList(response.schemes);
+            },
+            error: function(xhr, status, error) {
+                alert('加载方案列表失败: ' + error);
+            }
+        });
+    }
+
+    // 渲染方案列表
+    function renderSchemeList(schemes) {
+        const tbody = $('#scheme-table-body');
+        tbody.empty();
+        
+        schemes.forEach(scheme => {
+            const row = $('<tr>');
+            row.append($('<td>').text(scheme.name));
+            row.append($('<td>').text(formatDateTime(scheme.updated_at)));
+            
+            const actions = $('<td>').html(`
+                <button class="btn btn-sm btn-outline-primary me-1" 
+                        title="加载方案" 
+                        onclick="loadScheme('${scheme.id}', '${scheme.name}')">
+                    <i class="fas fa-upload"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-danger me-1" 
+                        title="删除方案" 
+                        onclick="deleteScheme('${scheme.id}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" 
+                        title="重命名方案" 
+                        onclick="renameScheme('${scheme.id}', '${scheme.name}')">
+                    <i class="fas fa-edit"></i>
+                </button>
+            `);
+            
+            row.append(actions);
+            tbody.append(row);
+        });
+    }
+
+    // 格式化日期时间
+    function formatDateTime(dateStr) {
+        return new Date(dateStr).toLocaleString('zh-CN');
+    }
+
+    // 加载方案
+    function loadScheme(schemeId, schemeName) {
+        $.ajax({
+            url: `/api/schemes/${schemeId}`,
+            method: 'GET',
+            success: function(response) {
+                console.log('加载方案响应:', response); // 添加调试信息
+                
+                // 显示方案名称
+                $('#scheme-name').text(schemeName); // 设置方案名称
+                
+                // 显示参数
+                displayParameters(response.params);
+                
+                // 直接显示保存的回测结果
+                if (response.backtest_results) {
+                    $('#results').show();
+                    displayResults(response.backtest_results); // 使用引入的函数
+                } else {
+                    alert('未找到保存的回测结果');
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('加载方案失败: ' + error);
+            }
+        });
+    }
+
+    // 显示参数
+    function displayParameters(params) {
+        const tbody = $('#parameter-display');
+        tbody.empty(); // 清空之前的内容
+        
+        for (const key in params) {
+            if (params.hasOwnProperty(key)) {
+                const row = $('<tr>');
+                row.append($('<td>').text(key)); // 参数名称
+                row.append($('<td>').text(params[key])); // 参数值
+                tbody.append(row);
+            }
+        }
+        
+        $('#parameter-section').show(); // 显示参数区
+    }
+
+    // 删除方案
+    function deleteScheme(schemeId) {
+        if (!confirm('确定要删除这个方案吗？')) return;
+        
+        $.ajax({
+            url: `/api/schemes/${schemeId}`,
+            method: 'DELETE',
+            success: function(response) {
+                if (response.status === 'success') {
+                    loadSchemeList(); // 重新加载方案列表
+                } else {
+                    alert('删除方案失败: ' + response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('删除方案失败: ' + error);
+            }
+        });
+    }
+
+    // 重命名方案
+    function renameScheme(schemeId, currentName) {
+        const newName = prompt('请输入新的方案名称:', currentName);
+        if (!newName) return;
+        
+        $.ajax({
+            url: `/api/schemes/${schemeId}`,
+            method: 'PATCH',
+            contentType: 'application/json',
+            data: JSON.stringify({ name: newName }),
+            success: function(response) {
+                if (response.status === 'success') {
+                    loadSchemeList(); // 重新加载方案列表
+                } else {
+                    alert('重命名方案失败: ' + response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('重命名方案失败: ' + error);
+            }
+        });
+    }
+</script>
+
+<!-- 引入回测结果的 JavaScript 文件 -->
+<script src="{{ url_for('static', filename='js/backtest_results.js') }}"></script>
+{% endblock %} 
