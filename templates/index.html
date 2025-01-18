@@ -215,6 +215,18 @@
                                 </div>
                             </div>
 
+                            <!-- 添加快捷选择时间的按钮组 -->
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <div class="btn-group" style="width: 400px;">
+                                        <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="1M" onclick="setDateRange(1)">近1月</button>&nbsp;&nbsp;
+                                        <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="3M" onclick="setDateRange(3)">近3月</button>&nbsp;&nbsp;
+                                        <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="6M" onclick="setDateRange(6)">近6月</button>&nbsp;&nbsp;
+                                        <button type="button" class="btn btn-outline-secondary" style="width: 100px;" data-period="1Y" onclick="setDateRange(12)">近1年</button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- 执行回测按钮 -->
                             <div class="text-center mt-4">
                                 <div class="btn-group">
@@ -262,6 +274,29 @@
                 $('#end_date').val('');
                 // 其他需要重置的输入框可以在这里添加
             });
+
+            // 设置日期范围的函数
+            window.setDateRange = function(months) {
+                const endDate = new Date('2024-12-31');
+                const startDate = new Date(endDate); // 先将开始日期设置为结束日期
+                startDate.setMonth(endDate.getMonth() - months);
+
+                // 确保开始日期不超过结束日期
+                if (startDate > endDate) {
+                    startDate.setMonth(endDate.getMonth() - 1); // 如果开始日期大于结束日期，调整开始日期
+                }
+
+                // 格式化日期为 YYYY-MM-DD
+                const formatDate = (date) => {
+                    const d = String(date.getDate()).padStart(2, '0');
+                    const m = String(date.getMonth() + 1).padStart(2, '0'); // 月份从0开始
+                    const y = date.getFullYear();
+                    return `${y}-${m}-${d}`;
+                };
+
+                $('#start_date').val(formatDate(startDate));
+                $('#end_date').val(formatDate(endDate));
+            };
         });
     </script>
     {% block scripts %}
