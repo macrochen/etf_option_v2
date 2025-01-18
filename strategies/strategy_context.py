@@ -117,13 +117,13 @@ class StrategyContext(BaseStrategyContext):
             logger.error("错误堆栈:\n%s", traceback.format_exc())
             raise ValueError(f"基本参数验证失败: {str(e)}")
 
-    def to_dict(self):
+    def to_dict(self, strategy_params):
         # 返回可序列化的字典
         return {
             'etf_code': self.etf_code,
             'start_date': self.start_date.strftime('%Y-%m-%d'),  # 格式化为只包含日期
             'end_date': self.end_date.strftime('%Y-%m-%d'),  # 格式化为只包含日期
-            'strategy_params': self.strategy_params
+            'strategy_params': self.strategy_params if strategy_params is None else strategy_params
         }
 
 

@@ -17,12 +17,12 @@ db = Database(DB_CONFIG['market_data']['path'])
 scheme_db = SchemeDatabase(DB_CONFIG['backtest_schemes']['path'])
 
 
-@volatility_bp.route('/volatility_strategy')
+@volatility_bp.route('/volatility_backtest')
 def volatility_strategy_page():
     """渲染波动率策略页面"""
     try:
         from app import ETF_OPTIONS
-        return render_template('volatility_strategy.html', etf_options=ETF_OPTIONS)
+        return render_template('volatility_backtest.html', etf_options=ETF_OPTIONS)
     except Exception as e:
         error_msg = log_error(e, "加载波动率策略页面失败")
         return jsonify({'error': error_msg}), 500
@@ -91,7 +91,9 @@ def run_volatility_backtest():
         # 检查是否需要保存方案
         save_scheme = data.pop('save_scheme', False)
         scheme_id = data.pop('scheme_id', None)
-        scheme_name = data.get('scheme_name', f"波动率策略_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        scheme_name = data.get('scheme_name', f"波动率策略_{datetime.now().strftime('%Y%m%d')}")
+
+        strategy_params = data.get("strategy_params")
 
         # 创建回测参数
         try:
@@ -117,9 +119,9 @@ def run_volatility_backtest():
         if save_scheme:
             try:
                 if scheme_id:  # 更新已有方案
-                    update_scheme(scheme_id, context.to_dict(), formatted_result)
+                    update_scheme(scheme_id, context.to_dict(strategy_params), formatted_result)
                 else:  # 创建新方案
-                    create_scheme(scheme_name, context.to_dict(), formatted_result)
+                    create_scheme(scheme_name, context.to_dict(strategy_params), formatted_result)
             except Exception as e:
                 error_msg = log_error(e, "保存回测方案失败")
                 # 继续返回回测结果，但添加警告信息

@@ -29,6 +29,7 @@ def run_backtest():
     save_scheme = data.pop('save_scheme', False)
     scheme_id = data.pop('scheme_id', None)  # 获取方案 ID
     scheme_name = data.get('scheme_name')  # 获取方案名称
+    strategy_params = data.get("strategy_params")
     
     # 解析和验证参数
     # 可以传递backtest_config参数，以便自定义回测配置
@@ -51,9 +52,9 @@ def run_backtest():
     # 如果需要保存方案
     if save_scheme:
         if scheme_id:  # 更新已有方案
-            update_scheme(scheme_id, context.to_dict(), formatted_result)
+            update_scheme(scheme_id, context.to_dict(strategy_params), formatted_result)
         else:  # 创建新方案
-            create_scheme(scheme_name, context.to_dict(), formatted_result)
+            create_scheme(scheme_name, context.to_dict(strategy_params), formatted_result)
         
     return jsonify(formatted_result)
 
@@ -64,7 +65,7 @@ def update_scheme(scheme_id, params, results):
         'etf_code': params.get('etf_code'),
         'start_date': params.get('start_date'),
         'end_date': params.get('end_date'),
-        'delta_list': params.get('delta_list', []),  # 确保包含 delta_list
+        # 'delta_list': params.get('delta_list', []),  # 确保包含 delta_list
         'strategy_params': params.get('strategy_params', {})  # 保存策略参数
     }
     
@@ -92,17 +93,7 @@ def create_scheme(name, params, results):
         'start_date': params.get('start_date'),
         'end_date': params.get('end_date'),
         'strategy_params': params.get('strategy_params', {}),
-        'delta_list': params.get('delta_list', [])
     }
-    
-    # 如果没有 delta_list 但有 strategy_params，从 strategy_params 构建 delta_list
-    if not formatted_params['delta_list'] and formatted_params['strategy_params']:
-        delta_list = []
-        for key in ['put_sell_delta', 'put_buy_delta', 'call_sell_delta', 'call_buy_delta']:
-            value = formatted_params['strategy_params'].get(key)
-            if value is not None:
-                delta_list.append(value)
-        formatted_params['delta_list'] = delta_list
     
     # 移除空值，但保留空列表和字典
     formatted_params = {k: v for k, v in formatted_params.items() 

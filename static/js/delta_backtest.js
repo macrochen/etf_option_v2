@@ -357,7 +357,7 @@ function generateDefaultSchemeName() {
 }
 
 // 在保存方案的逻辑中
-$('#saveScheme').on('change', function() {
+$('#saveScheme').off('change').on('change', function() {
     const saveScheme = $(this).is(':checked');
 
     if (saveScheme) {

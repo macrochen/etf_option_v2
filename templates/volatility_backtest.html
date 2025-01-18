@@ -203,11 +203,15 @@
                             </div>
                         </div>
                         <div class="col-4">
-                            <div class="input-group">
-                                <div class="input-group-text">
-                                    <input class="form-check-input mt-0" type="checkbox" id="save_scheme">
+                            <div class="d-flex flex-column justify-content-end h-100">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="save_scheme">
+                                    <label class="form-check-label" for="save_scheme">保存回测方案</label>
                                 </div>
-                                <input type="text" class="form-control" id="scheme_name" placeholder="回测方案名称" readonly>
+                                <div class="form-group d-none" id="schemeNameGroup">
+                                    <input type="text" class="form-control form-control-sm" id="scheme_name" placeholder="方案名称" readonly>
+                                    <input type="hidden" id="schemeId" name="schemeId" value="">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -227,7 +231,7 @@
 
 <!-- 引入相关JS文件 -->
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/volatility_strategy.js') }}"></script>
+<script src="{{ url_for('static', filename='js/volatility_backtest.js') }}"></script>
 <script>
     $(document).ready(function() {
         // 重置按钮功能

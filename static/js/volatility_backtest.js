@@ -94,16 +94,47 @@ $(document).ready(function() {
             $('#end_date').val(endDate.toISOString().split('T')[0]);
         });
 
+        // 绑定复选框事件
+        $('#save_scheme').off('change').on('change', function() {
+            if ($(this).is(':checked')) {
+                const defaultSchemeName = generateSchemeName(); // 生成默认方案名称
+                const userInput = prompt("请输入方案名称:", defaultSchemeName);
+                if (userInput === null) {
+                    $(this).prop('checked', false); // 用户取消，取消勾选
+                    return;
+                }
+
+                // 检查当前方案名称是否已存在
+                checkIfSchemeExists(userInput).then(response => {
+                    if (response.status === 'exists') {
+                        // 提示用户是否覆盖已有方案
+                        if (confirm(`方案"${userInput}"已存在，是否覆盖原有的回测结果？`)) {
+                            $('#schemeId').val(response.existing_scheme_id); // 保存方案 ID
+                            $('#scheme_name').val(userInput); // 更新方案名称输入框
+                            $('#schemeNameGroup').removeClass('d-none'); // 显示方案名称输入框
+                        } else {
+                            $('#save_scheme').prop('checked', false); // 用户选择不覆盖，取消勾选
+                        }
+                    } else {
+                        $('#scheme_name').val(userInput); // 更新方案名称输入框
+                        $('#schemeNameGroup').removeClass('d-none'); // 显示方案名称输入框
+                    }
+                });
+            } else {
+                $('#scheme_name').val(''); // 取消勾选时清空方案名称
+                $('#schemeId').val(''); // 清空方案 ID
+                $('#schemeNameGroup').addClass('d-none'); // 隐藏方案名称输入框
+            }
+        });
+
         // 回测按钮点击事件
         $('#run_backtest').off('click').on('click', function() {
-
             // 显示加载动画
             $('.loading').show();
             $('#results').hide();
 
-            const strategy_params = {}
-            
-            // 只在有值时才添加参数
+            const strategy_params = {};
+            // 获取波动率输入值
             const sell_put_vol = $('#sell_put_vol_input').val();
             const buy_put_vol = $('#buy_put_vol_input').val();
             const sell_call_vol = $('#sell_call_vol_input').val();
@@ -127,7 +158,9 @@ $(document).ready(function() {
                 strategy_params: strategy_params,
                 start_date: $('#start_date').val(),
                 end_date: $('#end_date').val(),
-//                save_scheme: $('#save_scheme').is(':checked')
+                save_scheme: $('#save_scheme').is(':checked'), // 获取保存方案标志
+                scheme_name: $('#scheme_name').val(), // 获取方案名称
+                scheme_id: $('#schemeId').val() // 获取方案 ID
             };
 
             // 发送回测请求
@@ -141,11 +174,6 @@ $(document).ready(function() {
                         showError(response.error);
                         return;
                     }
-
-                    // 如果保存方案成功，显示提示
-//                    if (saveScheme && schemeName) {
-//                        showSuccess('方案保存成功！');
-//                    }
 
                     // 处理回测结果
                     displayResults(response);
@@ -1047,5 +1075,35 @@ $(document).ready(function() {
             });
             throw error;
         }
+    }
+
+    function generateSchemeName() {
+        const etfCode = $('#etf_code').val() || '';
+        const sellPutVol = $('#sell_put_vol_input').val() || '';
+        const buyPutVol = $('#buy_put_vol_input').val() || '';
+        const sellCallVol = $('#sell_call_vol_input').val() || '';
+        const buyCallVol = $('#buy_call_vol_input').val() || '';
+        const startDate = $('#start_date').val() || '';
+        const endDate = $('#end_date').val() || '';
+
+        return `${etfCode}_${sellPutVol}_${buyPutVol}_${sellCallVol}_${buyCallVol}_${startDate}_${endDate}_波动率回测`;
+    }
+
+    // 检查方案名称是否已存在
+    function checkIfSchemeExists(schemeName) {
+        return new Promise((resolve, reject) => {
+            $.ajax({
+                url: '/api/schemes/check_exists', // 假设的 API 路径
+                method: 'POST',
+                data: JSON.stringify({ name: schemeName }),
+                contentType: 'application/json',
+                success: function(response) {
+                    resolve(response); // 确保解析为响应
+                },
+                error: function(err) {
+                    reject(err); // 处理错误
+                }
+            });
+        });
     }
 });

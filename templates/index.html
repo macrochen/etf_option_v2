@@ -301,7 +301,7 @@
     </script>
     {% block scripts %}
         <!-- 添加回测脚本 -->
-        <script src="{{ url_for('static', filename='js/backtest.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/delta_backtest.js') }}"></script>
         <!-- 在其他script标签后添加 -->
         <script src="{{ url_for('static', filename='js/scheme_management.js') }}"></script>
     {% endblock %}

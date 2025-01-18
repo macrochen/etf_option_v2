@@ -41,7 +41,7 @@ def get_scheme(scheme_id):
             'etf_code': params.get('etf_code', ''),  # 提供默认值
             'start_date': params.get('start_date', ''),
             'end_date': params.get('end_date', ''),
-            'delta_list': params.get('delta_list', [])  # 默认空列表
+            'strategy_params': json.dumps(params.get('strategy_params', []), ensure_ascii=False)  # 默认空列表
         }
         
         return jsonify({
@@ -175,7 +175,7 @@ def check_scheme_exists():
             'status': 'exists',
             'message': f'方案"{scheme_name}"已存在，是否要更新该方案？',
             'existing_scheme_id': existing_scheme['id']
-        }), 409  # 409 Conflict
+        }), 200  # 409 Conflict
 
     return jsonify({'status': 'success'}), 200 
 
