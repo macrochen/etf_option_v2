@@ -263,51 +263,6 @@ class OptionStrategy(ABC):
             daily_return=daily_return
         )
 
-    def _create_close_record(self,
-                             current_date: datetime,
-                             position: OptionPosition,
-                             close_price: float,
-                             etf_price: float,
-                             is_expire: bool = False) -> Tuple[TradeRecord, float, float]:
-        """创建平仓记录
-        
-        Args:
-            current_date: 当前日期
-            position: 期权持仓
-            close_price: 平仓价格
-            etf_price: ETF价格
-            is_expire: 是否为到期作废
-            
-        Returns:
-            (交易记录, 盈亏, 成本)
-        """
-        action = '到期作废' if is_expire else ('买入平仓' if position.quantity < 0 else '卖出平仓')
-        close_cost = 0 if is_expire else position.close_cost
-        close_value = close_price * abs(position.quantity) * position.contract_multiplier
-        
-        # 计算盈亏
-        if position.quantity < 0:  # 卖出期权
-            pnl = position.premium - (0 if is_expire else close_value)
-        else:  # 买入期权
-            pnl = (close_value if not is_expire else 0)
-
-        pnl -= close_cost
-
-        record = TradeRecord(
-            date=current_date,
-            action=action,
-            etf_price=etf_price,
-            strike=position.strike,
-            price=close_price,
-            quantity=abs(position.quantity),
-            premium=close_value,
-            cost=close_cost,
-            delta=position.delta,
-            pnl=pnl
-        )
-        
-        return record, pnl, close_cost 
-
     def find_best_options(self,
                           options: pd.DataFrame,
                           current_price:float,
@@ -558,7 +513,6 @@ class OptionStrategy(ABC):
         if records is None:
             return None
         
-
         # 返回平仓结果
         return TradeResult(
             records=records,

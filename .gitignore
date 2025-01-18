@@ -47,3 +47,4 @@ ENV/
 .ipynb_checkpoints *.db
 
 *.db
+.DS_Store

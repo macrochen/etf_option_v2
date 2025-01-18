@@ -4,11 +4,11 @@ from typing import Dict, Tuple, Optional
 import pandas as pd
 
 from .base import OptionStrategy
-from .option_selector import DeltaOptionSelector
+from .option_selector import OptionSelector
 from .types import OptionType, TradeResult, OptionPosition, PriceConditions
 
 
-class NakedPutStrategy(OptionStrategy):
+class NakedPutStrategyBase(OptionStrategy):
     """单腿卖出看跌策略（Naked Put / Cash Secured Put）
     
     策略构成：
@@ -22,8 +22,8 @@ class NakedPutStrategy(OptionStrategy):
         - 到期日自动平仓
     """
     
-    def __init__(self, context, option_data, etf_data):
-        super().__init__(context, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, context, option_data, etf_data, option_selector: OptionSelector):
+        super().__init__(context, option_data, etf_data, option_selector)
     
     def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[Dict, None]:
         """选择合适的期权合约
@@ -35,7 +35,7 @@ class NakedPutStrategy(OptionStrategy):
         sell_options = self.find_best_options(
             current_options,
             current_price,
-            self.context.sell_delta,
+            self.context.sell_put_value,
             OptionType.PUT,
             expiry
         )

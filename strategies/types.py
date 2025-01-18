@@ -18,6 +18,8 @@ class StrategyType(str, Enum):
     WHEEL = "wheel"                  # 轮式策略
     VOLATILITY_BULLISH_PUT = "volatility_bullish_put"        # 波动率策略
     VOLATILITY_BEARISH_CALL = "volatility_bearish_call"        # 波动率策略
+    VOLATILITY_IRON_CONDOR = "volatility_iron_condor"        # 波动率策略
+    VOLATILITY_NAKED_PUT = "volatility_naked_put"        # 波动率策略
 
 @dataclass
 class OptionPosition:

@@ -49,8 +49,10 @@ class StrategyContext(BaseStrategyContext):
     strategy_params: Dict = field(default_factory=dict)  # 策略特定参数，如 delta 值等
     contract_multiplier: int = BacktestConfig.contract_multiplier # 合约乘数
     transaction_cost: float = BacktestConfig.transaction_cost  # 交易成本
-    sell_value: float = 0
-    buy_value: float = 0
+    sell_put_value: float = 0
+    buy_put_value: float = 0
+    sell_call_value: float = 0
+    buy_call_value: float = 0
 
     def __post_init__(self):
         """dataclass 初始化后的处理"""
@@ -125,42 +127,68 @@ class StrategyContext(BaseStrategyContext):
         }
 
 
-class DeltaBearishCallStrategyContext(StrategyContext):
-    def __init__(self, strategy_type, call_buy_delta: float, call_sell_delta: float, **kwargs):
+class DeltaIronCondorStrategyContext(StrategyContext):
+    def __init__(self, strategy_type,
+                 buy_call_delta: float, sell_call_delta: float,
+                 buy_put_delta: float, sell_put_delta: float,
+                 **kwargs):
         super().__init__(**kwargs)
         self.strategy_type = strategy_type
-        self.buy_call_delta = self.buy_value = call_buy_delta
-        self.sell_call_delta = self.sell_value = call_sell_delta
+        self.buy_call_value = buy_call_delta
+        self.sell_call_value = sell_call_delta
+        self.buy_put_value = buy_put_delta
+        self.sell_put_value = sell_put_delta
 
-    def __post_init__(self):
-        super().__post_init__()
+class DeltaBearishCallStrategyContext(StrategyContext):
+    def __init__(self, strategy_type, buy_call_delta: float, sell_call_delta: float, **kwargs):
+        super().__init__(**kwargs)
+        self.strategy_type = strategy_type
+        self.buy_call_value = buy_call_delta
+        self.sell_call_value = sell_call_delta
 
 class DeltaBullishPutStrategyContext(StrategyContext):
-    def __init__(self, strategy_type, put_sell_delta: float, put_buy_delta: float, **kwargs):
+    def __init__(self, strategy_type, sell_put_delta: float, buy_put_delta: float, **kwargs):
         super().__init__(**kwargs)
         self.strategy_type = strategy_type
-        self.put_sell_delta = self.sell_value = put_sell_delta
-        self.put_buy_delta = self.buy_value = put_buy_delta 
+        self.sell_put_value = sell_put_delta
+        self.buy_put_value = buy_put_delta
+
+class DeltaNakedPutStrategyContext(StrategyContext):
+    def __init__(self, strategy_type, sell_put_delta: float, **kwargs):
+        super().__init__(**kwargs)
+        self.strategy_type = strategy_type
+        self.sell_put_value = sell_put_delta
+
+class VolatilityIronCondorStrategyContext(StrategyContext):
+    def __init__(self, strategy_type, buy_call_volatility: float, sell_call_volatility: float, buy_put_volatility: float, sell_put_volatility: float, **kwargs):
+        super().__init__(**kwargs)
+        self.strategy_type = strategy_type
+        self.buy_call_value = buy_call_volatility
+        self.sell_call_value = sell_call_volatility
+        self.buy_put_value = buy_put_volatility
+        self.sell_put_value = sell_put_volatility
 
 class VolatilityBearishCallStrategyContext(StrategyContext):
-    def __init__(self, strategy_type, call_buy_volatility: float, call_sell_volatility: float, **kwargs):
+    def __init__(self, strategy_type, buy_call_volatility: float, sell_call_volatility: float, **kwargs):
         super().__init__(**kwargs)
         self.strategy_type = strategy_type
-        self.buy_call_volatility = self.buy_value = call_buy_volatility
-        self.sell_call_volatility = self.sell_value = call_sell_volatility
+        self.buy_call_value = buy_call_volatility
+        self.sell_call_value = sell_call_volatility
 
-    def __post_init__(self):
-        super().__post_init__()
 
 class VolatilityBullishPutStrategyContext(StrategyContext):
-    def __init__(self, strategy_type, put_sell_volatility: float, put_buy_volatility: float, **kwargs):
+    def __init__(self, strategy_type, sell_put_volatility: float, buy_put_volatility: float, **kwargs):
         super().__init__(**kwargs)
         self.strategy_type = strategy_type
-        self.put_sell_volatility = self.sell_value = put_sell_volatility
-        self.put_buy_volatility = self.buy_value = put_buy_volatility
+        self.sell_put_value = sell_put_volatility
+        self.buy_put_value = buy_put_volatility
 
-    def __post_init__(self):
-        super().__post_init__()
+
+class VolatilityNakedPutStrategyContext(StrategyContext):
+    def __init__(self, strategy_type, sell_put_volatility: float, **kwargs):
+        super().__init__(**kwargs)
+        self.strategy_type = strategy_type
+        self.sell_put_volatility = sell_put_volatility
 
 
 
@@ -176,43 +204,88 @@ class StrategyContextFactory:
         sp = data['strategy_params']
         # 确定策略类型
         strategy_type = None
-        if 'call_buy_delta' in sp and 'call_sell_delta' in sp:
+        if 'call_buy_delta' in sp and 'call_sell_delta' in sp and 'put_buy_delta' in sp and 'put_sell_delta' in sp:
             from strategies.types import StrategyType
+            strategy_type = StrategyType.IRON_CONDOR
+            return DeltaIronCondorStrategyContext(strategy_type=strategy_type,
+                                                  buy_call_delta=sp['call_buy_delta'],
+                                                  sell_call_delta=sp['call_sell_delta'],
+                                                  buy_put_delta=sp['put_buy_delta'],
+                                                  sell_put_delta=sp['put_sell_delta'],
+                                                  etf_code=etf_code,
+                                                  start_date=start_date,
+                                                  end_date=end_date)
+
+        elif 'call_buy_delta' in sp and 'call_sell_delta' in sp:
+
+            from strategies.types import StrategyType
+
             strategy_type = StrategyType.BEARISH_CALL
+
             return DeltaBearishCallStrategyContext(strategy_type=strategy_type,
-                                                   call_buy_delta=sp['call_buy_delta'],
-                                                   call_sell_delta=sp['call_sell_delta'],
+                                                   buy_call_delta=sp['call_buy_delta'],
+                                                   sell_call_delta=sp['call_sell_delta'],
                                                    etf_code=etf_code,
+
                                                    start_date=start_date,
+
                                                    end_date=end_date)
+
         elif 'put_sell_delta' in sp and 'put_buy_delta' in sp:
             from strategies.types import StrategyType
             strategy_type = StrategyType.BULLISH_PUT
             return DeltaBullishPutStrategyContext(strategy_type=strategy_type,
-                                                 put_sell_delta=sp['put_sell_delta'],
-                                                 put_buy_delta=sp['put_buy_delta'],
+                                                 sell_put_delta=sp['put_sell_delta'],
+                                                 buy_put_delta=sp['put_buy_delta'],
                                                  etf_code=etf_code,
                                                  start_date=start_date,
                                                  end_date=end_date)
+        elif 'put_sell_delta' in sp and 'put_buy_delta' not in sp:
+            from strategies.types import StrategyType
+            strategy_type = StrategyType.NAKED_PUT
+            return DeltaNakedPutStrategyContext(strategy_type=strategy_type,
+                                                 sell_put_delta=sp['put_sell_delta'],
+                                                 etf_code=etf_code,
+                                                 start_date=start_date,
+                                                 end_date=end_date)
+        elif 'call_buy_volatility' in sp and 'call_sell_volatility' in sp and 'put_sell_volatility' in sp and 'put_buy_volatility' in sp:
+            from strategies.types import StrategyType
+            strategy_type = StrategyType.VOLATILITY_IRON_CONDOR
+            return VolatilityIronCondorStrategyContext(strategy_type=strategy_type,
+                                                        buy_call_volatility=sp['call_buy_volatility'],
+                                                        sell_call_volatility=sp['call_sell_volatility'],
+                                                       sell_put_volatility=sp['put_sell_volatility'],
+                                                       buy_put_volatility=sp['put_buy_volatility'],
+                                                        etf_code=etf_code,
+                                                        start_date=start_date,
+                                                        end_date=end_date)
         elif 'call_buy_volatility' in sp and 'call_sell_volatility' in sp:
             from strategies.types import StrategyType
             strategy_type = StrategyType.VOLATILITY_BEARISH_CALL
             return VolatilityBearishCallStrategyContext(strategy_type=strategy_type,
-                                                        call_buy_volatility=sp['call_buy_volatility'],
-                                                        call_sell_volatility=sp['call_sell_volatility'],
+                                                        buy_call_volatility=sp['call_buy_volatility'],
+                                                        sell_call_volatility=sp['call_sell_volatility'],
                                                         etf_code=etf_code,
                                                         start_date=start_date,
                                                         end_date=end_date)
-
         elif 'put_sell_volatility' in sp and 'put_buy_volatility' in sp:
             from strategies.types import StrategyType
             strategy_type = StrategyType.VOLATILITY_BULLISH_PUT
             return VolatilityBullishPutStrategyContext(strategy_type=strategy_type,
-                                                       put_sell_volatility=sp['put_sell_volatility'],
-                                                       put_buy_volatility=sp['put_buy_volatility'],
+                                                       sell_put_volatility=sp['put_sell_volatility'],
+                                                       buy_put_volatility=sp['put_buy_volatility'],
                                                        etf_code=etf_code,
                                                        start_date=start_date,
                                                        end_date=end_date)
+
+        elif 'put_sell_volatility' in sp and 'put_buy_volatility' not in sp:
+            from strategies.types import StrategyType
+            strategy_type = StrategyType.VOLATILITY_BULLISH_PUT
+            return VolatilityNakedPutStrategyContext(strategy_type=strategy_type,
+                                                     sell_put_volatility=sp['put_sell_volatility'],
+                                                     etf_code=etf_code,
+                                                     start_date=start_date,
+                                                     end_date=end_date)
 
         # 添加其他策略类型的判断逻辑...
 

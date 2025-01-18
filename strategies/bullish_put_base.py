@@ -33,8 +33,8 @@ class BullishPutStrategyBase(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_price,
             expiry=expiry,
-            sell_value=self.context.sell_value,
-            buy_value=self.context.buy_value,
+            sell_value=self.context.sell_put_value,
+            buy_value=self.context.buy_put_value,
             option_type=OptionType.PUT,
             higher_buy=False  # 看跌价差买入更低行权价
         )

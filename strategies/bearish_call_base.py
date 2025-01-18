@@ -34,8 +34,8 @@ class BearishCallStrategyBase(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_etf_price,
             expiry=expiry,
-            sell_value=self.context.sell_value,
-            buy_value=self.context.buy_value,
+            sell_value=self.context.sell_call_value,
+            buy_value=self.context.buy_call_value,
             option_type=OptionType.CALL,
             higher_buy=True  # 看涨价差买入更高行权价
         )

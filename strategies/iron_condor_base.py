@@ -1,14 +1,15 @@
-from typing import Dict, Any, Tuple, Optional, List
-import pandas as pd
 from datetime import datetime
+from typing import Dict, Tuple, Optional
 
+import pandas as pd
 from pandas import DataFrame
 
 from .base import OptionStrategy, SpreadDirection
-from .option_selector import DeltaOptionSelector
-from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord, OptionPosition, PriceConditions
+from .option_selector import OptionSelector
+from .types import OptionType, TradeResult, OptionPosition, PriceConditions
 
-class IronCondorStrategy(OptionStrategy):
+
+class IronCondorStrategyBase(OptionStrategy):
     """铁鹰策略（Iron Condor）
     
     策略构成：
@@ -26,8 +27,8 @@ class IronCondorStrategy(OptionStrategy):
         - 触及止损线平仓
     """
     
-    def __init__(self, context, option_data, etf_data):
-        super().__init__(context, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, context, option_data, etf_data, option_selector: OptionSelector):
+        super().__init__(context, option_data, etf_data, option_selector)
     
     def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[
         Optional[DataFrame], Optional[DataFrame], Optional[DataFrame], Optional[DataFrame]]:
@@ -37,8 +38,8 @@ class IronCondorStrategy(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_price,
             expiry=expiry,
-            sell_delta=self.context.put_sell_delta,
-            buy_delta=self.context.put_buy_delta,
+            sell_value=self.context.sell_put_value,
+            buy_value=self.context.buy_put_value,
             option_type=OptionType.PUT,
             higher_buy=False  # 看跌价差买入更低行权价
         )
@@ -48,8 +49,8 @@ class IronCondorStrategy(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_price,
             expiry=expiry,
-            sell_delta=self.context.call_sell_delta,
-            buy_delta=self.context.call_buy_delta,
+            sell_value=self.context.sell_call_value,
+            buy_value=self.context.buy_call_value,
             option_type=OptionType.CALL,
             higher_buy=True  # 看涨价差买入更高行权价
         )
