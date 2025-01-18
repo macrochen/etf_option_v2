@@ -27,10 +27,17 @@ def api_error_handler(f: Callable) -> Callable:
     def wrapper(*args, **kwargs) -> Any:
         try:
             return f(*args, **kwargs)
-        except Exception as e:
-            error_msg = log_error(e, f"执行 {f.__name__} 时发生错误")
+        except ValueError as e:
+            # 处理特定的ValueError
             return jsonify({
                 'status': 'error',
                 'message': str(e)
-            }), 500
+            }), 400  # 返回400状态码
+        except Exception as e:
+            # 处理其他异常
+            error_msg = log_error(e, f"执行 {f.__name__} 时发生错误")
+            return jsonify({
+                'status': 'error',
+                'message': '发生了一个未知错误，请稍后再试。'
+            }), 500  # 返回500状态码
     return wrapper 

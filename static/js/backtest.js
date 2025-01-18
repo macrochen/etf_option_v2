@@ -196,6 +196,9 @@ function initializeFormValidation() {
     $('#backtest-form').on('submit', function(e) {
         e.preventDefault();
         
+        // 清除之前的错误信息
+        clearError();
+        
         // 显示加载动画
         $('.loading').show();
         $('#results').hide();
@@ -249,7 +252,9 @@ function initializeFormValidation() {
                 displayResults(response);
             },
             error: function(xhr) {
-                showError('请求失败: ' + xhr.statusText);
+                // 显示后端返回的错误信息
+                const errorMessage = xhr.responseJSON ? xhr.responseJSON.message : '请求失败: ' + xhr.statusText;
+                showError(errorMessage);
             },
             complete: function() {
                 $('.loading').hide();

@@ -22,7 +22,6 @@ function showError(message, error = null) {
     $('#error-container').html(alertHtml);
 }
 
-// 清除错误信息
 function clearError() {
     $('#error-container').empty();
 }
