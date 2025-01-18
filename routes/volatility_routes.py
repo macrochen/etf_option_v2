@@ -4,11 +4,11 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, render_template
 
 from backtest_engine import BacktestEngine
-from backtest_params import BacktestConfig, BacktestParamFactory
 from db.config import DB_CONFIG
 from db.database import Database
 from db.scheme_db import SchemeDatabase
 from routes.backtest_routes import update_scheme, create_scheme
+from strategies import StrategyContextFactory, BacktestConfig
 from utils.error_handler import api_error_handler, log_error
 from visualization import format_backtest_result
 
@@ -95,7 +95,7 @@ def run_volatility_backtest():
 
         # 创建回测参数
         try:
-            param = BacktestParamFactory.create_param(data)
+            context = StrategyContextFactory.create_context(data)
         except (KeyError, ValueError) as e:
             error_msg = log_error(e, "回测参数无效")
             return jsonify({'error': error_msg}), 400
@@ -105,7 +105,7 @@ def run_volatility_backtest():
         engine = BacktestEngine(config)
 
         # 执行回测
-        result = engine.run_backtest(param)
+        result = engine.run_backtest(context)
         if result is None:
             error_msg = log_error(None, "回测执行失败，未返回结果")
             return jsonify({'error': error_msg}), 500
@@ -117,9 +117,9 @@ def run_volatility_backtest():
         if save_scheme:
             try:
                 if scheme_id:  # 更新已有方案
-                    update_scheme(scheme_id, param.to_dict(), formatted_result)
+                    update_scheme(scheme_id, context.to_dict(), formatted_result)
                 else:  # 创建新方案
-                    create_scheme(scheme_name, param.to_dict(), formatted_result)
+                    create_scheme(scheme_name, context.to_dict(), formatted_result)
             except Exception as e:
                 error_msg = log_error(e, "保存回测方案失败")
                 # 继续返回回测结果，但添加警告信息

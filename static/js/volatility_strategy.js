@@ -110,16 +110,16 @@ $(document).ready(function() {
             const buy_call_vol = $('#buy_call_vol_input').val();
 
             if (sell_put_vol) {
-                strategy_params.sell_put_volatility = parseFloat(sell_put_vol);
+                strategy_params.put_sell_volatility = parseFloat(sell_put_vol);
             }
             if (buy_put_vol) {
-                strategy_params.buy_put_volatility = parseFloat(buy_put_vol);
+                strategy_params.put_buy_volatility = parseFloat(buy_put_vol);
             }
             if (sell_call_vol) {
-                strategy_params.sell_call_volatility = parseFloat(sell_call_vol);
+                strategy_params.call_sell_volatility = parseFloat(sell_call_vol);
             }
             if (buy_call_vol) {
-                strategy_params.buy_call_volatility = parseFloat(buy_call_vol);
+                strategy_params.call_buy_volatility = parseFloat(buy_call_vol);
             }
 
             const params = {

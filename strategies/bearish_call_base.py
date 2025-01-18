@@ -4,7 +4,7 @@ from typing import Dict, Tuple, Optional
 import pandas as pd
 from pandas import DataFrame
 
-from backtest_params import BacktestParam
+from .strategy_context import StrategyContext
 from .base import OptionStrategy, SpreadDirection
 from .option_selector import OptionSelector
 from .types import OptionType, TradeResult, OptionPosition, PriceConditions
@@ -24,8 +24,8 @@ class BearishCallStrategyBase(OptionStrategy):
         - 到期日自动平仓
     """
     
-    def __init__(self, param: BacktestParam, option_data, etf_data, option_selector: OptionSelector):
-        super().__init__(param, option_data, etf_data, option_selector)
+    def __init__(self, context: StrategyContext, option_data, etf_data, option_selector: OptionSelector):
+        super().__init__(context, option_data, etf_data, option_selector)
 
     def _select_options(self, current_options: pd.DataFrame, current_etf_price: float, expiry: datetime) -> Tuple[
         Optional[DataFrame], Optional[DataFrame]]:
@@ -34,8 +34,8 @@ class BearishCallStrategyBase(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_etf_price,
             expiry=expiry,
-            sell_delta=self.param.sell_value,
-            buy_delta=self.param.buy_value,
+            sell_value=self.context.sell_value,
+            buy_value=self.context.buy_value,
             option_type=OptionType.CALL,
             higher_buy=True  # 看涨价差买入更高行权价
         )

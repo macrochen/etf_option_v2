@@ -1,16 +1,15 @@
-from typing import Dict, Any, Tuple, Optional
-import pandas as pd
 from datetime import datetime
+from typing import Dict, Tuple, Optional
 
+import pandas as pd
 from pandas import DataFrame
 
-from . import TradeResult
 from .base import OptionStrategy, SpreadDirection
-from .option_selector import DeltaOptionSelector
-from .types import OptionType, StrategyType, PortfolioValue, TradeResult, TradeRecord, OptionPosition, PriceConditions
+from .option_selector import OptionSelector
+from .types import OptionType, TradeResult, OptionPosition, PriceConditions
 
 
-class BullishPutStrategy(OptionStrategy):
+class BullishPutStrategyBase(OptionStrategy):
     """牛市看跌价差策略（Bull Put Spread / Put Credit Spread）
     
     策略构成：
@@ -24,8 +23,8 @@ class BullishPutStrategy(OptionStrategy):
         - 到期日自动平仓
     """
     
-    def __init__(self, param, option_data, etf_data):
-        super().__init__(param, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, context, option_data, etf_data, option_selector: OptionSelector):
+        super().__init__(context, option_data, etf_data, option_selector)
     
     def _select_options(self, current_options: pd.DataFrame, current_price: float, expiry: datetime) -> Tuple[
         Optional[DataFrame], Optional[DataFrame]]:
@@ -34,8 +33,8 @@ class BullishPutStrategy(OptionStrategy):
             current_options=current_options,
             current_etf_price=current_price,
             expiry=expiry,
-            sell_delta=self.param.sell_delta,
-            buy_delta=self.param.buy_delta,
+            sell_value=self.context.sell_value,
+            buy_value=self.context.buy_value,
             option_type=OptionType.PUT,
             higher_buy=False  # 看跌价差买入更低行权价
         )

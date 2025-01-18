@@ -90,7 +90,9 @@ def get_next_monthly_expiry(date: datetime, option_data: pd.DataFrame) -> Option
         # 如果下月第一天已超出数据范围，返回None
         if next_month > max_date:
             print(f"警告: 下月 {next_month.strftime('%Y-%m')} 已超出数据范围")
-            return None
+            # 从交易日列表中找出最接近或者等于max_date的交易日返回
+            # trading_dates = sorted(option_data['日期'].unique())
+            # return max(d for d in trading_dates if d <= max_date)
 
         # 获取下月所有的星期三
         cal = monthcalendar(next_month.year, next_month.month)

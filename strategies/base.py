@@ -1,15 +1,16 @@
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Tuple, List
-import pandas as pd
-from datetime import datetime
-import numpy as np
-
-from backtest_params import BacktestParam
-from strategies.option_selector import OptionSelector
-from .types import OptionType, PositionConfig, OptionPosition, TradeResult, PortfolioValue, TradeRecord, PriceConditions
-from utils import get_monthly_expiry, get_next_monthly_expiry
 import logging
+from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum, auto
+from typing import Dict, Optional, Tuple, List
+
+import pandas as pd
+
+from strategies.strategy_context import StrategyContext
+from strategies.option_selector import OptionSelector
+from utils import get_monthly_expiry, get_next_monthly_expiry
+from .types import OptionType, OptionPosition, TradeResult, PortfolioValue, TradeRecord, PriceConditions
+
 
 class SpreadDirection(Enum):
     VERTICAL_SPREAD = (-1, 1)         # 垂直价差
@@ -26,8 +27,8 @@ class CloseType(Enum):
 class OptionStrategy(ABC):
     """期权策略抽象基类"""
     
-    def __init__(self, param: BacktestParam, option_data, etf_data, option_selector: OptionSelector):
-        self.param = param
+    def __init__(self, context: StrategyContext, option_data, etf_data, option_selector: OptionSelector):
+        self.context = context
         self.positions: Dict[str, OptionPosition] = {}  # 当前持仓
         self.trades: Dict[datetime, List[TradeRecord]] = {}  # 交易记录
         self.cash: float = 0                           # 现金余额
@@ -52,8 +53,8 @@ class OptionStrategy(ABC):
         """设置期权数据"""
         self.option_data = option_data
         # 如果没有指定结束日期，使用数据集的最后日期
-        if self.param.end_date is None:
-            self.param.end_date = self.option_data['日期'].max()
+        if self.context.end_date is None:
+            self.context.end_date = self.option_data['日期'].max()
             
     def set_etf_data(self, etf_data: pd.DataFrame):
         """设置ETF数据"""
@@ -84,9 +85,9 @@ class OptionStrategy(ABC):
             # 其他情况（当日是到期日或非首次开仓）使用下月到期日
             target_expiry = get_next_monthly_expiry(current_date, self.option_data)
             
-        # 如果目标到期日超过了回测结束日期，则使用结束日期
-        if not target_expiry or target_expiry > self.param.end_date:
-            target_expiry = self.param.end_date
+        # 如果目标到期日超过了回测结束日期，则使用结束日期 这个日期主要用来找合约用的（所以主要关注YYMM部分，如果结束日期是当月（25号到期，回测结束日期是31号），当月期权又过期了，就会找不到对应期权，会引起一些系列问题）
+        # if not target_expiry or target_expiry > self.context.end_date:
+        #     target_expiry = self.context.end_date
             
         return target_expiry
 
@@ -94,7 +95,7 @@ class OptionStrategy(ABC):
                            market_data: Dict[str, pd.DataFrame]) -> bool:
         """判断是否应该开仓"""
         # 默认实现：只在没有持仓且当前日期不是回测结束日时开仓
-        return not bool(self.positions) and current_date.date() < self.param.end_date.date()
+        return not bool(self.positions) and current_date.date() < self.context.end_date.date()
     
     def should_close_position(self, current_date: datetime,
                             market_data: Dict[str, pd.DataFrame]) -> bool:
@@ -128,7 +129,6 @@ class OptionStrategy(ABC):
             result = self.close_position(current_date, market_data)
             self.record_trade(current_date, result)
             
-            
         # 平仓后立即检查是否可以开仓
         if self.should_open_position(current_date, market_data):
             result = self.open_position(current_date, market_data)
@@ -144,12 +144,13 @@ class OptionStrategy(ABC):
         """
         if not details:
             return
-            
+
         # 确保交易日期存在
         if date not in self.trades:
             self.trades[date] = []
             
         # 记录每个期权的交易信息
+        # fixme 其实没啥用，最后会进行汇总统计，那样更准确
         for i, record in enumerate(details.records):
             if i == len(details.records) - 1:  # 最后一条记录
                 record.total_pnl = details.total_pnl
@@ -159,7 +160,7 @@ class OptionStrategy(ABC):
     
     def calculate_transaction_cost(self, quantity: int) -> float:
         """计算交易成本"""
-        return abs(quantity) * self.param.transaction_cost
+        return abs(quantity) * self.context.transaction_cost
     
     def _get_current_option_price(self, contract_code: str,
                                   current_date: datetime,
@@ -212,8 +213,8 @@ class OptionStrategy(ABC):
             quantity=quantity,
             open_price=option_data['收盘价'],
             open_date=current_date,
-            contract_multiplier=self.param.contract_multiplier,
-            transaction_cost=self.param.transaction_cost
+            contract_multiplier=self.context.contract_multiplier,
+            transaction_cost=self.context.transaction_cost
         )
 
         # 卖出虽然收到的权利金，但是要到期才能最终确认，这里不能直接加到现金中，买入则需要立即确认
@@ -237,7 +238,7 @@ class OptionStrategy(ABC):
         for code, position in self.positions.items():
             current_option_price = self._get_current_option_price(code, current_date, self.option_data)
             if current_option_price is not None:
-                contract_value = current_option_price * abs(position.quantity) * self.param.contract_multiplier
+                contract_value = current_option_price * abs(position.quantity) * self.context.contract_multiplier
                 if position.quantity < 0:  # 卖出期权
                     # 开仓收取的权利金 - 当前需要支付的价值
                     option_value += position.premium - contract_value
@@ -310,10 +311,10 @@ class OptionStrategy(ABC):
     def find_best_options(self,
                           options: pd.DataFrame,
                           current_price:float,
-                          target_delta: float,
+                          target_value: float,
                           option_type: OptionType,
                           expiry: datetime) -> pd.DataFrame:
-        return self.option_selector.find_best_options(options, current_price, target_delta, option_type, expiry)
+        return self.option_selector.find_best_options(options, current_price, target_value, option_type, expiry)
     
     def _create_open_record(self, current_date: datetime, position: OptionPosition, 
                            etf_price: float) -> TradeRecord:
@@ -329,7 +330,7 @@ class OptionStrategy(ABC):
         """
 
         # 确定开仓动作
-        action = '卖出开仓' if position.quantity < 0 else '买入开仓'
+        action = f'卖出{position.option_type.value}开仓' if position.quantity < 0 else f'买入{position.option_type.value}开仓'
         
         record = TradeRecord(
             date=current_date,
@@ -382,14 +383,14 @@ class OptionStrategy(ABC):
                     
         return sell_pos, buy_pos 
 
-    def _handle_option_expiry(self, position: OptionPosition) -> Tuple[str, float, float, float]:
+    def _handle_option_expiry(self, current_date: datetime, current_etf_price: float, position: OptionPosition) -> Tuple[str, TradeRecord]:
         """处理期权作废的通用方法
         
         Returns:
             Tuple[str, float, float, float]: 
             (作废类型, 盈亏, 作废价格, 作废成本)
         """
-        close_type = '到期作废'
+        close_type = f'到期{position.option_type.value}作废'
         pnl = position.premium
         close_price = 0
         close_cost = 0
@@ -397,8 +398,21 @@ class OptionStrategy(ABC):
         # 更新现金
         if position.quantity < 0:  # 卖出期权
             self.cash += position.premium
+
+        record = TradeRecord(
+            date=current_date,
+            action=close_type,
+            etf_price=current_etf_price,
+            strike=position.strike,
+            price=close_price,
+            quantity=abs(position.quantity),
+            premium=0,
+            cost=close_cost,
+            delta=position.delta,
+            pnl=pnl
+        )
         
-        return close_type, pnl, close_price, close_cost
+        return close_type, record
 
     def _create_spread_position(self, 
                               current_date: datetime,
@@ -458,55 +472,43 @@ class OptionStrategy(ABC):
 
         if close_type == CloseType.ALL_EXPIRE:
             # 处理到期作废
-            sell_close_type, sell_pnl, sell_close_price, sell_close_cost = \
-                self._handle_option_expiry(sell_position)
-            buy_close_type, buy_pnl, buy_close_price, buy_close_cost = \
-                self._handle_option_expiry(buy_position)
+            sell_close_type, sell_record = \
+                self._handle_option_expiry(current_date, current_etf_price, sell_position)
+            buy_close_type, buy_record = \
+                self._handle_option_expiry(current_date, current_etf_price, buy_position)
             
             sell_is_expire = buy_is_expire = True
-            total_pnl = sell_pnl + buy_pnl
-            total_cost = sell_close_cost + buy_close_cost
+            total_pnl = sell_record.pnl + buy_record.pnl
+            total_cost = sell_record.cost + buy_record.cost
             
         elif close_type == CloseType.PARTIAL_EXPIRE:
             # sell 平仓
-            sell_close_type, sell_pnl, sell_close_price, sell_close_cost, sell_close_value = \
-                self._handle_option_close(sell_position, current_date, option_data)
+            sell_close_type, sell_record = \
+                self._handle_option_close(sell_position, current_date, current_etf_price, option_data)
             # buy 作废
-            buy_close_type, buy_pnl, buy_close_price, buy_close_cost = \
-                self._handle_option_expiry(buy_position)
+            buy_close_type, buy_record = \
+                self._handle_option_expiry(current_date, current_etf_price, buy_position)
             
             sell_is_expire = False
             buy_is_expire =True
-            total_pnl = sell_pnl + buy_pnl
-            total_cost = sell_close_cost + buy_close_cost
+            total_pnl = sell_record.pnl + buy_record.pnl
+            total_cost = sell_record.cost + buy_record.cost
             
         else:  # CloseType.ALL_CLOSE
             # 全部平仓
-            sell_close_type, sell_pnl, sell_close_price, sell_close_cost, sell_close_value = \
-                self._handle_option_close(sell_position, current_date, option_data)
-            buy_close_type, buy_pnl, buy_close_price, buy_close_cost, buy_close_value = \
-                self._handle_option_close(buy_position, current_date, option_data)
+            sell_close_type, sell_record = \
+                self._handle_option_close(sell_position, current_date, current_etf_price, option_data)
+            buy_close_type, buy_record = \
+                self._handle_option_close(buy_position, current_date, current_etf_price, option_data)
             
             sell_is_expire = buy_is_expire = False
-            total_pnl = sell_pnl + buy_pnl
-            total_cost = sell_close_cost + buy_close_cost
+            total_pnl = sell_record.pnl + buy_record.pnl
+            total_cost = sell_record.cost + buy_record.cost
             
         # 创建平仓记录
-        positions_info = [
-            (sell_position, sell_close_price, sell_is_expire),
-            (buy_position, buy_close_price, buy_is_expire)
-        ]
-        
-        for pos, price, is_expire in positions_info:
-            record, pnl, cost = self._create_close_record(
-                current_date=current_date,
-                position=pos,
-                close_price=price,
-                etf_price=current_etf_price,
-                is_expire=is_expire
-            )
-            records.append(record)
-        
+        records.append(sell_record)
+        records.append(buy_record)
+
         # 清除指定的持仓
         if sell_position:
             self.positions.pop(sell_position.contract_code, None)
@@ -593,19 +595,10 @@ class OptionStrategy(ABC):
 
         close_price = 0
         if is_expire:
-            close_type, pnl, close_price, close_cost = self._handle_option_expiry(sell_position)
+            close_type, record = self._handle_option_expiry(current_date, current_etf_price, sell_position)
         else:
-            close_type, pnl, close_price, close_cost, close_value = self._handle_option_close(sell_position,current_date,option_data)
+            close_type, record = self._handle_option_close(sell_position,current_date, current_etf_price,option_data)
 
-        # 创建平仓记录
-        record, pnl, cost = self._create_close_record(
-            current_date=current_date,
-            position=sell_position,
-            close_price= close_price,
-            etf_price=current_etf_price,
-            is_expire=is_expire
-        )
-        
         if record is None:
             return None
         
@@ -617,8 +610,8 @@ class OptionStrategy(ABC):
         return TradeResult(
             records=[record],
             etf_price=current_etf_price,
-            total_pnl=pnl,
-            total_cost=cost
+            total_pnl=record.pnl,
+            total_cost=record.cost
         ) 
 
     def _calculate_spread_position_size(self, 
@@ -644,9 +637,9 @@ class OptionStrategy(ABC):
         buy_option = options[options['交易代码'] == buy_code].iloc[0]
         
         # 每份合约的成本因子
-        buy_cost = buy_option['收盘价'] * self.param.contract_multiplier  # 买入期权成本
-        transaction_cost = self.param.transaction_cost * 2  # 每组合约的交易成本
-        exercise_cost = sell_option['行权价'] * self.param.contract_multiplier  # 行权资金准备
+        buy_cost = buy_option['收盘价'] * self.context.contract_multiplier  # 买入期权成本
+        transaction_cost = self.context.transaction_cost * 2  # 每组合约的交易成本
+        exercise_cost = sell_option['行权价'] * self.context.contract_multiplier  # 行权资金准备
         
         # 解方程：cash >= x * (buy_cost + transaction_cost + exercise_cost)
         cost_per_contract = buy_cost + transaction_cost + exercise_cost
@@ -674,8 +667,8 @@ class OptionStrategy(ABC):
         option = options[options['交易代码'] == contract_code].iloc[0]
         
         # 每份合约的成本因子
-        transaction_cost = self.param.transaction_cost  # 每个合约的交易成本
-        exercise_cost = option['行权价'] * self.param.contract_multiplier  # 行权资金准备
+        transaction_cost = self.context.transaction_cost  # 每个合约的交易成本
+        exercise_cost = option['行权价'] * self.context.contract_multiplier  # 行权资金准备
         
         # 解方程：cash >= x * (transaction_cost + exercise_cost)
         cost_per_contract = transaction_cost + exercise_cost
@@ -697,20 +690,20 @@ class OptionStrategy(ABC):
                 f"Delta有效期权数量: {options['Delta'].notna().sum()}"
             ) 
 
-    def _handle_option_close(self, position: OptionPosition, current_date: datetime, 
-                            option_data: pd.DataFrame) -> Tuple[str, float, float, float, float]:
+    def _handle_option_close(self, position: OptionPosition, current_date: datetime, current_etf_price: float,
+                            option_data: pd.DataFrame) -> Tuple[str, TradeRecord]:
         """处理期权平仓的通用方法
         
         Returns:
             Tuple[str, float, float, float, float]: 
             (平仓类型, 盈亏, 平仓价格, 平仓成本, 平仓价值)
         """
-        close_type = '买入平仓' if position.quantity < 0 else '卖出平仓'
-        
+        close_type = f'买入{position.option_type.value}平仓' if position.quantity < 0 else f'卖出{position.option_type.value}平仓'
+
         # 获取期权的当前价格
         close_price = self._get_current_option_price(position.contract_code,current_date,option_data)
         close_cost = self.calculate_transaction_cost(abs(position.quantity))
-        close_value = close_price * abs(position.quantity) * self.param.contract_multiplier
+        close_value = close_price * abs(position.quantity) * self.context.contract_multiplier
 
         self.cash -= close_cost
 
@@ -725,8 +718,21 @@ class OptionStrategy(ABC):
             pnl = close_value + position.premium
             if close_value:
                 self.cash += close_value
-        
-        return close_type, pnl, close_price, close_cost, close_value 
+
+        record = TradeRecord(
+            date=current_date,
+            action=close_type,
+            etf_price=current_etf_price,
+            strike=position.strike,
+            price=close_price,
+            quantity=abs(position.quantity),
+            premium=0,
+            cost=close_cost,
+            delta=position.delta,
+            pnl=pnl
+        )
+
+        return close_type, record
 
 
     def _determine_spread_close_type(self, 
@@ -764,8 +770,8 @@ class OptionStrategy(ABC):
                              current_options: pd.DataFrame,
                              current_etf_price: float,
                              expiry: datetime,
-                             sell_delta: float,
-                             buy_delta: float,
+                             sell_value: float,
+                             buy_value: float,
                              option_type: OptionType,
                              higher_buy: bool = True) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
@@ -786,7 +792,7 @@ class OptionStrategy(ABC):
         sell_options = self.find_best_options(
             current_options,
             current_etf_price,
-            sell_delta,
+            sell_value,
             option_type,
             expiry
         )
@@ -808,7 +814,7 @@ class OptionStrategy(ABC):
         buy_options = self.find_best_options(
             filtered_options,
             current_etf_price,
-            buy_delta,
+            buy_value,
             option_type,
             expiry
         )

@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify
-from backtest_params import BacktestParam, BacktestConfig, BacktestParamFactory
 from backtest_engine import BacktestEngine
-import backtest_params
+from strategies import StrategyContextFactory, BacktestConfig
 from strategies.types import TradeRecord, PortfolioValue, BacktestResult
 from visualization import format_backtest_result
 from strategy_analyzer import StrategyAnalyzer
@@ -31,17 +30,15 @@ def run_backtest():
     scheme_id = data.pop('scheme_id', None)  # 获取方案 ID
     scheme_name = data.get('scheme_name')  # 获取方案名称
     
-    backtest_config = BacktestConfig()
-
     # 解析和验证参数
     # 可以传递backtest_config参数，以便自定义回测配置
-    params = BacktestParamFactory.create_param(data)  # 这里会自动验证参数
+    context = StrategyContextFactory.create_context(data)  # 这里会自动验证参数
 
     # 创建回测引擎
     engine = BacktestEngine(BacktestConfig())
     
     # 执行回测
-    result = engine.run_backtest(params)
+    result = engine.run_backtest(context)
 
     if not result:
         error_msg = "回测执行失败，未返回结果"
@@ -54,9 +51,9 @@ def run_backtest():
     # 如果需要保存方案
     if save_scheme:
         if scheme_id:  # 更新已有方案
-            update_scheme(scheme_id, params.to_dict(), formatted_result)
+            update_scheme(scheme_id, context.to_dict(), formatted_result)
         else:  # 创建新方案
-            create_scheme(scheme_name, params.to_dict(), formatted_result)
+            create_scheme(scheme_name, context.to_dict(), formatted_result)
         
     return jsonify(formatted_result)
 

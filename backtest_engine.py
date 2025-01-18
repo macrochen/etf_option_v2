@@ -1,17 +1,19 @@
-from readline import set_completion_display_matches_hook
-from typing import Optional, Dict, Any
-import pandas as pd
-from datetime import datetime
-from strategy_analyzer import StrategyAnalyzer
-from logger import TradeLogger
-from utils import get_trading_dates, get_next_monthly_expiry, get_monthly_expiry
-from visualization import StrategyVisualizer
-from backtest_params import BacktestConfig, BacktestParam
-from strategies.factory import StrategyFactory
-from strategies.types import PositionConfig, BacktestResult
-from strategies.base import OptionStrategy
-import sqlite3
 import os
+import sqlite3
+from datetime import datetime
+from typing import Optional
+
+import pandas as pd
+
+from logger import TradeLogger
+from strategies import BacktestConfig, StrategyContext
+from strategies.base import OptionStrategy
+from strategies.factory import StrategyFactory
+from strategies.types import BacktestResult
+from strategy_analyzer import StrategyAnalyzer
+from utils import get_trading_dates
+from visualization import StrategyVisualizer
+
 
 class BacktestEngine:
     def __init__(self, config: BacktestConfig):
@@ -36,15 +38,15 @@ class BacktestEngine:
             "止损比例": f"{self.config.stop_loss_ratio*100}%"
         })
         
-    def _create_strategy(self, param: BacktestParam) -> Optional[OptionStrategy]:
+    def _create_strategy(self, context: StrategyContext) -> Optional[OptionStrategy]:
         """根据参数创建策略实例"""
         
         # 创建持仓配置
         try:
             # 创建策略实例
             strategy = StrategyFactory.create_strategy(
-                strategy_type=param.strategy_type,
-                param=param,
+                strategy_type=context.strategy_type,
+                context=context,
                 option_data=self.option_data,
                 etf_data=self.etf_data
             )
@@ -58,22 +60,22 @@ class BacktestEngine:
             )
             return None
 
-    def run_backtest(self, param: BacktestParam) -> Optional[BacktestResult]:
+    def run_backtest(self, context: StrategyContext) -> Optional[BacktestResult]:
         """运行回测
         
         Args:
-            param: 回测参数对象
+            context: 回测参数对象
             
         Returns:
             Optional[BacktestResult]: 回测结果对象，如果回测失败则返回None
         """
         try:
-            if not self.load_data(param):
+            if not self.load_data(context):
                 return None
                 
             
             # 创建策略实例
-            strategy = self._create_strategy(param)
+            strategy = self._create_strategy(context)
             if not strategy:
                 return None
                 
@@ -83,8 +85,8 @@ class BacktestEngine:
             
             # 获取交易日期列表
             trading_dates = get_trading_dates(
-                param.start_date,
-                param.end_date,
+                context.start_date,
+                context.end_date,
                 self.option_data
             )
             
@@ -95,7 +97,7 @@ class BacktestEngine:
             
             self.logger.log_trade(trading_dates[0], "回测开始", {
                 "初始资金": self.config.initial_capital,
-                "标的": param.etf_code,
+                "标的": context.etf_code,
                 "策略类型": strategy.__class__.__name__,
                 "开始日期": trading_dates[0].strftime('%Y-%m-%d'),
                 "结束日期": trading_dates[-1].strftime('%Y-%m-%d')
@@ -145,14 +147,14 @@ class BacktestEngine:
             plots = self.visualizer.create_plots(
                 daily_portfolio_values,
                 strategy.trades,
-                param.etf_code,
+                context.etf_code,
                 self.etf_data,
                 analysis_results
             )
             
             # 返回回测结果
             return BacktestResult(
-                    etf_code=param.etf_code,
+                    etf_code=context.etf_code,
                     strategy_type=strategy.__class__.__name__,
                     trades=strategy.trades,
                     portfolio_values=daily_portfolio_values,
@@ -168,11 +170,11 @@ class BacktestEngine:
             print(traceback.format_exc())
             return None
 
-    def load_data(self, param: BacktestParam) -> bool:
+    def load_data(self, context: StrategyContext) -> bool:
         """加载数据
         
         Args:
-            param: 回测参数对象，包含每次运行需要的参数
+            context: 回测参数对象，包含每次运行需要的参数
         """
         try:
             # 连接数据库
@@ -180,37 +182,37 @@ class BacktestEngine:
             conn = sqlite3.connect(db_path)
             
             # 如果没有指定日期范围，先获取数据的日期范围
-            if param.start_date is None or param.end_date is None:
+            if context.start_date is None or context.end_date is None:
                 date_query = """
                     SELECT MIN(date) as min_date, MAX(date) as max_date
                     FROM option_daily 
                     WHERE etf_code = ?
                 """
-                date_df = pd.read_sql_query(date_query, conn, params=(param.etf_code,))
+                date_df = pd.read_sql_query(date_query, conn, params=(context.etf_code,))
                 
                 if date_df.empty:
-                    raise ValueError(f"未找到{param.etf_code}的期权数据")
+                    raise ValueError(f"未找到{context.etf_code}的期权数据")
                     
                 min_date = pd.to_datetime(date_df['min_date'].iloc[0])
                 max_date = pd.to_datetime(date_df['max_date'].iloc[0])
                 
                 # 设置默认日期范围
-                if param.start_date is None:
-                    param.start_date = min_date
-                if param.end_date is None:
-                    param.end_date = max_date
+                if context.start_date is None:
+                    context.start_date = min_date
+                if context.end_date is None:
+                    context.end_date = max_date
                     
                 # 验证日期范围
-                if param.start_date < min_date:
+                if context.start_date < min_date:
                     raise ValueError(f"开始日期不能早于数据最早日期: {min_date.strftime('%Y-%m-%d')}")
-                if param.end_date > max_date:
+                if context.end_date > max_date:
                     raise ValueError(f"结束日期不能晚于数据最晚日期: {max_date.strftime('%Y-%m-%d')}")
-                if param.end_date < param.start_date:
+                if context.end_date < context.start_date:
                     raise ValueError("结束日期不能早于开始日期")
             
             # 确保 param.end_date 是 datetime 类型
-            if isinstance(param.end_date, str):
-                param.end_date = datetime.strptime(param.end_date, '%Y-%m-%d')
+            if isinstance(context.end_date, str):
+                context.end_date = datetime.strptime(context.end_date, '%Y-%m-%d')
 
             # 加载期权数据
             option_query = """
@@ -227,9 +229,9 @@ class BacktestEngine:
                 option_query, 
                 conn, 
                 params=(
-                    param.etf_code,
-                    param.start_date.strftime('%Y-%m-%d'),
-                    param.end_date.strftime('%Y-%m-%d')
+                    context.etf_code,
+                    context.start_date.strftime('%Y-%m-%d'),
+                    context.end_date.strftime('%Y-%m-%d')
                 )
             )
             
@@ -248,8 +250,8 @@ class BacktestEngine:
             if self.option_data.empty:
                 raise ValueError(
                     f"在指定日期范围内没有找到期权数据\n"
-                    f"查询日期范围: {param.start_date.strftime('%Y-%m-%d')} 至 "
-                    f"{param.end_date.strftime('%Y-%m-%d')}"
+                    f"查询日期范围: {context.start_date.strftime('%Y-%m-%d')} 至 "
+                    f"{context.end_date.strftime('%Y-%m-%d')}"
                 )
 
             # 加载ETF数据
@@ -262,9 +264,9 @@ class BacktestEngine:
                 etf_query, 
                 conn, 
                 params=(
-                    param.etf_code,
-                    param.start_date.strftime('%Y-%m-%d'),
-                    param.end_date.strftime('%Y-%m-%d')
+                    context.etf_code,
+                    context.start_date.strftime('%Y-%m-%d'),
+                    context.end_date.strftime('%Y-%m-%d')
                 )
             )
             
@@ -280,8 +282,8 @@ class BacktestEngine:
             if self.etf_data.empty:
                 raise ValueError(
                     f"在指定日期范围内没有找到ETF数据\n"
-                    f"查询日期范围: {param.start_date.strftime('%Y-%m-%d')} 至 "
-                    f"{param.end_date.strftime('%Y-%m-%d')}"
+                    f"查询日期范围: {context.start_date.strftime('%Y-%m-%d')} 至 "
+                    f"{context.end_date.strftime('%Y-%m-%d')}"
                 )
             
             conn.close()

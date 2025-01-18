@@ -27,8 +27,8 @@ class WheelStrategy(OptionStrategy):
     3. CALL期权阶段需要持有足够的标的资产
     """
     
-    def __init__(self, param, option_data, etf_data):
-        super().__init__(param, option_data, etf_data, DeltaOptionSelector())
+    def __init__(self, context, option_data, etf_data):
+        super().__init__(context, option_data, etf_data, DeltaOptionSelector())
         self.has_stock = False  # 是否持有标的资产
         self.stock_position = 0  # 持有的标的数量
         self.stock_cost = 0     # 标的持仓成本
@@ -75,11 +75,11 @@ class WheelStrategy(OptionStrategy):
         
         if self.has_stock:
             # CALL阶段：根据持有的ETF数量计算
-            quantity = self.stock_position // self.param.contract_multiplier
+            quantity = self.stock_position // self.context.contract_multiplier
             self.logger.debug(
                 f"CALL阶段计算开仓数量:\n"
                 f"持有ETF数量: {self.stock_position}\n"
-                f"合约乘数: {self.param.contract_multiplier}\n"
+                f"合约乘数: {self.context.contract_multiplier}\n"
                 f"可开仓数量: {quantity}"
             )
             return quantity
@@ -121,7 +121,7 @@ class WheelStrategy(OptionStrategy):
             self.logger.debug(
                 f"可用资金不足，无法开仓\n"
                 f"当前现金: {self.cash}\n"
-                f"所需保证金: {sell_option.iloc[0]['行权价'] * self.param.contract_multiplier}"
+                f"所需保证金: {sell_option.iloc[0]['行权价'] * self.context.contract_multiplier}"
             )
             return None
         
@@ -174,16 +174,8 @@ class WheelStrategy(OptionStrategy):
             if current_etf_price is None:
                 return None
             
-            close_type, pnl, close_price, close_cost = self._handle_option_expiry(position)
+            close_type, close_record = self._handle_option_expiry(current_date, current_etf_price, position)
             
-            # 创建平仓记录
-            close_record, pnl, close_cost = self._create_close_record(
-                current_date=current_date,
-                position=position,
-                etf_price=current_etf_price,
-                close_price=close_price,
-                is_expire=True
-            )
 
             # 标的资产交易产生的盈亏
             stock_pnl, commission, is_exercise = self._handle_exercise_transaction(position, current_etf_price)
@@ -219,10 +211,10 @@ class WheelStrategy(OptionStrategy):
         pnl = 0.0
         total_commission = 0.0
         quantity = abs(position.quantity)
-        total_quantity = quantity * self.param.contract_multiplier
+        total_quantity = quantity * self.context.contract_multiplier
         
         # 计算行权费用
-        exercise_fee = quantity * self.param.exercise_fee
+        exercise_fee = quantity * self.context.exercise_fee
 
         is_exercise = False
         
@@ -231,7 +223,7 @@ class WheelStrategy(OptionStrategy):
             # PUT被行权，买入标的
             # 计算买入成本和手续费
             trade_amount = position.strike * total_quantity
-            etf_commission = trade_amount * self.param.etf_commission_rate
+            etf_commission = trade_amount * self.context.etf_commission_rate
             total_commission = etf_commission + exercise_fee
 
             # 盈亏 = (行权价 - 当前价格) * 数量 + 总手续费
@@ -262,7 +254,7 @@ class WheelStrategy(OptionStrategy):
             # CALL被行权，卖出标的
             # 计算卖出收入和手续费
             trade_amount = position.strike * total_quantity
-            etf_commission = trade_amount * self.param.etf_commission_rate
+            etf_commission = trade_amount * self.context.etf_commission_rate
             total_commission = etf_commission + exercise_fee
 
             # 盈亏 = (当前价格 - 行权价) * 数量 - 总手续费

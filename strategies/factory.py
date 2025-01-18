@@ -1,7 +1,9 @@
 from typing import Type, Optional
-from .types import StrategyType, PositionConfig
+
+from .strategy_context import StrategyContext
 from .base import OptionStrategy
-from backtest_params import BacktestParam
+from .types import StrategyType
+
 
 class StrategyFactory:
     """策略工厂"""
@@ -14,13 +16,13 @@ class StrategyFactory:
         cls._strategies[strategy_type] = strategy_class
     
     @classmethod
-    def create_strategy(cls, strategy_type: StrategyType, 
-                       param: BacktestParam, option_data, etf_data) -> Optional[OptionStrategy]:
+    def create_strategy(cls, strategy_type: StrategyType,
+                        context: StrategyContext, option_data, etf_data) -> Optional[OptionStrategy]:
         """创建策略实例
         
         Args:
             strategy_type: 策略类型
-            param: 持仓配置，包含回测结束日期
+            context: 持仓配置，包含回测结束日期
             option_data: 期权数据，必传
             etf_data: ETF数据，必传
             
@@ -34,4 +36,4 @@ class StrategyFactory:
             raise ValueError(f"不支持的策略类型: {strategy_type}")
             
         strategy_class = cls._strategies[strategy_type]
-        return strategy_class(param, option_data, etf_data)
+        return strategy_class(context, option_data, etf_data)
