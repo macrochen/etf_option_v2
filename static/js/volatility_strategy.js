@@ -214,7 +214,7 @@ $(document).ready(function() {
         const percentileLabels = [0.25, 0.5, 0.75].map(p => {
             const index = Math.floor(p * (percentiles.length - 1));
             return {
-                value: percentiles[index] * 100, // 转换为百分数
+                value: Math.round(percentiles[index] * 1000) / 10, // 转换为百分数并四舍五入
                 label: `${(p * 100).toFixed(0)}分位: ${(percentiles[index] * 100).toFixed(1)}%`
             };
         });

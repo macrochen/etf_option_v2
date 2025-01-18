@@ -79,7 +79,8 @@
                                            step="0.1" 
                                            min="0" 
                                            max="100"
-                                           placeholder="输入0-100之间的值">
+                                           placeholder="输入0-100之间的值"
+                                           pattern="^\d+(\.\d{1})?$">
                                     <span class="input-group-text">%</span>
                                     <button class="btn btn-outline-secondary dropdown-toggle" 
                                             type="button" 
@@ -215,6 +216,7 @@
 
             <!-- 回测按钮 -->
             <div class="text-center mb-4">
+                <button type="button" class="btn btn-secondary" id="reset_volatility_button">重置参数</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
                 <button type="button" class="btn btn-primary" id="run_backtest">执行回测</button>
             </div>
 
@@ -226,5 +228,18 @@
 <!-- 引入相关JS文件 -->
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/volatility_strategy.js') }}"></script>
+<script>
+    $(document).ready(function() {
+        // 重置按钮功能
+        $('#reset_volatility_button').click(function() {
+            // 重置所有波动率输入框
+            $('.volatility-input').val('');
+            // 重置日期输入框
+            $('#start_date').val('');
+            $('#end_date').val('');
+            // 其他需要重置的输入框可以在这里添加
+        });
+    });
+</script>
 {% endblock %}
 {% endblock %}

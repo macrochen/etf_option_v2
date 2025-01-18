@@ -218,8 +218,9 @@
                             <!-- 执行回测按钮 -->
                             <div class="text-center mt-4">
                                 <div class="btn-group">
-                                    <button type="submit" class="btn btn-primary">执行回测</button>
-                                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#schemeModal">
+                                    <button type="button" class="btn btn-secondary" id="reset-button">重置参数</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                    <button type="submit" class="btn btn-primary">执行回测</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                    <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#schemeModal">
                                         <i class="fas fa-tasks"></i> 方案管理
                                     </button>
                                 </div>
@@ -251,6 +252,16 @@
                 } else if (value > 0.99) {
                     $(this).val(0.99);
                 }
+            });
+
+            // 重置按钮功能
+            $('#reset-button').click(function() {
+                // 重置所有Delta输入框
+                $('.delta-input').val('');
+                // 重置日期输入框
+                $('#start_date').val('');
+                $('#end_date').val('');
+                // 其他需要重置的输入框可以在这里添加
             });
         });
     </script>
