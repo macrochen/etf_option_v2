@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">下载股票数据</h1>
+        
+        <form action="/download" method="post">
+            <label for="stock_code">输入股票代码:</label>
+            <input type="text" id="stock_code" name="stock_code" required>
+            <button type="submit">下载数据</button>
+        </form>
+    </div>
+{% endblock %} 

@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">美股波动率管理</h1>
+        
+        <!-- 股票下载表单 -->
+        <div class="mb-4">
+            <form id="downloadForm">
+                <label for="stock_code">输入股票代码:</label>
+                <input type="text" id="stock_code" name="stock_code" required>
+                <button type="submit" class="btn btn-primary">下载数据</button>
+            </form>
+        </div>
+
+        <!-- 加载动画 -->
+        <div class="loading" id="loading">
+            <div class="loading-content">
+                <div class="spinner-border" role="status">
+                    <span class="sr-only">加载中...</span>
+                </div>
+                <p>数据下载中，请稍后...</p>
+            </div>
+        </div>
+
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>股票代码</th>
+                    <th>下载时间</th>
+                    <th>波动率</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="stockList">
+                <!-- 这里将动态填充股票数据 -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 模态弹窗 -->
+    <div class="modal fade" id="volatilityModal" tabindex="-1" role="dialog" aria-labelledby="volatilityModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="volatilityModalLabel">波动率数据</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="volatilityChart" style="width: 1250px; height: 700px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <!-- <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button> -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .modal-dialog {
+            max-width: 70%; /* 设置最大宽度为 70% */
+            margin: auto;   /* 居中显示 */
+        }
+    </style>
+
+    <script>
+        const periodOrder = ['3个月', '6个月', '1年', '3年', '5年', '10年'];
+
+        // 获取股票列表并填充到表格中
+        function loadStockList() {
+            fetch('/api/stock_list')
+                .then(response => response.json())
+                .then(data => {
+                    const stockList = document.getElementById('stockList');
+                    stockList.innerHTML = ''; // 清空现有内容
+                    data.forEach(stock => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${stock.stock_code}</td>
+                            <td>${stock.download_time}</td>
+                            <td>${stock.volatility ? '已生成' : '未生成'}</td>
+                            <td>
+                                ${stock.volatility ? 
+                                    `<button class="btn btn-info" onclick="showVolatility('${stock.stock_code}')">显示</button>` : 
+                                    `<button class="btn btn-warning" onclick="generateVolatility('${stock.stock_code}')">生成</button>`}
+                            </td>
+                        `;
+                        stockList.appendChild(row);
+                    });
+                });
+        }
+
+        // 下载股票数据
+        document.getElementById('downloadForm').onsubmit = function(event) {
+            event.preventDefault();
+            const stockCode = document.getElementById('stock_code').value.toUpperCase();
+
+            // 显示加载动画
+            document.getElementById('loading').style.display = 'flex';
+
+            fetch('/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ stock_code: stockCode })
+            }).then(response => response.json())
+              .then(data => {
+                  alert(data.message);
+                  loadStockList(); // 刷新股票列表
+              }).finally(() => {
+                  // 隐藏加载动画
+                  document.getElementById('loading').style.display = 'none';
+              });
+        };
+
+        function showVolatility(stockCode) {
+            // 获取波动率数据并展示
+            fetch(`/api/volatility/${stockCode}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("网络响应不正常");
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const chartDom = document.getElementById('volatilityChart');
+                    const myChart = echarts.init(chartDom);
+                    const option = {
+                        title: {
+                            text: `${stockCode} 波动率数据`,
+                            left: 'center',
+                            top: 'top',
+                            textStyle: {
+                                fontSize: 18,
+                                fontWeight: 'bold'
+                            }
+                        },
+                        tooltip: {},
+                        legend: {  // 添加图例
+                            data: [
+                                '月上涨波动率',
+                                '月下跌波动率',
+                                '周上涨波动率',
+                                '周下跌波动率'
+                            ],
+                            orient: 'horizontal',
+                            left: 'center',
+                            top: 'bottom'
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: periodOrder // 使用定义的顺序作为 x 轴
+                        },
+                        grid: {  // 添加外边框和网格
+                            left: '1%',  // 减小左边距
+                            right: '1%',  // 减小右边距
+                            top: '10%',
+                            bottom: '10%',
+                            containLabel: true,
+                            borderColor: '#ccc',  // 边框颜色
+                            borderWidth: 1  // 边框宽度
+                        },
+                        yAxis: {
+                            type: 'value',
+                            axisLabel: {
+                                formatter: '{value}%' // 将 y 轴标签格式化为百分数
+                            }
+                        },
+                        series: [
+                            {
+                                name: '月上涨波动率',
+                                type: 'boxplot',
+                                data: periodOrder.map(period => {
+                                    const stats = data.monthly_stats[period];
+                                    return [
+                                        stats.up_volatility.min * 100,                // 最小值
+                                        stats.up_volatility.percentiles['25'] * 100,  // 25%分位数
+                                        stats.up_volatility.percentiles['50'] * 100,  // 50%分位数
+                                        stats.up_volatility.percentiles['75'] * 100,  // 75%分位数
+                                        stats.up_volatility.max * 100                 // 最大值
+                                    ].map(value => value.toFixed(2)); // 保留两位小数
+                                })
+                            },
+                            {
+                                name: '月下跌波动率',
+                                type: 'boxplot',
+                                data: periodOrder.map(period => {
+                                    const stats = data.monthly_stats[period];
+                                    return [
+                                        stats.down_volatility.min * 100,                // 最小值
+                                        stats.down_volatility.percentiles['25'] * 100,  // 25%分位数
+                                        stats.down_volatility.percentiles['50'] * 100,  // 50%分位数
+                                        stats.down_volatility.percentiles['75'] * 100,  // 75%分位数
+                                        stats.down_volatility.max * 100                 // 最大值
+                                    ].map(value => value.toFixed(2)); // 保留两位小数
+                                })
+                            },
+                            {
+                                name: '周上涨波动率',
+                                type: 'boxplot',
+                                data: periodOrder.map(period => {
+                                    const stats = data.weekly_stats[period];
+                                    return [
+                                        stats.up_volatility.min * 100,                // 最小值
+                                        stats.up_volatility.percentiles['25'] * 100,  // 25%分位数
+                                        stats.up_volatility.percentiles['50'] * 100,  // 50%分位数
+                                        stats.up_volatility.percentiles['75'] * 100,  // 75%分位数
+                                        stats.up_volatility.max * 100                 // 最大值
+                                    ].map(value => value.toFixed(2)); // 保留两位小数
+                                })
+                            },
+                            {
+                                name: '周下跌波动率',
+                                type: 'boxplot',
+                                data: periodOrder.map(period => {
+                                    const stats = data.weekly_stats[period];
+                                    return [
+                                        stats.down_volatility.min * 100,                // 最小值
+                                        stats.down_volatility.percentiles['25'] * 100,  // 25%分位数
+                                        stats.down_volatility.percentiles['50'] * 100,  // 50%分位数
+                                        stats.down_volatility.percentiles['75'] * 100,  // 75%分位数
+                                        stats.down_volatility.max * 100                 // 最大值
+                                    ].map(value => value.toFixed(2)); // 保留两位小数
+                                })
+                            }
+                        ]
+                    };
+                    myChart.setOption(option);
+                    $('#volatilityModal').modal('show');
+                })
+                .catch(error => {
+                    console.error("获取波动率数据时出错:", error);
+                });
+        }
+
+        function generateVolatility(stockCode) {
+            fetch(`/api/generate_volatility/${stockCode}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    loadStockList(); // 刷新股票列表
+                });
+        }
+
+        // 页面加载时获取股票列表
+        loadStockList();
+    </script>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}

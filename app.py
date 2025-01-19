@@ -3,6 +3,7 @@ from datetime import datetime
 from routes.scheme_routes import scheme_bp
 from routes.backtest_routes import backtest_bp
 from routes.volatility_routes import volatility_bp
+from routes.stock_data_routes import stock_data_bp  # 导入新的蓝图
 
 
 app = Flask(__name__)
@@ -11,6 +12,7 @@ app = Flask(__name__)
 app.register_blueprint(scheme_bp)
 app.register_blueprint(backtest_bp)
 app.register_blueprint(volatility_bp)
+app.register_blueprint(stock_data_bp)  # 注册股票数据蓝图
 
 # ETF选项列表
 ETF_OPTIONS = [

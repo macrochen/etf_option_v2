@@ -44,6 +44,24 @@
 | end_date     | DATE                   |               | 结束日期   |
 | 主键         | (etf_code, calc_date) |               |            |
 
+## stock_prices 美股历史价格数据表
+| 字段名       | 数据类型               | 约束          | 说明       |
+|--------------|------------------------|---------------|------------|
+| stock_code   | VARCHAR(10)            | NOT NULL      | 美股股票代码 |
+| date         | DATE                   | NOT NULL      | 日期       |
+| open_price   | REAL                   |               | 开盘价     |
+| close_price  | REAL                   |               | 收盘价     |
+| 主键         | (stock_code, date)    |               |            |
+
+## stock_volatility_stats 美股波动率统计表
+| 字段名       | 数据类型               | 约束          | 说明       |
+|--------------|------------------------|---------------|------------|
+| stock_code   | VARCHAR(10)            |               | 美股股票代码 |
+| calc_date    | DATE                   |               | 计算日期   |
+| monthly_stats | TEXT                  |               | 月波动统计数据（JSON格式） |
+| weekly_stats  | TEXT                  |               | 周波动统计数据（JSON格式） |
+| 主键         | (stock_code, calc_date)|               |            |
+
 ## backtest_schemes 策略回测方案表
 | 字段名       | 数据类型               | 约束          | 说明       |
 |--------------|------------------------|---------------|------------|
