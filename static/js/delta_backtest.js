@@ -277,6 +277,19 @@ function setupWheelStrategy() {
     detectStrategy();
 }
 
+// 添加快速设置Iron Condor策略的函数
+function setupIronCondorStrategy() {
+    
+    // 设置卖出和买入Delta
+    $('#put_sell_delta').val(-0.5);
+    $('#put_buy_delta').val(-0.2);
+    $('#call_sell_delta').val(0.5);
+    $('#call_buy_delta').val(0.2);
+    
+    // 触发策略检测（如果需要）
+    detectStrategy();
+}
+
 // 显示成功提示
 function showSuccess(message) {
     const alertDiv = $('<div>')

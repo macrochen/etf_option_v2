@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- 指标类型选择和ETF代码选择并排排列 -->
+    <div class="form-row">
+        <div class="form-group col-md-4">
+            <label for="etfCode">选择ETF代码</label>
+            <select id="etfCode" class="form-control" onchange="plotChart()">
+                <option value="510050">上证50ETF (510050)</option>
+                <option value="510300">沪深300ETF (510300)</option>
+                <option value="510500">中证500ETF (510500)</option>
+                <option value="159901">深证100ETF (159901)</option>
+                <option value="159915">创业板ETF (159915)</option>
+                <option value="159919">深市沪深300ETF (159919)</option>
+                <option value="159922">深市中证500ETF (159922)</option>
+                <option value="588000">科创板50ETF (588000)</option>
+                <option value="588080">科创板100ETF (588080)</option>
+            </select>
+        </div>
+        <div class="form-group col-md-4">
+            <label for="indicatorType">选择指标类型</label>
+            <select id="indicatorType" class="form-control" onchange="plotChart()">
+                <option value="Moving Average">移动平均线</option>
+                <option value="RSI">相对强弱指数 (RSI)</option>
+                <option value="MACD">移动平均收敛发散指标 (MACD)</option>
+                <option value="Bollinger Bands">布林带</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="signalsChart" style="width: 100%; height: 800px;"></div>
+
+</div>
+
+<script>
+    // 设置默认的ETF代码
+    const defaultEtfCode = "510050";
+    let etfCode = "{{ etf_code }}" || defaultEtfCode;  // 如果没有指定etf_code，使用默认值
+
+    function plotChart() {
+        etfCode = document.getElementById('etfCode').value;  // 获取选择的ETF代码
+        const indicatorType = document.getElementById('indicatorType').value;  // 获取指标类型
+        let dates, prices;
+
+        // 获取价格数据
+        fetch(`/get_price_data/${etfCode}`)  // 获取价格数据
+            .then(response => response.json())
+            .then(priceData => {
+                dates = priceData.dates;
+                prices = priceData.prices;
+
+                // 获取买卖点数据
+                return fetch(`/get_signals/${etfCode}?indicator=${indicatorType}`);  // 传递指标类型
+            })
+            .then(response => response.json())
+            .then(signalData => {
+                const buySignals = signalData.buy;  // 从后端获取买入点数据
+                const sellSignals = signalData.sell;  // 从后端获取卖出点数据
+
+                // 初始化ECharts实例
+                const myChart = echarts.init(document.getElementById('signalsChart'));
+
+                // 配置图表选项
+                const option = {
+                    title: {
+                        text: etfCode + '价格走势图 - ' + indicatorType,
+                        left: 'center',  // 将标题居中
+                        fontSize: 20  // 设置字体大小
+                    },
+                    tooltip: {
+                        trigger: 'axis'
+                    },
+                    legend: {  // 添加图例并设置位置
+                        data: ['价格', '买入点', '卖出点'],
+                        top: '5%'  // 图例位置设置为顶部
+                    },
+                    grid: {  // 添加外边框和网格
+                        left: '1%',  // 减小左边距
+                        right: '1%',  // 减小右边距
+                        top: '10%',
+                        bottom: '10%',
+                        containLabel: true,
+                        borderColor: '#ccc',  // 边框颜色
+                        borderWidth: 1  // 边框宽度
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: dates,
+                        axisLabel: {
+                            formatter: function(value) {
+                                const dateParts = value.split('-');
+                                return `${dateParts[0].slice(-2)}-${dateParts[1]}`;  // 显示为 yy-mm
+                            },
+                            rotate: 45  // 斜着显示
+                        },
+                        splitLine: {  // 添加网格线
+                            show: true,
+                            lineStyle: {
+                                color: '#ddd',
+                                type: 'dashed'
+                            }
+                        }
+                    },
+                    yAxis: {
+                        type: 'value',
+                        name: '价格（元）',
+                        nameLocation: 'middle',  // 将纵轴标识放在中间
+                        nameGap: 30,  // 调整与轴的间距
+                        splitLine: {  // 添加网格线
+                            show: true,
+                            lineStyle: {
+                                color: '#ddd',
+                                type: 'dashed'
+                            }
+                        },
+                        interval: 0.2  // 设置刻度间隔
+                    },
+                    series: [{
+                        name: '价格',
+                        type: 'line',
+                        data: prices,  // 使用价格数据
+                        smooth: true,
+                        lineStyle: {
+                            color: 'blue',
+                            width: 2
+                        },
+                        itemStyle: {
+                            color: 'blue'
+                        }
+                    },
+                    {
+                        name: '买入点',
+                        type: 'scatter',
+                        data: buySignals.map(signal => ({
+                            name: '买入点',
+                            value: [signal.date, signal.price]
+                        })),
+                        itemStyle: {
+                            color: 'red'
+                        }
+                    },
+                    {
+                        name: '卖出点',
+                        type: 'scatter',
+                        data: sellSignals.map(signal => ({
+                            name: '卖出点',
+                            value: [signal.date, signal.price]
+                        })),
+                        itemStyle: {
+                            color: 'green'
+                        }
+                    }],
+                    dataZoom: [{  // 添加缩放功能
+                        type: 'slider',
+                        show: true,
+                        xAxisIndex: [0],
+                        start: 0,
+                        end: 100
+                    }],
+                    toolbox: {  // 添加工具箱
+                        feature: {
+                            saveAsImage: {},  // 截图功能
+                            dataZoom: {  // 缩放功能
+                                yAxisIndex: 'none'
+                            }
+                        }
+                    }
+                };
+
+                // 使用刚指定的配置项和数据显示图表
+                myChart.setOption(option);
+            })
+            .catch(error => {
+                console.error('Error fetching data:', error);
+            });
+    }
+
+    // 绘制图表
+    plotChart();
+</script>
+{% endblock %}

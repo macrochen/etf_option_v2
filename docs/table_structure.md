@@ -1,5 +1,14 @@
 # 表结构文档
 
+## combined_signals 买卖点数据表
+| 字段名           | 数据类型               | 约束          | 说明                       |
+|------------------|------------------------|---------------|----------------------------|
+| etf_code         | VARCHAR(10)            | NOT NULL      | ETF代码                    |
+| trend_indicator   | VARCHAR(50)            | NOT NULL      | 存储趋势指标名称          |
+| Buy_Signal       | TEXT                   | NOT NULL      | 存储买点日期的逗号分隔字符串 |
+| Sell_Signal      | TEXT                   | NOT NULL      | 存储卖点日期的逗号分隔字符串 |
+| 主键             | (etf_code, trend_indicator) |           |                            |
+
 ## etf_daily ETF历史价格表
 | 字段名       | 数据类型               | 约束          | 说明       |
 |--------------|------------------------|---------------|------------|

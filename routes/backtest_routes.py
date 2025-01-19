@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, render_template
 from backtest_engine import BacktestEngine
 from strategies import StrategyContextFactory, BacktestConfig
 from strategies.types import TradeRecord, PortfolioValue, BacktestResult
@@ -13,12 +13,14 @@ from typing import Dict, Any, List
 from datetime import datetime
 from models.scheme_model import SchemeModel
 from utils.error_handler import api_error_handler, log_error
+from db.market_db import MarketDatabase
 
 # 创建蓝图
 backtest_bp = Blueprint('backtest', __name__)
 
 # 创建数据库实例
 scheme_db = SchemeDatabase(DB_CONFIG['backtest_schemes']['path'])
+market_db = MarketDatabase(DB_CONFIG['market_data']['path'])
 
 @backtest_bp.route('/api/backtest', methods=['POST'])
 @api_error_handler
@@ -142,3 +144,19 @@ def save_scheme():
         'status': 'success',
         'message': '方案保存成功'
     })
+
+@backtest_bp.route('/signals/<etf_code>', methods=['GET'])
+def signals_page(etf_code):
+    return render_template('signals.html', etf_code=etf_code)
+
+@backtest_bp.route('/get_signals/<etf_code>', methods=['GET'])
+def get_signals(etf_code):
+    indicator_type = request.args.get('indicator', 'Moving Average')  # 获取指标类型，默认值为 'Combined'
+    signals = market_db.get_buy_sell_signals(etf_code, indicator_type)  # 获取买卖点数据
+    return jsonify(signals)
+
+@backtest_bp.route('/get_price_data/<etf_code>', methods=['GET'])
+def get_price_data(etf_code):
+    # 使用MarketDatabase类的方法获取价格数据
+    prices, dates = market_db.get_price_data(etf_code)  # 调用已定义的方法
+    return jsonify({'prices': prices, 'dates': dates})

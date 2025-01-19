@@ -131,6 +131,7 @@ class DeltaIronCondorStrategyContext(StrategyContext):
     def __init__(self, strategy_type,
                  buy_call_delta: float, sell_call_delta: float,
                  buy_put_delta: float, sell_put_delta: float,
+                 trend_indicator: str,
                  **kwargs):
         super().__init__(**kwargs)
         self.strategy_type = strategy_type
@@ -138,6 +139,7 @@ class DeltaIronCondorStrategyContext(StrategyContext):
         self.sell_call_value = sell_call_delta
         self.buy_put_value = buy_put_delta
         self.sell_put_value = sell_put_delta
+        self.trend_indicator = trend_indicator
 
 class DeltaBearishCallStrategyContext(StrategyContext):
     def __init__(self, strategy_type, buy_call_delta: float, sell_call_delta: float, **kwargs):
@@ -200,6 +202,7 @@ class StrategyContextFactory:
         etf_code = data.get('etf_code', '')
         start_date = datetime.strptime(data['start_date'], '%Y-%m-%d') if 'start_date' in data else None
         end_date = datetime.strptime(data['end_date'], '%Y-%m-%d') if 'end_date' in data else None
+        trend_indicator = data.get('trend_indicator', '')
 
         sp = data['strategy_params']
         # 确定策略类型
@@ -214,7 +217,8 @@ class StrategyContextFactory:
                                                   sell_put_delta=sp['put_sell_delta'],
                                                   etf_code=etf_code,
                                                   start_date=start_date,
-                                                  end_date=end_date)
+                                                  end_date=end_date,
+                                                  trend_indicator=trend_indicator)
 
         elif 'call_buy_delta' in sp and 'call_sell_delta' in sp:
 
@@ -226,9 +230,7 @@ class StrategyContextFactory:
                                                    buy_call_delta=sp['call_buy_delta'],
                                                    sell_call_delta=sp['call_sell_delta'],
                                                    etf_code=etf_code,
-
                                                    start_date=start_date,
-
                                                    end_date=end_date)
 
         elif 'put_sell_delta' in sp and 'put_buy_delta' in sp:

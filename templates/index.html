@@ -24,24 +24,36 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div class="col-md-8">
+                            </div>
+
+                            <!-- 新增趋势指标选择 -->
+                            <div class="row mb-4">
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <label for="trend_indicator">趋势指标</label>
+                                        <select class="form-control" id="trend_indicator" name="trend_indicator">
+                                            <option value="" selected>请选择趋势指标</option>
+                                            <option value="Moving Average">移动平均线</option>
+                                            <option value="RSI">相对强弱指数 (RSI)</option>
+                                            <option value="MACD">移动平均收敛发散指标 (MACD)</option>
+                                            <option value="Bollinger Bands">布林带</option> 
+                                            <option value="Combined">综合以上指标</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="button" class="btn btn-primary" id="view-signals-btn">查看买卖点</button>
+                                </div>
+                            </div>
+
+                            <div class="row mb-4">
+                                <div class="col-md-4">
                                     <div class="strategy-type-indicator alert alert-info mb-0 mt-4 d-none">
                                         当前策略：<span class="strategy-name"></span>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- 在期权参数设置区域上方添加快速设置按钮组 -->
-                            <div class="row mb-3">
-                                <div class="col-12">
-                                    <div class="btn-group" role="group">
-                                        <button type="button" class="btn btn-outline-primary" onclick="setupWheelStrategy()">
-                                            设置轮转策略 (Wheel)
-                                        </button>
-                                        <!-- 可以添加其他快速设置按钮 -->
-                                    </div>
-                                </div>
-                            </div>
 
                             <!-- 期权参数设置 -->
                             <div class="row mb-4">
@@ -231,6 +243,12 @@
                             <div class="text-center mt-4">
                                 <div class="btn-group">
                                     <button type="button" class="btn btn-secondary" id="reset-button">重置参数</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                    <button type="button" class="btn btn-outline-primary" onclick="setupWheelStrategy()">
+                                        设置轮转策略 (Wheel)
+                                    </button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                    <button type="button" class="btn btn-outline-primary" onclick="setupIronCondorStrategy()">
+                                        设置铁鹰策略 (IronCondor)
+                                    </button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
                                     <button type="submit" class="btn btn-primary">执行回测</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
                                 </div>
                             </div>
@@ -297,6 +315,18 @@
                 $('#start_date').val(formatDate(startDate));
                 $('#end_date').val(formatDate(endDate));
             };
+
+            // 处理查看买卖点按钮点击事件
+            $('#view-signals-btn').click(function() {
+                const etfCode = $('#etf_code').val();  // 获取选中的ETF代码
+                
+                if (etfCode) {
+                    // 在新窗口中打开买卖点页面
+                    window.open(`/signals/${etfCode}`, '_blank');
+                } else {
+                    alert('请先选择一个ETF标的物。');
+                }
+            });
         });
     </script>
     {% block scripts %}
