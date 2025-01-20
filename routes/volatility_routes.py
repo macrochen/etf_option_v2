@@ -37,11 +37,13 @@ def get_etf_volatility():
         if not etf_code:
             return jsonify({'error': '缺少ETF代码参数'}), 400
 
+        # 获取数据范围参数
+        data_range = request.args.get('data_range', None)  # 默认获取所有数据
+
         with db.get_connection() as conn:
-            # 获取最新的波动率统计数据
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT stats_data, display_data, start_date, end_date 
+                SELECT stats_data, start_date, end_date 
                 FROM volatility_stats 
                 WHERE etf_code = ? 
                 ORDER BY calc_date DESC 
@@ -53,26 +55,23 @@ def get_etf_volatility():
                 return jsonify({'error': f'未找到ETF {etf_code} 的波动率数据'}), 404
 
             stats_data = json.loads(row[0])
-            display_data = json.loads(row[1])
 
-            # 将百分位数据转换为数组格式
-            if 'upward' in stats_data and 'percentiles' in stats_data['upward']:
-                stats_data['upward']['percentiles'] = [
-                    float(value) for value in stats_data['upward']['percentiles'].values()
-                ]
-            if 'downward' in stats_data and 'percentiles' in stats_data['downward']:
-                stats_data['downward']['percentiles'] = [
-                    float(value) for value in stats_data['downward']['percentiles'].values()
-                ]
-
-            return jsonify({
-                'volatility_stats': stats_data,
-                'display_data': display_data,
-                'trading_range': {
-                    'start': row[2],
-                    'end': row[3]
+            # 根据参数选择数据
+            if data_range == '3个月':
+                result = {
+                    'up_volatility': stats_data['3个月']['up_volatility'],
+                    'down_volatility': stats_data['3个月']['down_volatility']
                 }
-            })
+                return jsonify({
+                    'volatility_stats': result,
+                    'trading_range': {
+                        'start': row[1],
+                        'end': row[2]
+                    }
+                })
+            else:
+                return jsonify(stats_data)
+
 
     except Exception as e:
         error_msg = log_error(e, "获取ETF波动率数据失败")

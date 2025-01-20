@@ -20,29 +20,8 @@
                                 {% endfor %}
                             </select>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 波动率统计图表 -->
-            <div class="card mb-4">
-                <div class="card-header bg-light">
-                    <h5 class="card-title mb-0">历史波动率数据</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-12">
-                            <div id="volatilityCharts" style="width: 100%; min-width: 1200px; overflow-x: auto;">
-                                <div id="volatility_boxplot" style="height: 400px;"></div>
-                                <div class="row mt-4">
-                                    <div class="col-md-6">
-                                        <div id="downward_volatility_dist" style="height: 400px;"></div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div id="upward_volatility_dist" style="height: 400px;"></div>
-                                    </div>
-                                </div>
-                            </div>
+                        <div class="col-auto">
+                            <button class="btn btn-primary" id="view_volatility">查看波动率</button>
                         </div>
                     </div>
                 </div>
@@ -246,4 +225,29 @@
     });
 </script>
 {% endblock %}
+
+<!-- 模态窗口 -->
+<div class="modal fade" id="volatilityModal" tabindex="-1" aria-labelledby="volatilityModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="volatilityModalLabel">历史波动情况</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="volatilityChart" style="width: 1250px; height: 700px;"></div>
+            </div>
+            <div class="modal-footer">
+                <!-- <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button> -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .modal-dialog {
+        max-width: 70%; /* 设置最大宽度为 70% */
+        margin: auto;   /* 居中显示 */
+    }
+</style>
 {% endblock %}

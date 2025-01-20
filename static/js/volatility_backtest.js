@@ -4,17 +4,6 @@ $(document).ready(function() {
     let upwardVolatilityDistChart = null;
     let downwardVolatilityDistChart = null;
 
-    function initCharts() {
-        if (!boxplotChart && document.getElementById('volatility_boxplot')) {
-            boxplotChart = echarts.init(document.getElementById('volatility_boxplot'));
-        }
-        if (!upwardVolatilityDistChart && document.getElementById('upward_volatility_dist')) {
-            upwardVolatilityDistChart = echarts.init(document.getElementById('upward_volatility_dist'));
-        }
-        if (!downwardVolatilityDistChart && document.getElementById('downward_volatility_dist')) {
-            downwardVolatilityDistChart = echarts.init(document.getElementById('downward_volatility_dist'));
-        }
-    }
     
     // ETF数据缓存
     let etfData = {
@@ -27,7 +16,6 @@ $(document).ready(function() {
     bindEvents();
     
     // 初始化图表并加载默认ETF数据
-    initCharts();
     const defaultEtf = $('#etf_code').val();
     if (defaultEtf) {
         loadETFData(defaultEtf);
@@ -191,10 +179,22 @@ $(document).ready(function() {
         $('#manage_scheme').off('click').on('click', function() {
             window.location.href = '/schemes';
         });
+
+        // 绑定查看波动率按钮事件
+        $('#view_volatility').off('click').on('click', function() {
+            const etfCode = $('#etf_code').val();
+            if (!etfCode) {
+                alert('请先选择一个ETF标的物');
+                return;
+            }
+
+            // 加载波动率数据
+            loadVolatilityData(etfCode);
+        });
     }
 
     function loadETFData(etf_code) {
-        $.get('/api/etf/volatility', { etf_code: etf_code }, function(data) {
+        $.get('/api/etf/volatility', { etf_code: etf_code ,data_range: '3个月'}, function(data) {
             etfData.volatilityStats = data.volatility_stats;
             etfData.tradingRange = data.trading_range;
             
@@ -240,10 +240,11 @@ $(document).ready(function() {
 
         // 只添加25%、50%、75%分位数选项
         const percentileLabels = [0.25, 0.5, 0.75].map(p => {
-            const index = Math.floor(p * (percentiles.length - 1));
+            const index = Math.floor(p * 4 - 1);
             return {
                 value: Math.round(percentiles[index] * 1000) / 10, // 转换为百分数并四舍五入
                 label: `${(p * 100).toFixed(0)}分位: ${(percentiles[index] * 100).toFixed(1)}%`
+
             };
         });
 
@@ -298,26 +299,28 @@ $(document).ready(function() {
 
     function updateRecommendedParams(statsData) {
         if (!statsData) return;
-        
+
         // 格式化数字为百分比，保留1位小数
         const formatPercent = (value) => {
             if (isNaN(value)) return 'N/A';
             return (value * 100).toFixed(1) + '%';
         };
-        
-        $('#put_vol_range').html(`最小值: ${formatPercent(statsData.downward.min)}, 
-                                平均值: ${formatPercent(statsData.downward.volatility)},
-                                中位数: ${formatPercent(statsData.downward.percentiles['50'])}, 
-                                最大值: ${formatPercent(statsData.downward.max)}`);
-        
-        $('#call_vol_range').html(`最小值: ${formatPercent(statsData.upward.min)}, 
-                                 平均值: ${formatPercent(statsData.upward.volatility)},
-                                 中位数: ${formatPercent(statsData.upward.percentiles['50'])}, 
-                                 最大值: ${formatPercent(statsData.upward.max)}`);
+
+        // 更新看跌波动率范围
+        $('#put_vol_range').html(`最小值: ${formatPercent(statsData.down_volatility.min)}, 
+                                平均值: ${formatPercent(statsData.down_volatility.volatility)},
+                                中位数: ${formatPercent(statsData.down_volatility.percentiles['50'])}, 
+                                最大值: ${formatPercent(statsData.down_volatility.max)}`);
+
+        // 更新看涨波动率范围
+        $('#call_vol_range').html(`最小值: ${formatPercent(statsData.up_volatility.min)}, 
+                                 平均值: ${formatPercent(statsData.up_volatility.volatility)},
+                                 中位数: ${formatPercent(statsData.up_volatility.percentiles['50'])}, 
+                                 最大值: ${formatPercent(statsData.up_volatility.max)}`);
 
         // 将对象格式的百分位数据转换为数组
-        const downwardPercentiles = Object.values(statsData.downward.percentiles).map(Number);
-        const upwardPercentiles = Object.values(statsData.upward.percentiles).map(Number);
+        const downwardPercentiles = Object.values(statsData.down_volatility.percentiles).map(Number);
+        const upwardPercentiles = Object.values(statsData.up_volatility.percentiles).map(Number);
 
         // 更新波动率选择器
         showVolatilitySelector('put', downwardPercentiles);
@@ -329,696 +332,24 @@ $(document).ready(function() {
 
         // 更新波动率范围显示
         const statsData = data.volatility_stats;
-        
+
         // 检查数据有效性
-        const putRange = statsData.downward ? 
-            `最小值: ${(statsData.downward.min * 100).toFixed(2)}%, 
-             平均值: ${(statsData.downward.volatility * 100).toFixed(2)}%,
-             中位数: ${(statsData.downward.percentiles[2] * 100).toFixed(2)}%, 
-             最大值: ${(statsData.downward.max * 100).toFixed(2)}%` : 
+        const putRange = statsData.down_volatility ? 
+            `最小值: ${(statsData.down_volatility.min * 100).toFixed(2)}%, 
+             平均值: ${(statsData.down_volatility.volatility * 100).toFixed(2)}%,
+             中位数: ${(statsData.down_volatility.percentiles['50'] * 100).toFixed(2)}%, 
+             最大值: ${(statsData.down_volatility.max * 100).toFixed(2)}%` : 
             '暂无数据';
-        
-        const callRange = statsData.upward ? 
-            `最小值: ${(statsData.upward.min * 100).toFixed(2)}%, 
-             平均值: ${(statsData.upward.volatility * 100).toFixed(2)}%,
-             中位数: ${(statsData.upward.percentiles[2] * 100).toFixed(2)}%, 
-             最大值: ${(statsData.upward.max * 100).toFixed(2)}%` : 
+
+        const callRange = statsData.up_volatility ? 
+            `最小值: ${(statsData.up_volatility.min * 100).toFixed(2)}%, 
+             平均值: ${(statsData.up_volatility.volatility * 100).toFixed(2)}%,
+             中位数: ${(statsData.up_volatility.percentiles['50'] * 100).toFixed(2)}%, 
+             最大值: ${(statsData.up_volatility.max * 100).toFixed(2)}%` : 
             '暂无数据';
 
         $('#put_vol_range').html(putRange);
         $('#call_vol_range').html(callRange);
-
-        const displayData = data.display_data;
-
-        // 箱线图配置
-        const boxPlotOption = {
-            title: {
-                text: '波动率分布箱线图',
-                left: 'center'
-            },
-            tooltip: {
-                trigger: 'item',
-                formatter: function(params) {
-                    // 如果是散点图（平均值标记）
-                    if (params.seriesName === '平均值') {
-                        return `平均值: ${(params.value * 100).toFixed(2)}%`;
-                    }
-                    
-                    // 获取箱线图的原始数据
-                    const values = params.data;
-                    if (!Array.isArray(values)) return params.name;
-                    
-                    // ECharts会在data中添加额外的统计值，我们只使用后5个值
-                    const [min, q1, median, q3, max] = values.slice(1, 6);
-                    const mean = statsData[params.name === '下跌波动率' ? 'downward' : 'upward'].volatility;
-                    
-                    return `${params.name}<br/>
-                            最大值: ${(max * 100).toFixed(2)}%<br/>
-                            上四分位: ${(q3 * 100).toFixed(2)}%<br/>
-                            <span style="color: #e6a23c">平均值: ${(mean * 100).toFixed(2)}%</span><br/>
-                            中位数: ${(median * 100).toFixed(2)}%<br/>
-                            下四分位: ${(q1 * 100).toFixed(2)}%<br/>
-                            最小值: ${(min * 100).toFixed(2)}%`;
-                }
-            },
-            grid: {
-                left: '10%',
-                right: '10%',
-                containLabel: true
-            },
-            xAxis: {
-                type: 'category',
-                data: ['下跌波动率', '上涨波动率']
-            },
-            yAxis: {
-                type: 'value',
-                name: '波动率',
-                axisLabel: {
-                    formatter: value => (value * 100).toFixed(2) + '%'
-                }
-            },
-            series: [{
-                name: '波动率分布',
-                type: 'boxplot',
-                data: [
-                    displayData.boxplot.downward,
-                    displayData.boxplot.upward
-                ],
-                itemStyle: {
-                    borderWidth: 2
-                },
-                boxWidth: ['40%', '40%']  // 控制箱线图的宽度
-            },
-            // 添加平均值标记
-            {
-                name: '平均值',
-                type: 'scatter',
-                data: [
-                    {
-                        value: statsData.downward.volatility,
-                        xAxis: 0,
-                        yAxis: statsData.downward.volatility
-                    },
-                    {
-                        value: statsData.upward.volatility,
-                        xAxis: 1,
-                        yAxis: statsData.upward.volatility
-                    }
-                ],
-                symbol: 'diamond',
-                symbolSize: 10,
-                itemStyle: {
-                    color: '#e6a23c'
-                }
-            }]
-        };
-
-        // 正态分布图配置
-        const normalDistOption = {
-            title: {
-                text: '波动率分布曲线',
-                left: 'center'
-            },
-            tooltip: {
-                trigger: 'axis',
-                formatter: function(params) {
-                    return params.map(param => {
-                        if (param.data[1] === 0) return `${param.seriesName}: 暂无数据`;
-                        return `${param.seriesName}<br/>波动率: ${(param.data[0] * 100).toFixed(2)}%<br/>概率密度: ${param.data[1].toFixed(4)}`;
-                    }).join('<br/><br/>');
-                }
-            },
-            legend: {
-                data: ['下跌波动率', '上涨波动率'],
-                top: 30
-            },
-            grid: {
-                left: '10%',
-                right: '10%',
-                top: '15%',
-                bottom: '15%',
-                containLabel: true
-            },
-            xAxis: {
-                type: 'value',
-                name: '波动率',
-                axisLabel: {
-                    formatter: value => (value * 100).toFixed(2) + '%'
-                },
-                min: function(value) {
-                    return value.min * 1.5; // 扩大50%的显示范围
-                },
-                max: function(value) {
-                    return value.max * 1.5;
-                }
-            },
-            yAxis: {
-                type: 'value',
-                name: '概率密度',
-                splitLine: {
-                    show: false
-                }
-            },
-            series: [
-                {
-                    name: '下跌波动率',
-                    type: 'line',
-                    smooth: true,
-                    z: 3,
-                    data: displayData.distribution.downward.x.map((x, i) => [x, displayData.distribution.downward.y[i]]),
-                    lineStyle: {
-                        color: '#ff6b6b',
-                        width: 2
-                    },
-                    itemStyle: {
-                        color: '#ff6b6b'
-                    },
-                    areaStyle: {
-                        opacity: 0.1,
-                        color: '#ff6b6b'
-                    },
-                    markArea: {
-                        silent: true,
-                        data: [
-                            [{
-                                name: '一个标准差',
-                                xAxis: displayData.distribution.downward.ranges['1std'][0],
-                                itemStyle: {
-                                    color: 'rgba(255, 107, 107, 0.1)'
-                                }
-                            }, {
-                                xAxis: displayData.distribution.downward.ranges['1std'][1]
-                            }],
-                            [{
-                                name: '两个标准差',
-                                xAxis: displayData.distribution.downward.ranges['2std'][0],
-                                itemStyle: {
-                                    color: 'rgba(255, 107, 107, 0.05)'
-                                }
-                            }, {
-                                xAxis: displayData.distribution.downward.ranges['2std'][1]
-                            }]
-                        ]
-                    },
-                    markLine: {
-                        silent: true,
-                        symbol: ['none', 'none'],
-                        data: [
-                            {
-                                name: '均值',
-                                xAxis: displayData.distribution.downward.mean,
-                                lineStyle: {
-                                    color: '#ff6b6b',
-                                    width: 2
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.downward.mean * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            // 下跌标准差标记（底部）
-                            {
-                                name: '一个标准差',
-                                xAxis: displayData.distribution.downward.ranges['1std'][0],
-                                lineStyle: {
-                                    color: '#ff6b6b',
-                                    type: 'dashed'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.downward.ranges['1std'][0] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            {
-                                xAxis: displayData.distribution.downward.ranges['1std'][1],
-                                lineStyle: {
-                                    color: '#ff6b6b',
-                                    type: 'dashed'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.downward.ranges['1std'][1] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            {
-                                name: '两个标准差',
-                                xAxis: displayData.distribution.downward.ranges['2std'][0],
-                                lineStyle: {
-                                    color: '#ff6b6b',
-                                    type: 'dotted'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.downward.ranges['2std'][0] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            {
-                                xAxis: displayData.distribution.downward.ranges['2std'][1],
-                                lineStyle: {
-                                    color: '#ff6b6b',
-                                    type: 'dotted'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.downward.ranges['2std'][1] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            }
-                        ]
-                    },
-                    markArea: {
-                        silent: true,
-                        data: [
-                            [{
-                                name: '一个标准差',
-                                xAxis: displayData.distribution.downward.ranges['1std'][0],
-                                itemStyle: {
-                                    color: 'rgba(255, 107, 107, 0.1)'
-                                }
-                            }, {
-                                xAxis: displayData.distribution.downward.ranges['1std'][1]
-                            }],
-                            [{
-                                name: '两个标准差',
-                                xAxis: displayData.distribution.downward.ranges['2std'][0],
-                                itemStyle: {
-                                    color: 'rgba(255, 107, 107, 0.05)'
-                                }
-                            }, {
-                                xAxis: displayData.distribution.downward.ranges['2std'][1]
-                            }]
-                        ]
-                    }
-                },
-                {
-                    name: '上涨波动率',
-                    type: 'line',
-                    smooth: true,
-                    z: 3,
-                    data: displayData.distribution.upward.x.map((x, i) => [x, displayData.distribution.upward.y[i]]),
-                    lineStyle: {
-                        color: '#4cd964',
-                        width: 2
-                    },
-                    itemStyle: {
-                        color: '#4cd964'
-                    },
-                    areaStyle: {
-                        opacity: 0.1,
-                        color: '#4cd964'
-                    },
-                    markArea: {
-                        silent: true,
-                        data: [
-                            [{
-                                name: '一个标准差',
-                                xAxis: displayData.distribution.upward.ranges['1std'][0],
-                                itemStyle: {
-                                    color: 'rgba(76, 217, 100, 0.1)'
-                                }
-                            }, {
-                                xAxis: displayData.distribution.upward.ranges['1std'][1]
-                            }],
-                            [{
-                                name: '两个标准差',
-                                xAxis: displayData.distribution.upward.ranges['2std'][0],
-                                itemStyle: {
-                                    color: 'rgba(76, 217, 100, 0.05)'
-                                }
-                            }, {
-                                xAxis: displayData.distribution.upward.ranges['2std'][1]
-                            }]
-                        ]
-                    },
-                    markLine: {
-                        silent: true,
-                        symbol: ['none', 'none'],
-                        data: [
-                            {
-                                name: '均值',
-                                xAxis: displayData.distribution.upward.mean,
-                                lineStyle: {
-                                    color: '#4cd964',
-                                    width: 2
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.upward.mean * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            // 上涨标准差标记（顶部）
-                            {
-                                name: '一个标准差',
-                                xAxis: displayData.distribution.upward.ranges['1std'][0],
-                                lineStyle: {
-                                    color: '#4cd964',
-                                    type: 'dashed'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.upward.ranges['1std'][0] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            {
-                                xAxis: displayData.distribution.upward.ranges['1std'][1],
-                                lineStyle: {
-                                    color: '#4cd964',
-                                    type: 'dashed'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.upward.ranges['1std'][1] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            {
-                                name: '两个标准差',
-                                xAxis: displayData.distribution.upward.ranges['2std'][0],
-                                lineStyle: {
-                                    color: '#4cd964',
-                                    type: 'dotted'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.upward.ranges['2std'][0] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            },
-                            {
-                                xAxis: displayData.distribution.upward.ranges['2std'][1],
-                                lineStyle: {
-                                    color: '#4cd964',
-                                    type: 'dotted'
-                                },
-                                label: {
-                                    formatter: (displayData.distribution.upward.ranges['2std'][1] * 100).toFixed(2) + '%',
-                                    position: 'insideEndTop',
-                                    fontSize: 10
-                                }
-                            }
-                        ]
-                    }
-                }
-            ]
-        };
-
-        // 创建上涨波动率分布图
-        const upwardDistOption = {
-            title: {
-                text: '上涨波动率分布',
-                left: 'center'
-            },
-            tooltip: {
-                trigger: 'axis',
-                formatter: function(params) {
-                    return `波动率: ${(params[0].data[0] * 100).toFixed(2)}%<br/>概率密度: ${params[0].data[1].toFixed(4)}`;
-                }
-            },
-            grid: {
-                left: '10%',
-                right: '10%',
-                top: '15%',
-                bottom: '15%',
-                containLabel: true
-            },
-            xAxis: {
-                type: 'value',
-                name: '波动率',
-                axisLabel: {
-                    formatter: value => (value * 100).toFixed(2) + '%'
-                }
-            },
-            yAxis: {
-                type: 'value',
-                name: '概率密度'
-            },
-            series: [{
-                type: 'line',
-                smooth: true,
-                data: displayData.distribution.upward.x.map((x, i) => [x, displayData.distribution.upward.y[i]]),
-                lineStyle: {
-                    color: '#4cd964',
-                    width: 2
-                },
-                itemStyle: {
-                    color: '#4cd964'
-                },
-                areaStyle: {
-                    opacity: 0.2,
-                    color: '#4cd964'
-                },
-                markArea: {
-                    silent: true,
-                    data: [
-                        [{
-                            name: '一个标准差',
-                            xAxis: displayData.distribution.upward.ranges['1std'][0],
-                            itemStyle: {
-                                color: 'rgba(76, 217, 100, 0.2)'
-                            }
-                        }, {
-                            xAxis: displayData.distribution.upward.ranges['1std'][1]
-                        }],
-                        [{
-                            name: '两个标准差',
-                            xAxis: displayData.distribution.upward.ranges['2std'][0],
-                            itemStyle: {
-                                color: 'rgba(76, 217, 100, 0.1)'
-                            }
-                        }, {
-                            xAxis: displayData.distribution.upward.ranges['2std'][1]
-                        }]
-                    ]
-                },
-                markLine: {
-                    silent: true,
-                    symbol: ['none', 'none'],
-                    data: [
-                        {
-                            name: '均值',
-                            xAxis: displayData.distribution.upward.mean,
-                            lineStyle: {
-                                color: '#4cd964',
-                                width: 2
-                            },
-                            label: {
-                                formatter: (displayData.distribution.upward.mean * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            name: '一个标准差',
-                            xAxis: displayData.distribution.upward.ranges['1std'][0],
-                            lineStyle: {
-                                color: '#4cd964',
-                                type: 'dashed'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.upward.ranges['1std'][0] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            xAxis: displayData.distribution.upward.ranges['1std'][1],
-                            lineStyle: {
-                                color: '#4cd964',
-                                type: 'dashed'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.upward.ranges['1std'][1] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            name: '两个标准差',
-                            xAxis: displayData.distribution.upward.ranges['2std'][0],
-                            lineStyle: {
-                                color: '#4cd964',
-                                type: 'dotted'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.upward.ranges['2std'][0] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            xAxis: displayData.distribution.upward.ranges['2std'][1],
-                            lineStyle: {
-                                color: '#4cd964',
-                                type: 'dotted'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.upward.ranges['2std'][1] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        }
-                    ]
-                }
-            }]
-        };
-
-        // 创建下跌波动率分布图
-        const downwardDistOption = {
-            title: {
-                text: '下跌波动率分布',
-                left: 'center'
-            },
-            tooltip: {
-                trigger: 'axis',
-                formatter: function(params) {
-                    return `波动率: ${(params[0].data[0] * 100).toFixed(2)}%<br/>概率密度: ${params[0].data[1].toFixed(4)}`;
-                }
-            },
-            grid: {
-                left: '10%',
-                right: '10%',
-                top: '15%',
-                bottom: '15%',
-                containLabel: true
-            },
-            xAxis: {
-                type: 'value',
-                name: '波动率',
-                axisLabel: {
-                    formatter: value => (value * 100).toFixed(2) + '%'
-                }
-            },
-            yAxis: {
-                type: 'value',
-                name: '概率密度'
-            },
-            series: [{
-                type: 'line',
-                smooth: true,
-                data: displayData.distribution.downward.x.map((x, i) => [x, displayData.distribution.downward.y[i]]),
-                lineStyle: {
-                    color: '#ff6b6b',
-                    width: 2
-                },
-                itemStyle: {
-                    color: '#ff6b6b'
-                },
-                areaStyle: {
-                    opacity: 0.2,
-                    color: '#ff6b6b'
-                },
-                markArea: {
-                    silent: true,
-                    data: [
-                        [{
-                            name: '一个标准差',
-                            xAxis: displayData.distribution.downward.ranges['1std'][0],
-                            itemStyle: {
-                                color: 'rgba(255, 107, 107, 0.2)'
-                            }
-                        }, {
-                            xAxis: displayData.distribution.downward.ranges['1std'][1]
-                        }],
-                        [{
-                            name: '两个标准差',
-                            xAxis: displayData.distribution.downward.ranges['2std'][0],
-                            itemStyle: {
-                                color: 'rgba(255, 107, 107, 0.1)'
-                            }
-                        }, {
-                            xAxis: displayData.distribution.downward.ranges['2std'][1]
-                        }]
-                    ]
-                },
-                markLine: {
-                    silent: true,
-                    symbol: ['none', 'none'],
-                    data: [
-                        {
-                            name: '均值',
-                            xAxis: displayData.distribution.downward.mean,
-                            lineStyle: {
-                                color: '#ff6b6b',
-                                width: 2
-                            },
-                            label: {
-                                formatter: (displayData.distribution.downward.mean * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            name: '一个标准差',
-                            xAxis: displayData.distribution.downward.ranges['1std'][0],
-                            lineStyle: {
-                                color: '#ff6b6b',
-                                type: 'dashed'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.downward.ranges['1std'][0] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            xAxis: displayData.distribution.downward.ranges['1std'][1],
-                            lineStyle: {
-                                color: '#ff6b6b',
-                                type: 'dashed'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.downward.ranges['1std'][1] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            name: '两个标准差',
-                            xAxis: displayData.distribution.downward.ranges['2std'][0],
-                            lineStyle: {
-                                color: '#ff6b6b',
-                                type: 'dotted'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.downward.ranges['2std'][0] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        },
-                        {
-                            xAxis: displayData.distribution.downward.ranges['2std'][1],
-                            lineStyle: {
-                                color: '#ff6b6b',
-                                type: 'dotted'
-                            },
-                            label: {
-                                formatter: (displayData.distribution.downward.ranges['2std'][1] * 100).toFixed(2) + '%',
-                                position: 'insideEndTop',
-                                fontSize: 10
-                            }
-                        }
-                    ]
-                }
-            }]
-        };
-
-        // 设置图表选项
-        boxplotChart.setOption(boxPlotOption);
-        upwardVolatilityDistChart.setOption(upwardDistOption);
-        downwardVolatilityDistChart.setOption(downwardDistOption);
-
-        // 监听窗口大小变化，调整图表大小
-        window.addEventListener('resize', function() {
-            boxplotChart.resize();
-            upwardVolatilityDistChart.resize();
-            downwardVolatilityDistChart.resize();
-        });
     }
 
     function updateTable(tableId, data, allowHtml = false) {
@@ -1104,6 +435,88 @@ $(document).ready(function() {
                     reject(err); // 处理错误
                 }
             });
+        });
+    }
+
+    function loadVolatilityData(etfCode) {
+
+        const periodOrder = ['3个月', '6个月', '1年', '3年', '5年', '10年'];
+        $.get('/api/etf/volatility', { etf_code: etfCode }, function(data) {
+            if (data.error) {
+                $('#volatilityContent').html(data.error);
+            } else {
+
+                // 绘制箱线图
+                const chartDom = document.getElementById('volatilityChart');
+                const myChart = echarts.init(chartDom);
+                const option = {
+                    title: {
+                        text: `${etfCode} 波动率数据`,
+                        left: 'center',
+                        top: 'top',
+                        textStyle: {
+                            fontSize: 18,
+                            fontWeight: 'bold'
+                        }
+                    },
+                    tooltip: {},
+                    legend: {
+                        data: ['月上涨波动率', '月下跌波动率', '周上涨波动率', '周下跌波动率'],
+                        orient: 'horizontal',
+                        left: 'center',
+                        top: 'bottom'
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: periodOrder // 根据需要调整
+                    },
+                    yAxis: {
+                        type: 'value',
+                        axisLabel: {
+                            formatter: '{value}%' // 将 y 轴标签格式化为百分数
+                        }
+                    },
+                    series: [
+                        {
+                            name: '月上涨波动率',
+                            type: 'boxplot',
+                            data: periodOrder.map(period => {
+                                const stats = data[period];
+                                if (!stats) return [0, 0, 0, 0, 0]; // 如果 stats 为空，返回默认值
+                                return [
+                                    stats.up_volatility.min * 100,                // 最小值
+                                    stats.up_volatility.percentiles['25'] * 100,  // 25%分位数
+                                    stats.up_volatility.percentiles['50'] * 100,  // 50%分位数
+                                    stats.up_volatility.percentiles['75'] * 100,  // 75%分位数
+                                    stats.up_volatility.max * 100                 // 最大值
+                                ].map(value => value.toFixed(2)); // 保留两位小数
+                            })
+                        },
+                        {
+                            name: '月下跌波动率',
+                            type: 'boxplot',
+                            data: periodOrder.map(period => {
+                                const stats = data[period];
+                                if (!stats) return [0, 0, 0, 0, 0]; // 如果 stats 为空，返回默认值
+                                return [
+                                    stats.down_volatility.min * 100,                // 最小值
+                                    stats.down_volatility.percentiles['25'] * 100,  // 25%分位数
+                                    stats.down_volatility.percentiles['50'] * 100,  // 50%分位数
+                                    stats.down_volatility.percentiles['75'] * 100,  // 75%分位数
+                                    stats.down_volatility.max * 100                 // 最大值
+                                ].map(value => value.toFixed(2)); // 保留两位小数
+                            })
+                        }
+                        // 可以添加周上涨和周下跌波动率的系列
+                    ]
+                };
+                myChart.setOption(option);
+            }
+        }).fail(function(xhr) {
+            $('#volatilityContent').html('加载波动率数据失败：' + xhr.statusText);
+        }).always(function() {
+            // 显示模态窗口
+            $('#volatilityModal').modal('show');
         });
     }
 });
