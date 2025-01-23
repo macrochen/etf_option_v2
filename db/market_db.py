@@ -73,4 +73,43 @@ class MarketDatabase:
         prices = [row[0] for row in results]
         dates = [row[1] for row in results]
         
-        return prices, dates 
+        return prices, dates
+
+    def get_grid_trade_data(self, etf_code: str, months: int = 12) -> Dict[str, Any]:
+        """获取网格交易所需的历史数据
+        
+        Args:
+            etf_code: ETF代码
+            months: 获取距今多少个月的数据，默认12个月
+            
+        Returns:
+            Dict[str, Any]: 包含OHLCV、成交量等数据
+        """
+        results = self.db.fetch_all("""
+            SELECT date, open_price, close_price, low_price, high_price,
+                   volume, money, factor, high_limit, low_limit,
+                   avg_price, pre_close, paused
+            FROM grid_trade
+            WHERE etf_code = ? 
+            AND date >= date('now', ?) 
+            ORDER BY date
+        """, (etf_code, f'-{months} months'))
+        
+        if not results:
+            return None
+            
+        return {
+            'dates': [row[0] for row in results],
+            'open': [row[1] for row in results],
+            'close': [row[2] for row in results],
+            'low': [row[3] for row in results],
+            'high': [row[4] for row in results],
+            'volume': [row[5] for row in results],
+            'money': [row[6] for row in results],
+            'factor': [row[7] for row in results],
+            'high_limit': [row[8] for row in results],
+            'low_limit': [row[9] for row in results],
+            'avg_price': [row[10] for row in results],
+            'pre_close': [row[11] for row in results],
+            'paused': [row[12] for row in results]
+        }

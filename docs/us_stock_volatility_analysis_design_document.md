@@ -16,11 +16,12 @@
 
 | 字段名       | 数据类型               | 约束          | 说明       |
 |--------------|------------------------|---------------|------------|
-| stock_code   | VARCHAR(10)            | NOT NULL      | 美股股票代码 |
+| stock_code   | VARCHAR(10)            | NOT NULL      | 股票代码   |
+| market_type  | VARCHAR(10)            | NOT NULL      | 市场类型（US:美股, HK:港股） |
 | date         | DATE                   | NOT NULL      | 日期       |
 | open_price   | REAL                   |               | 开盘价     |
 | close_price  | REAL                   |               | 收盘价     |
-| 主键         | (stock_code, date)    |               |            |
+| 主键         | (stock_code, market_type, date) |     |            |
 
 #### 2.2.2 stock_volatility_stats 表
 

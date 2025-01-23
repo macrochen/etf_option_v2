@@ -19,6 +19,7 @@ class USStockDatabase:
         self.db.execute('''
             CREATE TABLE IF NOT EXISTS stock_prices (
                 stock_code VARCHAR(10),
+                market_type VARCHAR(10),
                 date DATE,
                 open_price REAL,
                 close_price REAL,
@@ -35,18 +36,29 @@ class USStockDatabase:
             )
         ''')
         
-    def save_stock_data(self, stock_code: str, date: str, open_price: float, close_price: float):
-        """保存股票数据"""
+    def save_stock_data(self, stock_code: str, date: str, open_price: float, close_price: float, market_type: str = 'US'):
+        """保存股票数据
+        
+        Args:
+            stock_code: 股票代码
+            date: 日期
+            open_price: 开盘价
+            close_price: 收盘价
+            market_type: 市场类型（US:美股, HK:港股），默认为US
+        """
         stock_code = stock_code.upper()  # 将股票代码转换为大写
-        exists = self.db.fetch_one('SELECT COUNT(*) FROM stock_prices WHERE stock_code = ? AND date = ?', (stock_code, date))
+        exists = self.db.fetch_one(
+            'SELECT COUNT(*) FROM stock_prices WHERE stock_code = ? AND market_type = ? AND date = ?', 
+            (stock_code, market_type, date)
+        )
         if exists and exists[0] > 0:
-            print("数据已经存在")
+            print(f"{market_type} 市场的 {stock_code} 在 {date} 的数据已经存在")
             return
         
         self.db.execute('''
-            INSERT INTO stock_prices (stock_code, date, open_price, close_price)
-            VALUES (?, ?, ?, ?)
-        ''', (stock_code, date, open_price, close_price))
+            INSERT INTO stock_prices (stock_code, market_type, date, open_price, close_price)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (stock_code, market_type, date, open_price, close_price))
 
     def save_volatility_stats(self, stock_code: str, calc_date: str, monthly_stats: dict, weekly_stats: dict):
         """保存波动率统计数据"""
@@ -63,13 +75,17 @@ class USStockDatabase:
 
     def get_stock_list(self):
         """获取已下载的股票列表"""
-        stocks = self.db.fetch_all('SELECT DISTINCT stock_code FROM stock_prices')
+        stocks = self.db.fetch_all('SELECT DISTINCT stock_code, market_type FROM stock_prices')
         
         stock_list = []
         for stock in stocks:
             stock_code = stock[0]
+            market_type = stock[1]
             # 获取最新的下载时间
-            latest_date = self.db.fetch_one('SELECT MAX(date) FROM stock_prices WHERE stock_code = ?', (stock_code,))
+            latest_date = self.db.fetch_one(
+                'SELECT MAX(date) FROM stock_prices WHERE stock_code = ? AND market_type = ?', 
+                (stock_code, market_type)
+            )
             download_time = latest_date[0] if latest_date else None
             
             # 获取波动率数据
@@ -78,6 +94,7 @@ class USStockDatabase:
             
             stock_list.append({
                 "stock_code": stock_code,
+                "market_type": market_type,
                 "download_time": download_time,
                 "volatility": volatility
             })
@@ -95,4 +112,4 @@ class USStockDatabase:
                 'weekly_stats': weekly_stats
             }
         else:
-            return None 
+            return None
