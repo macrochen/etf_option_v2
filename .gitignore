@@ -17,6 +17,8 @@ parts/
 sdist/
 var/
 wheels/
+pdf/
+docs/reference/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -48,3 +50,5 @@ ENV/
 
 *.db
 .DS_Store
+
+config/jq_config.py

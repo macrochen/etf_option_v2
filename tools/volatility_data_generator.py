@@ -45,12 +45,12 @@ class VolatilityDataGenerator:
         """初始化数据生成器"""
         self.stock_db = db  # 使用数据库类
 
-    def calculate_volatility(self, returns, window):
+    def calculate_volatility(self, returns, window_days):
         """计算给定窗口的波动率"""
-        rolling_std = returns.rolling(window=window).std()
-        return rolling_std * np.sqrt(window)  # 转换为月度波动率
+        rolling_std = returns.rolling(window=window_days).std()
+        return rolling_std * np.sqrt(window_days)  # 转换为月度波动率
 
-    def calculate_volatility_stats(self, stock_code):
+    def calculate_volatility_stats(self, stock_code, window_days=21):
         """计算波动率统计数据"""
         try:
             # 定义不同时间长度
@@ -66,6 +66,11 @@ class VolatilityDataGenerator:
             monthly_stats_data = {}
             weekly_stats_data = {}
             for period, window in periods.items():
+                # 检查window是否为window_days的整数倍
+                if window % window_days != 0 or window == window_days:
+                    print(f"跳过 {period}：{window} 不是 {window_days} 的整数倍")
+                    continue
+
                 # 获取最近对应窗口大小的历史数据
                 historical_data = self.get_historical_data(stock_code, window)
                 
@@ -73,27 +78,23 @@ class VolatilityDataGenerator:
                     print(f"未找到{stock_code}的历史数据")
                     continue
 
-                self.build_montyly_stats(monthly_stats_data, period, historical_data)
+                self.build_monthly_stats(monthly_stats_data, period, historical_data, window_days)
                 self.build_weekly_stats(weekly_stats_data, period, historical_data)
                 
                 # 检查历史数据的数量是否小于窗口大小
                 if len(historical_data) < window:
-                    print(f"获取的历史数据数量少于 {window}，跳过 {stock_code} 的 {period} 计算")
+                    print(f"获取的历史数据数量{len(historical_data)}少于 {window}，跳过 {stock_code} 的 {period} 计算")
                     break
 
-            # 保存到数据库
-            calc_date = pd.Timestamp.now().strftime('%Y-%m-%d')
-            self.save_volatility_stats(stock_code, calc_date, monthly_stats_data, weekly_stats_data)  # 这里可以根据需要调整
-
-            return True
+            return monthly_stats_data, weekly_stats_data
 
         except Exception as e:
             print(f"计算波动率统计数据失败: {str(e)}")
             traceback.print_exc()  # 打印堆栈信息
             raise
 
-    def build_montyly_stats(self, monthly_stats_data, period, historical_data):
-        self.build_stats(historical_data, period, 21, monthly_stats_data)
+    def build_monthly_stats(self, monthly_stats_data, period, historical_data, window_days=21):
+        self.build_stats(historical_data, period, window_days, monthly_stats_data)
 
     def build_weekly_stats(self, weekly_stats_data, period, historical_data):
         """构建周度统计数据"""
@@ -104,9 +105,7 @@ class VolatilityDataGenerator:
         """获取历史数据"""
         pass
 
-        
-
-    def build_stats(self, historical_data, name, days, stats_data):
+    def build_stats(self, historical_data, name, window_days, stats_data):
         try:
             # 转换为DataFrame
             df = pd.DataFrame(historical_data, columns=['date', 'close'])
@@ -114,45 +113,57 @@ class VolatilityDataGenerator:
             df.set_index('date', inplace=True)
 
             # 计算日收益率
-            df['returns'] = df['close'].pct_change()
+            # df['returns'] = df['close'].pct_change()
+            df['returns'] = np.log(df['close'] / df['close'].shift(1))
 
             # 计算上涨和下跌的波动率
             up_returns = df['returns'][df['returns'] > 0]
             down_returns = df['returns'][df['returns'] < 0]
 
             # 计算上涨波动率
-            up_volatility = self.calculate_volatility(up_returns, days)
-            down_volatility = self.calculate_volatility(down_returns, days)
+            up_volatility = self.calculate_volatility(up_returns, window_days)
+            down_volatility = self.calculate_volatility(down_returns, window_days)
 
-            # 统计分析
-            stats_data[name] = {
-                'up_volatility': {
-                    'volatility': round(float(np.mean(up_volatility.dropna())), 3),
-                    'std': round(float(np.std(up_volatility.dropna())), 3),
-                    'min': round(float(np.min(up_volatility.dropna())), 3),
-                    'max': round(float(np.max(up_volatility.dropna())), 3),
-                    'percentiles': {
-                        '25': round(float(np.percentile(up_volatility.dropna(), 25)), 3),
-                        '50': round(float(np.percentile(up_volatility.dropna(), 50)), 3),
-                        '75': round(float(np.percentile(up_volatility.dropna(), 75)), 3),
-                    }
-                },
-                'down_volatility': {
-                    'volatility': round(float(np.mean(down_volatility.dropna())), 3),
-                    'std': round(float(np.std(down_volatility.dropna())), 3),
-                    'min': round(float(np.min(down_volatility.dropna())), 3),
-                    'max': round(float(np.max(down_volatility.dropna())), 3),
-                    'percentiles': {
-                        '25': round(float(np.percentile(down_volatility.dropna(), 25)), 3),
-                        '50': round(float(np.percentile(down_volatility.dropna(), 50)), 3),
-                        '75': round(float(np.percentile(down_volatility.dropna(), 75)), 3),
-                    }
-                }
-            }
+            # 去除 NaN 值
+            up_vol_clean = up_volatility.dropna()
+            down_vol_clean = down_volatility.dropna()
+
+            # 统计分析，只在有数据时才添加统计结果
+            result = {}
+            if len(up_vol_clean) > 0:
+                result['up_volatility'] = self._calculate_stats(up_vol_clean)
+            else:
+                print(f"警告: {name} 期间没有上涨波动率数据")
+                
+            if len(down_vol_clean) > 0:
+                result['down_volatility'] = self._calculate_stats(down_vol_clean)
+            else:
+                print(f"警告: {name} 期间没有下跌波动率数据")
+
+            # 只在有统计结果时才添加到stats_data中
+            if result:
+                stats_data[name] = result
+
         except Exception as e:
             print(f"构建统计数据失败: {str(e)}")
-            traceback.print_exc()  # 打印堆栈信息
+            print(f"参数信息: historical_data长度={len(historical_data)}, name={name}, window_days={window_days}")
+            print(f"上涨样本数={len(up_returns)}, 下跌样本数={len(down_returns)}")
+            traceback.print_exc()
             raise
+
+    def _calculate_stats(self, volatility_series):
+        """计算波动率统计数据"""
+        return {
+            'volatility': round(float(np.mean(volatility_series)), 3),
+            'std': round(float(np.std(volatility_series)), 3),
+            'min': round(float(np.min(volatility_series)), 3),
+            'max': round(float(np.max(volatility_series)), 3),
+            'percentiles': {
+                '25': round(float(np.percentile(volatility_series, 25)), 3),
+                '50': round(float(np.percentile(volatility_series, 50)), 3),
+                '75': round(float(np.percentile(volatility_series, 75)), 3),
+            }
+        }
 
     def generate_data(self, stock_codes=None):
         """生成波动率数据
@@ -167,7 +178,12 @@ class VolatilityDataGenerator:
             for stock_code in stock_codes:
                 try:
                     print(f"正在处理 {stock_code}...")
-                    self.calculate_volatility_stats(stock_code)
+                    monthly_stats_data, weekly_stats_data = self.calculate_volatility_stats(stock_code,window_days=21)
+
+                    # 保存到数据库
+                    calc_date = pd.Timestamp.now().strftime('%Y-%m-%d')
+                    self.save_volatility_stats(stock_code, calc_date, monthly_stats_data, weekly_stats_data)  # 这里可以根据需要调整
+
                     print(f"{stock_code} 处理完成")
                 except Exception as e:
                     print(f"处理 {stock_code} 时出错: {str(e)}")
@@ -182,10 +198,18 @@ class VolatilityDataGenerator:
         """获取股票代码"""
         pass
         
-    @abstractmethod
     def save_volatility_stats(self, stock_code: str, calc_date: str, monthly_stats: dict, weekly_stats: dict):
         """保存波动率统计数据"""
-        pass
+        exists = self.stock_db.db.fetch_one('SELECT COUNT(*) FROM stock_volatility_stats WHERE stock_code = ?',
+                                            (stock_code,))
+        if exists and exists[0] > 0:
+            print("波动率数据已经存在")
+            return
+
+        self.stock_db.db.execute('''
+                    INSERT INTO stock_volatility_stats (stock_code, calc_date, monthly_stats, weekly_stats)
+                    VALUES (?, ?, ?, ?)
+                ''', (stock_code, calc_date, json.dumps(monthly_stats), json.dumps(weekly_stats)))
 
 class USVolatilityDataGenerator(VolatilityDataGenerator):
     """美股波动率数据生成器"""
@@ -205,17 +229,6 @@ class USVolatilityDataGenerator(VolatilityDataGenerator):
     def build_weekly_stats(self, weekly_stats_data, period, historical_data):
         self.build_stats(historical_data, period, 5, weekly_stats_data)
 
-    def save_volatility_stats(self, stock_code: str, calc_date: str, monthly_stats: dict, weekly_stats: dict):
-        """保存波动率统计数据"""
-        exists = self.stock_db.db.fetch_one('SELECT COUNT(*) FROM stock_volatility_stats WHERE stock_code = ?', (stock_code))
-        if exists and exists[0] > 0:
-            print("波动率数据已经存在")
-            return
-        
-        self.stock_db.db.execute('''
-            INSERT INTO stock_volatility_stats (stock_code, calc_date, monthly_stats, weekly_stats)
-            VALUES (?, ?, ?, ?)
-        ''', (stock_code, calc_date, json.dumps(monthly_stats), json.dumps(weekly_stats)))
 
 class AStockVolatilityDataGenerator(VolatilityDataGenerator):
     """A股波动率数据生成器"""
@@ -267,10 +280,10 @@ class HKVolatilityDataGenerator(VolatilityDataGenerator):
                 )
         
         return historical_data
+    
+    # def build_weekly_stats(self, weekly_stats_data, period, historical_data):
+        # self.build_stats(historical_data, period, 5, weekly_stats_data)
 
-    def save_volatility_stats(self, stock_code: str, calc_date: str, monthly_stats: dict, weekly_stats: dict):
-        """保存波动率统计数据"""
-        pass
 
 def main():
     import argparse

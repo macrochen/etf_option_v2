@@ -2,15 +2,42 @@
 
 {% block content %}
     <div class="container mt-4">
-        <h1 class="text-center mb-4">美股波动率管理</h1>
+        <h1 class="text-center mb-4">波动率管理</h1>
         
-        <!-- 股票下载表单 -->
-        <div class="mb-4">
-            <form id="downloadForm">
-                <label for="stock_code">输入股票代码:</label>
-                <input type="text" id="stock_code" name="stock_code" required>
-                <button type="submit" class="btn btn-primary">下载数据</button>
-            </form>
+        <!-- Tab 导航 -->
+        <ul class="nav nav-tabs mb-4" id="marketTabs" role="tablist">
+            <li class="nav-item">
+                <a class="nav-link active" id="us-tab" data-toggle="tab" href="#us-content" role="tab">美股市场</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="hk-tab" data-toggle="tab" href="#hk-content" role="tab">港股市场</a>
+            </li>
+        </ul>
+        
+        <!-- Tab 内容 -->
+        <div class="tab-content" id="marketTabContent">
+            <!-- 美股内容 -->
+            <div class="tab-pane fade show active" id="us-content" role="tabpanel">
+                <div class="mb-4">
+                    <form id="downloadForm">
+                        <label for="stock_code">输入美股代码:</label>
+                        <input type="text" id="stock_code" name="stock_code" required>
+                        <button type="submit" class="btn btn-primary">下载美股数据</button>
+                        <button type="button" class="btn btn-success" onclick="downloadEarningsData()">下载财报数据</button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- 港股内容 -->
+            <div class="tab-pane fade" id="hk-content" role="tabpanel">
+                <div class="mb-4">
+                    <form id="downloadHKForm">
+                        <label for="hk_stock_code">输入港股代码:</label>
+                        <input type="text" id="hk_stock_code" name="hk_stock_code" required placeholder="例如：0700">
+                        <button type="submit" class="btn btn-primary">下载港股数据</button>
+                    </form>
+                </div>
+            </div>
         </div>
 
         <!-- 加载动画 -->
@@ -27,7 +54,9 @@
             <thead>
                 <tr>
                     <th>股票代码</th>
+                    <th>股票名称</th>
                     <th>下载时间</th>
+                    <th>当前价格</th>
                     <th>波动率</th>
                     <th>操作</th>
                 </tr>
@@ -44,7 +73,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="volatilityModalLabel">波动率数据</h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <button type="button" class="close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
@@ -52,7 +81,7 @@
                     <div id="volatilityChart" style="width: 1250px; height: 700px;"></div>
                 </div>
                 <div class="modal-footer">
-                    <!-- <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button> -->
+                    <!-- <button type="button" class="btn btn-secondary" >关闭</button> -->
                 </div>
             </div>
         </div>
@@ -63,33 +92,111 @@
             max-width: 70%; /* 设置最大宽度为 70% */
             margin: auto;   /* 居中显示 */
         }
+
+        /* 添加 Tab 样式 */
+        .nav-tabs {
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .nav-tabs .nav-item {
+            margin-bottom: -2px;
+        }
+
+        .nav-tabs .nav-link {
+            padding: 12px 30px;  /* 增加 tab 的内边距 */
+            font-size: 16px;     /* 增大字体 */
+            color: #495057;      /* 非激活状态为深灰色 */
+            border: 1px solid transparent;
+            border-bottom: none;
+            background-color: #f8f9fa;  /* 非激活状态背景色为浅灰 */
+            margin-right: 4px;    /* tab 之间的间距 */
+            border-radius: 4px 4px 0 0;  /* 圆角效果 */
+        }
+
+        .nav-tabs .nav-link:hover {
+            background-color: #e9ecef;  /* 悬停时的背景色 */
+            border-color: #dee2e6;
+            border-bottom: none;
+        }
+
+        .nav-tabs .nav-link.active {
+            color: #007bff;          /* 激活状态为蓝色 */
+            background-color: #fff;   /* 激活状态背景为白色 */
+            border: 1px solid #dee2e6;
+            border-bottom: 2px solid #fff;  /* 底部白色边框覆盖底部线条 */
+            font-weight: bold;       /* 激活状态字体加粗 */
+            margin-bottom: -2px;     /* 对齐底部边框 */
+        }
     </style>
 
     <script>
         const periodOrder = ['3个月', '6个月', '1年', '3年', '5年', '10年'];
 
-        // 获取股票列表并填充到表格中
-        function loadStockList() {
-            fetch('/api/stock_list')
+
+        // 添加获取当前价格的函数
+        function getCurrentPrice(stockCode, marketType, buttonElement) {
+            // 显示加载状态
+            buttonElement.disabled = true;
+            buttonElement.textContent = '加载中...';
+
+            fetch(`/api/current_price/${stockCode}?market_type=${marketType}`)
                 .then(response => response.json())
                 .then(data => {
-                    const stockList = document.getElementById('stockList');
-                    stockList.innerHTML = ''; // 清空现有内容
-                    data.forEach(stock => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
-                            <td>${stock.stock_code}</td>
-                            <td>${stock.download_time}</td>
-                            <td>${stock.volatility ? '已生成' : '未生成'}</td>
-                            <td>
-                                ${stock.volatility ? 
-                                    `<button class="btn btn-info" onclick="showVolatility('${stock.stock_code}')">显示</button>` : 
-                                    `<button class="btn btn-warning" onclick="generateVolatility('${stock.stock_code}')">生成</button>`}
-                            </td>
-                        `;
-                        stockList.appendChild(row);
-                    });
+                    // 创建只读输入框
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'form-control form-control-sm';
+                    input.value = data.current_price.toFixed(2);
+                    input.readOnly = true;
+                    input.style.width = '100px';
+                    input.style.display = 'inline-block';
+                    
+                    // 替换按钮为输入框
+                    buttonElement.parentNode.replaceChild(input, buttonElement);
+                })
+                .catch(error => {
+                    // 恢复按钮状态，显示错误信息
+                    buttonElement.disabled = false;
+                    buttonElement.textContent = '显示价格';
+                    console.error('获取价格失败:', error);
+                    alert('获取价格失败，请重试');
                 });
+        }
+
+        // 添加下载财报数据的函数
+        function downloadEarningsData() {
+            const stockCode = document.getElementById('stock_code').value.toUpperCase();
+            if (!stockCode) {
+                alert('请输入股票代码');
+                return;
+            }
+
+            // 显示加载动画
+            document.getElementById('loading').style.display = 'flex';
+
+            fetch('/api/download_earnings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    stock_code: stockCode,
+                    market_type: 'US'  // 目前只支持美股
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadStockList(); // 刷新股票列表
+            })
+            .catch(error => {
+                console.error('下载财报数据失败:', error);
+                alert('下载财报数据失败，请重试');
+            })
+            .finally(() => {
+                // 隐藏加载动画
+                document.getElementById('loading').style.display = 'none';
+            });
         }
 
         // 下载股票数据
@@ -116,9 +223,114 @@
               });
         };
 
-        function showVolatility(stockCode) {
-            // 获取波动率数据并展示
-            fetch(`/api/volatility/${stockCode}`)
+        // 添加港股下载处理函数
+        document.getElementById('downloadHKForm').onsubmit = function(event) {
+            event.preventDefault();
+            const stockCode = document.getElementById('hk_stock_code').value.padStart(4, '0'); // 补齐4位数字
+
+            // 显示加载动画
+            document.getElementById('loading').style.display = 'flex';
+
+            fetch('/download_hk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ stock_code: stockCode })
+            }).then(response => response.json())
+              .then(data => {
+                  alert(data.message);
+                  loadStockList(); // 刷新股票列表
+              }).finally(() => {
+                  // 隐藏加载动画
+                  document.getElementById('loading').style.display = 'none';
+              });
+        };
+
+        // 修改表格生成部分，在调用 showVolatility 时传入当前价格
+        // 修改 loadStockList 函数，添加参数
+        function loadStockList(tabId) {
+            // 如果没有传入 tabId，则使用当前激活的 tab
+            if (!tabId) {
+                const activeTab = document.querySelector('#marketTabs .nav-link.active');
+                tabId = activeTab.id;
+            }
+            const marketType = tabId === 'us-tab' ? 'US' : 'HK';
+
+            fetch('/api/stock_list')
+                .then(response => response.json())
+                .then(data => {
+                    const stockList = document.getElementById('stockList');
+                    stockList.innerHTML = '';
+                    
+                    // 修改这里的过滤条件
+                    const filteredData = data.filter(stock => stock.market_type === marketType);
+                    
+                    filteredData.forEach(stock => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${stock.stock_code}</td>
+                            <td>${stock.stock_name || '-'}</td>
+                            <td>${stock.download_time}</td>
+                            <td>
+                                <button class="btn btn-sm btn-primary" 
+                                        onclick="getCurrentPrice('${stock.stock_code}', '${stock.market_type}', this)">
+                                    显示价格
+                                </button>
+                            </td>
+                            <td>
+                                <select class="form-control form-control-sm window-days">
+                                    <option value="21">1个月</option>
+                                    <option value="42">2个月</option>
+                                    <option value="63">3个月</option>
+                                    <option value="84">4个月</option>
+                                </select>
+                            </td>
+                            <td>
+                                <button class="btn btn-info show-volatility" 
+                                        onclick="showVolatilityWithPrice('${stock.stock_code}', '${stock.market_type}', this)">
+                                    显示波动率
+                                </button>
+                                ${stock.market_type === 'US' ? 
+                                    `<button class="btn btn-info" 
+                                            onclick="showEarningsVolatility('${stock.stock_code}', '${stock.market_type}', this)">
+                                        财报日波动
+                                    </button>` : ''}
+                            </td>
+                        `;
+                        stockList.appendChild(row);
+                    });
+                });
+        }
+
+        // 添加新的函数，用于获取价格并显示波动率
+        function showVolatilityWithPrice(stockCode, marketType, button) {
+            // 获取当前行的价格输入框和时间窗口选择
+            const row = button.parentElement.parentElement;
+            const priceCell = row.querySelector('td:nth-child(4)');
+            const priceInput = priceCell.querySelector('input');
+            const windowDays = row.querySelector('.window-days').value;
+            
+            if (priceInput) {
+                // 如果已经有价格，直接使用
+                showVolatility(stockCode, marketType, parseFloat(priceInput.value), windowDays);
+            } else {
+                // 如果还没有获取价格，先获取价格
+                fetch(`/api/current_price/${stockCode}?market_type=${marketType}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        showVolatility(stockCode, marketType, data.current_price, windowDays);
+                    })
+                    .catch(error => {
+                        console.error('获取价格失败:', error);
+                        alert('获取价格失败，请重试');
+                    });
+            }
+        }
+
+        // 修改 showVolatility 函数，添加 windowDays 参数
+        function showVolatility(stockCode, marketType, currentPrice, windowDays) {
+            fetch(`/api/volatility/${stockCode}?window_days=${windowDays}&market_type=${marketType}`)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error("网络响应不正常");
@@ -128,9 +340,99 @@
                 .then(data => {
                     const chartDom = document.getElementById('volatilityChart');
                     const myChart = echarts.init(chartDom);
+                    
+                    // 过滤有效的数据系列
+                    const validSeries = [];
+                    
+                    // 检查月度数据
+                    if (data.monthly_stats) {
+                        // 月上涨波动率
+                        const monthlyUpData = periodOrder.map(period => {
+                            const stats = data.monthly_stats[period];
+                            return stats ? [
+                                stats.up_volatility.min * 100,
+                                stats.up_volatility.percentiles['25'] * 100,
+                                stats.up_volatility.percentiles['50'] * 100,
+                                stats.up_volatility.percentiles['75'] * 100,
+                                stats.up_volatility.max * 100
+                            ].map(value => value.toFixed(2)) : null;
+                        }).filter(item => item !== null);
+                        
+                        if (monthlyUpData.length > 0) {
+                            validSeries.push({
+                                name: '月上涨波动率',
+                                type: 'boxplot',
+                                data: monthlyUpData
+                            });
+                        }
+                        
+                        // 月下跌波动率
+                        const monthlyDownData = periodOrder.map(period => {
+                            const stats = data.monthly_stats[period];
+                            return stats ? [
+                                stats.down_volatility.min * 100,
+                                stats.down_volatility.percentiles['25'] * 100,
+                                stats.down_volatility.percentiles['50'] * 100,
+                                stats.down_volatility.percentiles['75'] * 100,
+                                stats.down_volatility.max * 100
+                            ].map(value => value.toFixed(2)) : null;
+                        }).filter(item => item !== null);
+                        
+                        if (monthlyDownData.length > 0) {
+                            validSeries.push({
+                                name: '月下跌波动率',
+                                type: 'boxplot',
+                                data: monthlyDownData
+                            });
+                        }
+                    }
+                    
+                    // 检查周度数据
+                    if (data.weekly_stats) {
+                        // 周上涨波动率
+                        const weeklyUpData = periodOrder.map(period => {
+                            const stats = data.weekly_stats[period];
+                            return stats ? [
+                                stats.up_volatility.min * 100,
+                                stats.up_volatility.percentiles['25'] * 100,
+                                stats.up_volatility.percentiles['50'] * 100,
+                                stats.up_volatility.percentiles['75'] * 100,
+                                stats.up_volatility.max * 100
+                            ].map(value => value.toFixed(2)) : null;
+                        }).filter(item => item !== null);
+                        
+                        if (weeklyUpData.length > 0) {
+                            validSeries.push({
+                                name: '周上涨波动率',
+                                type: 'boxplot',
+                                data: weeklyUpData
+                            });
+                        }
+                        
+                        // 周下跌波动率
+                        const weeklyDownData = periodOrder.map(period => {
+                            const stats = data.weekly_stats[period];
+                            return stats ? [
+                                stats.down_volatility.min * 100,
+                                stats.down_volatility.percentiles['25'] * 100,
+                                stats.down_volatility.percentiles['50'] * 100,
+                                stats.down_volatility.percentiles['75'] * 100,
+                                stats.down_volatility.max * 100
+                            ].map(value => value.toFixed(2)) : null;
+                        }).filter(item => item !== null);
+                        
+                        if (weeklyDownData.length > 0) {
+                            validSeries.push({
+                                name: '周下跌波动率',
+                                type: 'boxplot',
+                                data: weeklyDownData
+                            });
+                        }
+                    }
+                    
                     const option = {
                         title: {
-                            text: `${stockCode} 波动率数据`,
+                            text: `${stockCode} 波动率数据 (当前价格: ${currentPrice.toFixed(2)})`,
                             left: 'center',
                             top: 'top',
                             textStyle: {
@@ -138,96 +440,92 @@
                                 fontWeight: 'bold'
                             }
                         },
-                        tooltip: {},
-                        legend: {  // 添加图例
-                            data: [
-                                '月上涨波动率',
-                                '月下跌波动率',
-                                '周上涨波动率',
-                                '周下跌波动率'
-                            ],
+                        tooltip: {
+                            trigger: 'item',
+                            formatter: function(params) {
+                                // 只显示当前箱线图的数据
+                                if (params.seriesType === 'boxplot') {
+                                    const isUp = params.seriesName.includes('上涨');
+                                    const calcPrice = (percent) => {
+                                        const factor = isUp ? (1 + percent/100) : (1 - percent/100);
+                                        return (currentPrice * factor).toFixed(2);
+                                    };
+                                    
+                                    return `${params.seriesName} - ${params.name}<br/>
+                                            最大值: ${params.data[5]}% (${calcPrice(params.data[5])})<br/>
+                                            上四分位: ${params.data[4]}% (${calcPrice(params.data[4])})<br/>
+                                            中位数: ${params.data[3]}% (${calcPrice(params.data[3])})<br/>
+                                            下四分位: ${params.data[2]}% (${calcPrice(params.data[2])})<br/>
+                                            最小值: ${params.data[1]}% (${calcPrice(params.data[1])})`;
+                                }
+                                return '';
+                            }
+                        },
+                        legend: {
+                            data: validSeries.map(series => series.name),
                             orient: 'horizontal',
                             left: 'center',
                             top: 'bottom'
                         },
                         xAxis: {
                             type: 'category',
-                            data: periodOrder // 使用定义的顺序作为 x 轴
+                            data: periodOrder
                         },
-                        grid: {  // 添加外边框和网格
-                            left: '1%',  // 减小左边距
-                            right: '1%',  // 减小右边距
+                        grid: {
+                            left: '2%',  // 增加左边距，为新增的Y轴留出空间
+                            right: '2%',
                             top: '10%',
                             bottom: '10%',
-                            containLabel: true,
-                            borderColor: '#ccc',  // 边框颜色
-                            borderWidth: 1  // 边框宽度
+                            containLabel: true
                         },
-                        yAxis: {
-                            type: 'value',
-                            axisLabel: {
-                                formatter: '{value}%' // 将 y 轴标签格式化为百分数
+                        yAxis: [
+                            {
+                                type: 'value',
+                                name: '上涨波动率',
+                                position: 'left',
+                                nameLocation: 'middle',
+                                nameGap: 95,
+                                axisLabel: {
+                                    formatter: function(value) {
+                                        const price = currentPrice * (1 + value/100);
+                                        return `${value}% (${price.toFixed(2)})`;
+                                    }
+                                },
+                                min: 0,
+                                max: function(value) {
+                                    return Math.ceil(Math.max(...validSeries.flatMap(s => 
+                                        s.data.map(d => Math.max(...d.map(Number)))
+                                    )) / 10) * 10;
+                                },
+                                interval: 2
+                            },
+                            {
+                                type: 'value',
+                                name: '下跌波动率',
+                                position: 'right',
+                                nameLocation: 'middle',
+                                nameGap: 95,
+                                axisLabel: {
+                                    formatter: function(value) {
+                                        const price = currentPrice * (1 - value/100);
+                                        return `${value}% (${price.toFixed(2)})`;
+                                    }
+                                },
+                                min: 0,
+                                max: function(value) {
+                                    return Math.ceil(Math.max(...validSeries.flatMap(s => 
+                                        s.data.map(d => Math.max(...d.map(Number)))
+                                    )) / 10) * 10;
+                                },
+                                interval: 2
                             }
-                        },
-                        series: [
-                            {
-                                name: '月上涨波动率',
-                                type: 'boxplot',
-                                data: periodOrder.map(period => {
-                                    const stats = data.monthly_stats[period];
-                                    return [
-                                        stats.up_volatility.min * 100,                // 最小值
-                                        stats.up_volatility.percentiles['25'] * 100,  // 25%分位数
-                                        stats.up_volatility.percentiles['50'] * 100,  // 50%分位数
-                                        stats.up_volatility.percentiles['75'] * 100,  // 75%分位数
-                                        stats.up_volatility.max * 100                 // 最大值
-                                    ].map(value => value.toFixed(2)); // 保留两位小数
-                                })
-                            },
-                            {
-                                name: '月下跌波动率',
-                                type: 'boxplot',
-                                data: periodOrder.map(period => {
-                                    const stats = data.monthly_stats[period];
-                                    return [
-                                        stats.down_volatility.min * 100,                // 最小值
-                                        stats.down_volatility.percentiles['25'] * 100,  // 25%分位数
-                                        stats.down_volatility.percentiles['50'] * 100,  // 50%分位数
-                                        stats.down_volatility.percentiles['75'] * 100,  // 75%分位数
-                                        stats.down_volatility.max * 100                 // 最大值
-                                    ].map(value => value.toFixed(2)); // 保留两位小数
-                                })
-                            },
-                            {
-                                name: '周上涨波动率',
-                                type: 'boxplot',
-                                data: periodOrder.map(period => {
-                                    const stats = data.weekly_stats[period];
-                                    return [
-                                        stats.up_volatility.min * 100,                // 最小值
-                                        stats.up_volatility.percentiles['25'] * 100,  // 25%分位数
-                                        stats.up_volatility.percentiles['50'] * 100,  // 50%分位数
-                                        stats.up_volatility.percentiles['75'] * 100,  // 75%分位数
-                                        stats.up_volatility.max * 100                 // 最大值
-                                    ].map(value => value.toFixed(2)); // 保留两位小数
-                                })
-                            },
-                            {
-                                name: '周下跌波动率',
-                                type: 'boxplot',
-                                data: periodOrder.map(period => {
-                                    const stats = data.weekly_stats[period];
-                                    return [
-                                        stats.down_volatility.min * 100,                // 最小值
-                                        stats.down_volatility.percentiles['25'] * 100,  // 25%分位数
-                                        stats.down_volatility.percentiles['50'] * 100,  // 50%分位数
-                                        stats.down_volatility.percentiles['75'] * 100,  // 75%分位数
-                                        stats.down_volatility.max * 100                 // 最大值
-                                    ].map(value => value.toFixed(2)); // 保留两位小数
-                                })
-                            }
-                        ]
+                        ],
+                        series: validSeries.map(series => ({
+                            ...series,
+                            yAxisIndex: 0  // 所有系列都使用左侧Y轴
+                        }))
                     };
+                    
                     myChart.setOption(option);
                     $('#volatilityModal').modal('show');
                 })
@@ -236,17 +534,228 @@
                 });
         }
 
-        function generateVolatility(stockCode) {
-            fetch(`/api/generate_volatility/${stockCode}`, { method: 'POST' })
-                .then(response => response.json())
+        // 显示财报波动分析
+        function showEarningsVolatility(stockCode, marketType, button) {
+            // 获取当前行的价格输入框
+            const priceCell = button.parentElement.parentElement.querySelector('td:nth-child(4)');
+            const priceInput = priceCell.querySelector('input');
+            
+            let currentPrice = null;
+            if (priceInput) {
+                currentPrice = parseFloat(priceInput.value);
+            }
+            
+            // 获取财报波动数据
+            fetch(`/api/earnings_volatility/${stockCode}?market_type=${marketType}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("网络响应不正常");
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    alert(data.message);
-                    loadStockList(); // 刷新股票列表
+                    const chartDom = document.getElementById('volatilityChart');
+                    const myChart = echarts.init(chartDom);
+                    
+                    
+                    // 处理财报波动数据统计
+                    const upStats = {
+                        count: data.up_stats.count,
+                        avg: data.up_stats.avg_volatility,  // 已经是百分比，不需要 * 100
+                        max: data.up_stats.max_volatility,
+                        min: data.up_stats.min_volatility,
+                        p90: data.up_stats.percentiles['90'],
+                        p75: data.up_stats.percentiles['75'],
+                        p50: data.up_stats.percentiles['50'],
+                        p25: data.up_stats.percentiles['25'],
+                        p10: data.up_stats.percentiles['10']
+                    };
+
+                    const downStats = {
+                        count: data.down_stats.count,
+                        avg: data.down_stats.avg_volatility,  // 已经是百分比，不需要 * 100
+                        max: data.down_stats.max_volatility,
+                        min: data.down_stats.min_volatility,
+                        p90: data.down_stats.percentiles['90'],
+                        p75: data.down_stats.percentiles['75'],
+                        p50: data.down_stats.percentiles['50'],
+                        p25: data.down_stats.percentiles['25'],
+                        p10: data.down_stats.percentiles['10']
+                    };
+
+                    const option = {
+                        title: {
+                            text: `${stockCode} 历史财报波动统计分析${currentPrice ? ` (当前价格: ${currentPrice.toFixed(2)})` : ''}`,
+                            subtext: `上涨样本: ${upStats.count} / 下跌样本: ${downStats.count}`,
+                            left: 'center',
+                            top: 10
+                        },
+                        tooltip: {
+                            trigger: 'item',
+                            formatter: function(params) {
+                                const stats = params.seriesName.includes('上涨') ? upStats : downStats;
+                                const isUp = params.seriesName.includes('上涨');
+                                const calcPrice = (percent) => {
+                                    if (!currentPrice) return '';
+                                    const factor = isUp ? (1 + percent/100) : (1 - percent/100);
+                                    return ` (${(currentPrice * factor).toFixed(2)})`;
+                                };
+                                
+                                return `${params.seriesName}<br/>
+                                    <hr style="margin: 5px 0">
+                                    90分位: ${stats.p90.toFixed(2)}%${calcPrice(stats.p90)}<br/>
+                                    75分位: ${stats.p75.toFixed(2)}%${calcPrice(stats.p75)}<br/>
+                                    中位数: ${stats.p50.toFixed(2)}%${calcPrice(stats.p50)}<br/>
+                                    25分位: ${stats.p25.toFixed(2)}%${calcPrice(stats.p25)}<br/>
+                                    10分位: ${stats.p10.toFixed(2)}%${calcPrice(stats.p10)}<br/>
+                                    <hr style="margin: 5px 0">
+                                    最大值: ${stats.max.toFixed(2)}%${calcPrice(stats.max)}<br/>
+                                    平均值: ${stats.avg.toFixed(2)}%${calcPrice(stats.avg)}<br/>
+                                    最小值: ${stats.min.toFixed(2)}%${calcPrice(stats.min)}<br/>
+                                    样本数: ${stats.count}`;
+                            }
+                        },
+                        grid: {
+                            left: '10%',
+                            right: '10%',
+                            top: '15%',
+                            bottom: '10%'
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: ['上涨波动', '下跌波动']
+                        },
+                        yAxis: [
+                            {
+                                type: 'value',
+                                name: '上涨波动率',
+                                position: 'left',
+                                nameLocation: 'middle',
+                                nameGap: 95,
+                                axisLabel: {
+                                    formatter: function(value) {
+                                        const price = currentPrice ? currentPrice * (1 + value/100) : value;
+                                        return currentPrice ? `${value}% (${price.toFixed(2)})` : `${value}%`;
+                                    }
+                                },
+                                min: 0,
+                                max: function(value) {
+                                    return Math.ceil(Math.max(upStats.max, upStats.p90) / 5) * 5;
+                                }
+                            },
+                            {
+                                type: 'value',
+                                name: '下跌波动率',
+                                position: 'right',
+                                nameLocation: 'middle',
+                                nameGap: 95,
+                                axisLabel: {
+                                    formatter: function(value) {
+                                        const price = currentPrice ? currentPrice * (1 - value/100) : value;
+                                        return currentPrice ? `${value}% (${price.toFixed(2)})` : `${value}%`;
+                                    }
+                                },
+                                min: 0,
+                                max: function(value) {
+                                    return Math.ceil(Math.max(downStats.max, downStats.p90) / 5) * 5;
+                                }
+                            }
+                        ],
+                        series: [
+                            {
+                                name: '上涨波动',
+                                type: 'boxplot',
+                                data: [[
+                                    upStats.min,
+                                    upStats.p25,
+                                    upStats.p50,
+                                    upStats.p75,
+                                    upStats.max
+                                ], []],
+                                itemStyle: {
+                                    color: '#c23531',
+                                    borderColor: '#c23531'
+                                },
+                                yAxisIndex: 0  // 使用左侧Y轴
+                            },
+                            {
+                                name: '上涨分位点',
+                                type: 'scatter',
+                                data: [
+                                    ['上涨波动', upStats.p90],
+                                    ['上涨波动', upStats.p10]
+                                ],
+                                itemStyle: {
+                                    color: '#c23531'
+                                },
+                                yAxisIndex: 0  // 使用左侧Y轴
+                            },
+                            {
+                                name: '下跌波动',
+                                type: 'boxplot',
+                                data: [[], [
+                                    downStats.min,
+                                    downStats.p25,
+                                    downStats.p50,
+                                    downStats.p75,
+                                    downStats.max
+                                ]],
+                                itemStyle: {
+                                    color: '#2f4554',
+                                    borderColor: '#2f4554'
+                                },
+                                yAxisIndex: 1  // 使用右侧Y轴
+                            },
+                            {
+                                name: '下跌分位点',
+                                type: 'scatter',
+                                data: [
+                                    ['下跌波动', downStats.p90],
+                                    ['下跌波动', downStats.p10]
+                                ],
+                                itemStyle: {
+                                    color: '#2f4554'
+                                },
+                                yAxisIndex: 1  // 使用右侧Y轴
+                            }
+                        ]
+                    };
+                    
+                    myChart.setOption(option);
+                    $('#volatilityModal').modal('show');
+                })
+                .catch(error => {
+                    console.error("获取财报波动数据时出错:", error);
+                    alert("获取财报波动数据失败");
                 });
         }
 
+        function generateVolatility(stockCode, marketType) {
+            fetch(`/api/generate_volatility/${stockCode}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ market_type: marketType })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadStockList(); // 刷新股票列表
+            });
+        }
+        
+        // 修改 Tab 切换事件监听
+        $(document).ready(function() {
+            // 绑定 tab 切换事件
+            $('#marketTabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+                const tabId = e.target.id;  // 获取当前被激活的 tab 的 ID
+                loadStockList(tabId);
+            });
+        });
+
         // 页面加载时获取股票列表
-        loadStockList();
+        loadStockList('us-tab');
     </script>
 
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>

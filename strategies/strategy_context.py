@@ -23,6 +23,7 @@ class BacktestConfig:
     """固定的回测配置信息"""
     initial_capital: float = 1000000  # 初始资金100万
     contract_multiplier: int = 10000  # 合约乘数
+    etf_commission_rate: float = 0.0001  # etf交易费万分之一
     transaction_cost: float = 3.6  # 每张合约交易成本
     margin_ratio: float = 0.12  # 保证金比例
     stop_loss_ratio: float = 0.5  # 止损比例
@@ -49,6 +50,7 @@ class StrategyContext(BaseStrategyContext):
     strategy_params: Dict = field(default_factory=dict)  # 策略特定参数，如 delta 值等
     contract_multiplier: int = BacktestConfig.contract_multiplier # 合约乘数
     transaction_cost: float = BacktestConfig.transaction_cost  # 交易成本
+    etf_commission_rate: float = BacktestConfig.etf_commission_rate  # 交易成本
     sell_put_value: float = 0
     buy_put_value: float = 0
     sell_call_value: float = 0
@@ -161,6 +163,13 @@ class DeltaNakedPutStrategyContext(StrategyContext):
         self.strategy_type = strategy_type
         self.sell_put_value = sell_put_delta
 
+class WheelStrategyContext(StrategyContext):
+    def __init__(self, strategy_type, sell_put_delta: float, sell_call_delta: float, **kwargs):
+        super().__init__(**kwargs)
+        self.strategy_type = strategy_type
+        self.sell_put_value = sell_put_delta
+        self.sell_call_value = sell_call_delta
+
 class VolatilityIronCondorStrategyContext(StrategyContext):
     def __init__(self, strategy_type, buy_call_volatility: float, sell_call_volatility: float, buy_put_volatility: float, sell_put_volatility: float, **kwargs):
         super().__init__(**kwargs)
@@ -233,15 +242,17 @@ class StrategyContextFactory:
                                                    start_date=start_date,
                                                    end_date=end_date)
 
-        elif 'put_sell_delta' in sp and 'put_buy_delta' in sp:
+        elif 'put_sell_delta' in sp and 'call_sell_delta' in sp:
             from strategies.types import StrategyType
-            strategy_type = StrategyType.BULLISH_PUT
-            return DeltaBullishPutStrategyContext(strategy_type=strategy_type,
+            strategy_type = StrategyType.WHEEL
+            return WheelStrategyContext(strategy_type=strategy_type,
                                                  sell_put_delta=sp['put_sell_delta'],
-                                                 buy_put_delta=sp['put_buy_delta'],
+                                                 sell_call_delta=sp['call_sell_delta'],
                                                  etf_code=etf_code,
                                                  start_date=start_date,
                                                  end_date=end_date)
+
+
         elif 'put_sell_delta' in sp and 'put_buy_delta' not in sp:
             from strategies.types import StrategyType
             strategy_type = StrategyType.NAKED_PUT

@@ -167,8 +167,8 @@ class StrategyAnalyzer:
             
             # 记录开仓
             if open_trades:
-                if current_trade is not None:
-                    strategy_trades.append(current_trade)
+                # if current_trade is not None:
+                #     strategy_trades.append(current_trade)
                 
                 current_trade = {
                     'open_date': date,
@@ -181,17 +181,20 @@ class StrategyAnalyzer:
                 }
             
             # 记录平仓
-            if close_trades and current_trade is not None:
-                current_trade['close_date'] = date
-                current_trade['close_cost'] = sum(trade.cost for trade in close_trades)
-                current_trade['close_premium'] = sum(trade.premium for trade in close_trades)
-                current_trade['total_pnl'] = sum(trade.pnl for trade in close_trades)
+            if close_trades:
+                current_trade = {'close_date': date,
+                                 'close_cost': sum(trade.cost for trade in close_trades),
+                                 'close_premium': sum(trade.premium for trade in close_trades),
+                                 'total_pnl': sum(trade.pnl for trade in close_trades),
+                                 }
+            
+            # 添加最后一个未完成的交易（如果有）
+            if current_trade is not None:
                 strategy_trades.append(current_trade)
-                current_trade = None
         
         # 添加最后一个未完成的交易（如果有）
-        if current_trade is not None:
-            strategy_trades.append(current_trade)
+        # if current_trade is not None:
+        #     strategy_trades.append(current_trade)
         
         # 转换为DataFrame
         trades_df = pd.DataFrame(strategy_trades)

@@ -1,0 +1,661 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">ETF波动率管理</h1>
+        
+        <!-- 加载动画 -->
+        <div class="loading" id="loading">
+            <div class="loading-content">
+                <div class="spinner-border" role="status">
+                    <span class="sr-only">加载中...</span>
+                </div>
+                <p>数据加载中，请稍后...</p>
+            </div>
+        </div>
+
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>ETF代码</th>
+                    <th>ETF名称</th>
+                    <th>起止时间</th>
+                    <th>当前价格</th>
+                    <th>波动率</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="stockList">
+                <!-- 这里将动态填充ETF数据 -->
+            </tbody>
+        </table>
+
+        <!-- 修改 loadETFList 函数中的行生成代码 -->
+        <script>
+            function loadETFList() {
+                // 显示加载动画
+                document.getElementById('loading').style.display = 'flex';
+
+                fetch('/api/etf_list')
+                    .then(response => response.json())
+                    .then(data => {
+                        const stockList = document.getElementById('stockList');
+                        stockList.innerHTML = '';
+                        data.forEach(etf => {
+                            const row = document.createElement('tr');
+                            // 修改按钮的点击事件，传递ETF名称
+                            row.innerHTML = `
+                                <td>${etf.etf_code}</td>
+                                <td>${etf.etf_name}</td>
+                                <td>${etf.start_date} 至 ${etf.end_date}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" 
+                                            onclick="getCurrentPrice('${etf.etf_code}', this)">
+                                        显示价格
+                                    </button>
+                                </td>
+                                <td>
+                                    <select class="form-control form-control-sm window-days">
+                                        <option value="21">1个月</option>
+                                        <option value="42">2个月</option>
+                                        <option value="63">3个月</option>
+                                        <option value="84">4个月</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <button class="btn btn-info show-volatility" 
+                                            onclick="showVolatilityWithPrice('${etf.etf_code}', '${etf.etf_name}')">
+                                        显示波动率
+                                    </button>
+                                </td>
+                            `;
+                            stockList.appendChild(row);
+                        });
+                    })
+                    .catch(error => {
+                        console.error('获取ETF列表失败:', error);
+                        alert('获取ETF列表失败，请重试');
+                    })
+                    .finally(() => {
+                        // 隐藏加载动画
+                        document.getElementById('loading').style.display = 'none';
+                    });
+            }
+
+            // 页面加载时获取ETF列表
+            loadETFList();
+        </script>
+
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+        <!-- 在模态框中添加波动率分析内容 -->
+        <!-- 波动率分析模态框 -->
+        <div class="modal fade" id="volatilityModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">波动率分析</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="dashboard-container">
+                            <!-- 左侧：核心指标卡片 -->
+                            <div class="stats-panel">
+                                <!-- 描述性统计卡片 -->
+                                <div class="summary-card">
+                                    <h6>📊 收益分布特征</h6>
+                                    <div class="metric-grid">
+                                        <div class="metric-item">
+                                            <label>收益率</label>
+                                            <div class="value" id="meanValue"></div>
+                                            <small class="text-muted">正值表示长期持有有盈利</small>
+                                        </div>
+                                        <div class="metric-item">
+                                            <label>波动率</label>
+                                            <div class="value" id="stdValue"></div>
+                                            <small class="text-muted">68%的月涨跌幅在±1个标准差内</small>
+                                        </div>
+                                        <div class="metric-item">
+                                            <label>偏度</label>
+                                            <div class="value" id="skewValue"></div>
+                                            <small class="text-muted">负值表示暴跌概率大于暴涨</small>
+                                        </div>
+                                        <div class="metric-item">
+                                            <label>峰度</label>
+                                            <div class="value" id="kurtValue"></div>
+                                            <small class="text-muted">大于3表示极端行情较多</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 多周期波动率卡片 -->
+                                <!-- 修改多周期波动率卡片部分 -->
+                                <div class="volatility-card mt-3">
+                                    <h6>📈 多周期波动率</h6>
+                                    <div class="period-list">
+                                        <div class="period-item" id="monthlyVol"></div>
+                                        <div class="period-item" id="quarterlyVol"></div>
+                                        <div class="period-item" id="yearlyVol"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 右侧：图表区域 -->
+                            <div class="charts-panel">
+                                <div class="chart-container">
+                                    <div id="volTimelineChart" style="height: 300px;"></div>
+                                </div>
+                                <div class="chart-container mt-3">
+                                    <div id="volConeChart" style="height: 300px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 添加样式 -->
+        <style>
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            padding: 15px;
+        }
+        
+        .summary-card, .volatility-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .metric-item {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .metric-item label {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+        
+        .metric-item .value {
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+        
+        .period-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .period-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        </style>
+        
+        <!-- 修改JavaScript代码 -->
+        <script>
+        function showVolatilityWithPrice(etfCode, etfName) {
+            fetch(`/api/volatility_analysis/${etfCode}`)
+                .then(response => response.json())
+                .then(data => {
+                    // 更新模态框标题
+                    document.querySelector('#volatilityModal .modal-title').innerHTML = 
+                        `${etfName}（${etfCode}）波动率分析`;
+                        
+                    // 更新描述性统计卡片（改为月度数据）
+                    document.getElementById('meanValue').innerHTML = `${data.stats.mean.toFixed(2)}% <span class="badge bg-primary">年化月均收益</span>`;
+                    document.getElementById('stdValue').innerHTML = `${data.stats.std.toFixed(2)}% <span class="badge bg-warning">年化月波动率</span>`;
+                    document.getElementById('skewValue').innerHTML = `${data.stats.skew.toFixed(2)} <span class="badge ${data.stats.skew < 0 ? 'bg-danger' : 'bg-success'}">偏度</span>`;
+                    document.getElementById('kurtValue').innerHTML = `${data.stats.kurt.toFixed(2)} <span class="badge ${data.stats.kurt > 3 ? 'bg-danger' : 'bg-success'}">峰度</span>`;
+        
+                    // 更新多周期波动率卡片（改为月度数据）
+                    updatePeriodCard('monthlyVol', '季度波动率', data.volatilities.monthly);
+                    updatePeriodCard('quarterlyVol', '年度波动率', data.volatilities.quarterly);
+                    updatePeriodCard('yearlyVol', '两年波动率', data.volatilities.yearly);
+        
+                    // 显示模态框并在显示后初始化图表
+                    const modalElement = document.getElementById('volatilityModal');
+                    const modal = new bootstrap.Modal(modalElement);
+                    
+                    modalElement.addEventListener('shown.bs.modal', function () {
+                        setTimeout(() => {
+                            // 重新初始化图表
+                            const timelineChart = echarts.init(document.getElementById('volTimelineChart'));
+                            const coneChart = echarts.init(document.getElementById('volConeChart'));
+                            
+                            // 设置图表配置
+                            drawVolTimeline(data, timelineChart);
+                            drawVolCone(data.vol_cone, coneChart);
+                        }, 100);
+                    }, { once: true });
+                    
+                    modal.show();
+                })
+                .catch(error => {
+                    console.error('获取波动率分析数据失败:', error);
+                    alert('获取波动率分析数据失败');
+                });
+        }
+        
+        <!-- 修改多周期波动率卡片的updatePeriodCard函数 -->
+        function updatePeriodCard(elementId, title, data) {
+            const element = document.getElementById(elementId);
+            const percentile = ((data.current - data.min) / (data.max - data.min) * 100).toFixed(0);
+            const volatilityLevel = percentile > 75 ? '高波动' : (percentile < 25 ? '低波动' : '中等波动');
+            const badgeClass = percentile > 75 ? 'bg-danger' : (percentile < 25 ? 'bg-success' : 'bg-warning');
+            
+            element.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong>${title}</strong>
+                    <div>
+                        <span class="badge bg-primary">${data.current.toFixed(2)}%</span>
+                        <span class="badge ${badgeClass}">${volatilityLevel}</span>
+                    </div>
+                </div>
+                <div class="progress mt-2" style="height: 5px;">
+                    <div class="progress-bar" role="progressbar" 
+                         style="width: ${percentile}%">
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between mt-1">
+                    <small>${data.min.toFixed(2)}% (最低)</small>
+                    <small>${data.mean.toFixed(2)}% (均值)</small>
+                    <small>${data.max.toFixed(2)}% (最高)</small>
+                </div>
+                <div class="text-muted small mt-1">
+                    ${title === '日波动率' ? '最近1个月' : (title === '周波动率' ? '最近1年' : '最近2年')}的波动率水平
+                    ${percentile > 75 ? '，建议谨慎操作' : (percentile < 25 ? '，可考虑积极策略' : '，可采取中性策略')}
+                </div>
+            `;
+        }
+        
+        function drawVolTimeline(data, chart) {
+            try {
+                const option = {
+                    title: { 
+                        text: '月度总体、上涨和下跌波动率的分布特征',
+                        left: 'center',
+                        top: '1%',
+                        textStyle: {
+                            fontSize: 14,
+                            fontWeight: 'normal'
+                        }
+                    },
+                    tooltip: { 
+                        trigger: 'axis',
+                        formatter: function(params) {
+                            let result = params[0].axisValue + '<br/>';
+                            params.forEach(param => {
+                                let explanation = '';
+                                switch(param.seriesName) {
+                                    case '总体波动率':
+                                        explanation = '（反映整体价格波动）';
+                                        break;
+                                    case '上涨波动率':
+                                        explanation = '（反映上涨月份的波动强度）';
+                                        break;
+                                    case '下跌波动率':
+                                        explanation = '（反映下跌月份的波动强度）';
+                                        break;
+                                }
+                                result += `${param.seriesName}${explanation}: ${param.value}%<br/>`;
+                            });
+                            return result;
+                        }
+                    },
+                    legend: { 
+                        data: ['总体波动率', '上涨波动率', '下跌波动率'],
+                        selected: {
+                            '总体波动率': true,
+                            '上涨波动率': true,
+                            '下跌波动率': true
+                        },
+                        top: '8%',
+                    },
+                    grid: {
+                        left: '3%',
+                        right: '4%',
+                        bottom: '3%',
+                        containLabel: true
+                    },
+                    xAxis: { 
+                        type: 'category',
+                        data: ['当前值', '均值', '最大值', '最小值']
+                    },
+                    yAxis: { 
+                        type: 'value',
+                        name: '年化波动率(%)',
+                        axisLabel: {
+                            formatter: '{value}%'
+                        }
+                    },
+                    series: [
+                        {
+                            name: '总体波动率',
+                            type: 'bar',
+                            itemStyle: { color: '#5470C6' },
+                            data: [
+                                data.volatilities.monthly.current,
+                                data.volatilities.monthly.mean,
+                                data.volatilities.monthly.max,
+                                data.volatilities.monthly.min
+                            ]
+                        },
+                        {
+                            name: '上涨波动率',
+                            type: 'bar',
+                            itemStyle: { color: '#91CC75' },
+                            data: [
+                                data.volatilities.monthly.up.current,
+                                data.volatilities.monthly.up.mean,
+                                data.volatilities.monthly.up.max,
+                                data.volatilities.monthly.up.min
+                            ]
+                        },
+                        {
+                            name: '下跌波动率',
+                            type: 'bar',
+                            itemStyle: { color: '#EE6666' },
+                            data: [
+                                data.volatilities.monthly.down.current,
+                                data.volatilities.monthly.down.mean,
+                                data.volatilities.monthly.down.max,
+                                data.volatilities.monthly.down.min
+                            ]
+                        }
+                    ]
+                };
+                chart.setOption(option);
+                
+                // 先清除已有的说明
+                const existingDesc = document.querySelector('.vol-timeline-description');
+                if (existingDesc) {
+                    existingDesc.remove();
+                }
+
+                // 添加图表说明
+                const description = document.createElement('div');
+                description.className = 'vol-timeline-description mt-2 text-muted small';
+                description.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <p class="mb-0"><strong>月度波动率分解说明</strong></p>
+                        <button class="btn btn-sm btn-outline-secondary" 
+                                onclick="toggleDescription(this)">
+                            展开说明
+                        </button>
+                    </div>
+                    <div class="description-content" style="display: none;">
+                        <ul class="mt-2">
+                            <li>总体波动率：反映ETF整体的月度价格波动幅度
+                                <ul>
+                                    <li>当前值高于均值：表示市场波动加剧，需要注意风险</li>
+                                    <li>当前值低于均值：表示市场相对平稳</li>
+                                </ul>
+                            </li>
+                            <li>上涨波动率：仅考虑上涨月份的波动情况
+                                <ul>
+                                    <li>高于总体波动率：表示上涨月份波动较大，涨势剧烈</li>
+                                    <li>低于总体波动率：表示上涨相对平缓</li>
+                                </ul>
+                            </li>
+                            <li>下跌波动率：仅考虑下跌月份的波动情况
+                                <ul>
+                                    <li>高于总体波动率：表示下跌月份波动较大，跌势剧烈</li>
+                                    <li>低于总体波动率：表示下跌相对平缓</li>
+                                </ul>
+                            </li>
+                            <li>策略建议：
+                                <ul>
+                                    <li>当下跌波动率大于上涨波动率时，市场可能存在恐慌情绪，需要谨慎</li>
+                                    <li>当上涨波动率大于下跌波动率时，市场可能处于强势上涨阶段</li>
+                                    <li>波动率均衡时，市场情绪相对稳定</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                `;
+                
+                const chartContainer = document.getElementById('volTimelineChart').parentElement;
+                chartContainer.appendChild(description);
+                
+                window.addEventListener('resize', () => chart.resize());
+            } catch (error) {
+                console.error('绘制时间序列图表失败:', error);
+            }
+        }
+        
+        function drawVolCone(volCone, chart) {
+            try {
+                const periods = Object.keys(volCone).sort((a, b) => {
+                    return parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]);
+                });
+                
+                const option = {
+                    title: { 
+                        text: '不同观察周期的波动率分布特征',
+                        left: 'center',
+                        top: '1%',
+                        textStyle: {
+                            fontSize: 14,
+                            fontWeight: 'normal'
+                        },
+                        padding: [0, 0, 20, 0]  // 上右下左的内边距
+                    },
+                    tooltip: { 
+                        trigger: 'axis',
+                        formatter: function(params) {
+                            let result = `${params[0].name}周期<br/>`;
+                            params.forEach(param => {
+                                let explanation = '';
+                                switch(param.seriesName) {
+                                    case '当前值':
+                                        explanation = '（当前市场环境）';
+                                        break;
+                                    case '25%分位':
+                                        explanation = '（低波动区间）';
+                                        break;
+                                    case '中位数':
+                                        explanation = '（历史中位水平）';
+                                        break;
+                                    case '75%分位':
+                                        explanation = '（高波动区间）';
+                                        break;
+                                }
+                                result += `${param.seriesName}${explanation}: ${param.value.toFixed(2)}%<br/>`;
+                            });
+                            return result;
+                        }
+                    },
+                    legend: { 
+                        data: ['当前值', '25%分位', '中位数', '75%分位'],
+                        selected: {
+                            '当前值': true,
+                            '25%分位': true,
+                            '中位数': true,
+                            '75%分位': true
+                        },
+                        top: '10%',
+                    },
+                    grid: {
+                        left: '3%',
+                        right: '4%',
+                        bottom: '15%',
+                        containLabel: true
+                    },
+                    xAxis: { 
+                        type: 'category',
+                        data: periods,
+                        name: '观察天数',
+                        nameLocation: 'middle',
+                        nameGap: 35,
+                        axisLabel: {
+                            interval: 0,
+                            rotate: 30,
+                            formatter: '{value}天'
+                        }
+                    },
+                    yAxis: { 
+                        type: 'value',
+                        name: '波动率(%)',
+                        axisLabel: {
+                            formatter: '{value}%'
+                        }
+                    },
+                    series: [
+                        {
+                            name: '当前值',
+                            type: 'line',
+                            symbol: 'circle',
+                            symbolSize: 8,
+                            lineStyle: {
+                                color: '#FF4444',
+                                width: 2
+                            },
+                            data: periods.map(p => volCone[p].current)
+                        },
+                        {
+                            name: '25%分位',
+                            type: 'line',
+                            symbol: 'none',
+                            lineStyle: { 
+                                type: 'dashed',
+                                color: '#91CC75'
+                            },
+                            data: periods.map(p => volCone[p].quantiles[0])
+                        },
+                        {
+                            name: '中位数',
+                            type: 'line',
+                            symbol: 'none',
+                            lineStyle: { 
+                                type: 'dashed',
+                                color: '#FAC858'
+                            },
+                            data: periods.map(p => volCone[p].quantiles[1])
+                        },
+                        {
+                            name: '75%分位',
+                            type: 'line',
+                            symbol: 'none',
+                            lineStyle: { 
+                                type: 'dashed',
+                                color: '#EE6666'
+                            },
+                            data: periods.map(p => volCone[p].quantiles[2])
+                        }
+                    ]
+                };
+
+                // 先清除已有的说明
+                const existingDesc = document.querySelector('.vol-cone-description');
+                if (existingDesc) {
+                    existingDesc.remove();
+                }
+        
+                // 添加图表说明
+                const description = document.createElement('div');
+                description.className = 'vol-cone-description mt-2 text-muted small';
+                description.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <p class="mb-0"><strong>波动率锥说明</strong></p>
+                        <button class="btn btn-sm btn-outline-secondary" 
+                                onclick="toggleDescription(this)">
+                            展开说明
+                        </button>
+                    </div>
+                    <div class="description-content" style="display: none;">
+                        <ul class="mt-2">
+                            <li>红线表示当前各周期的波动率水平</li>
+                            <li>虚线表示历史波动率的分布区间：
+                                <ul>
+                                    <li>75%分位线以上：高波动区域，波动率处于历史高位，期权可能被高估，可考虑卖出期权策略</li>
+                                    <li>25%-75%之间：正常波动区间，可采用中性策略</li>
+                                    <li>25%分位线以下：低波动区域，波动率处于历史低位，期权可能被低估，可考虑买入期权策略</li>
+                                </ul>
+                            </li>
+                            <li>当前线形态：
+                                ${getCurrentVolConePattern(periods, volCone)}
+                            </li>
+                            <li>策略提示：
+                                <ul>
+                                    <li>当波动率处于高位时，期权价格往往被高估，此时卖出期权可能获得较好收益</li>
+                                    <li>当波动率处于低位时，期权价格往往被低估，此时买入期权可能获得较好收益</li>
+                                    <li>注意：波动率分析仅供参考，实际交易还需考虑其他市场因素</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                `;
+                
+                chart.setOption(option);
+                
+                // 在图表容器后插入说明
+                const chartContainer = document.getElementById('volConeChart').parentElement;
+                chartContainer.appendChild(description);
+                
+                window.addEventListener('resize', () => chart.resize());
+            } catch (error) {
+                console.error('绘制波动率锥图表失败:', error);
+            }
+        }
+
+        // 添加切换说明显示/隐藏的函数
+        function toggleDescription(button) {
+            const content = button.parentElement.nextElementSibling;
+            const isHidden = content.style.display === 'none';
+            content.style.display = isHidden ? 'block' : 'none';
+            button.textContent = isHidden ? '收起说明' : '展开说明';
+        }
+        
+        // 添加波动率锥形态判断函数
+        function getCurrentVolConePattern(periods, volCone) {
+            try {
+                const shortTerm = periods[0];
+                const longTerm = periods[periods.length - 1];
+                const shortTermVol = volCone[shortTerm].current;
+                const longTermVol = volCone[longTerm].current;
+                
+                if (shortTermVol > longTermVol * 1.2) {
+                    return '短期波动率显著高于长期，市场可能处于剧烈波动期，建议保持谨慎';
+                } else if (shortTermVol < longTermVol * 0.8) {
+                    return '短期波动率显著低于长期，市场可能即将脱离平静期，需要警惕风险';
+                } else {
+                    return '短期和长期波动率较为接近，市场波动处于正常水平';
+                }
+            } catch (error) {
+                console.error('波动率锥形态判断失败:', error);
+                return '波动率形态判断失败';
+            }
+        }
+        </script>
+        {% endblock %}

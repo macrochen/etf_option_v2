@@ -193,6 +193,7 @@ function updateValidationUI(validation) {
 
 
 function initializeFormValidation() {
+    // 重新绑定提交事件
     $('#backtest-form').on('submit', function(e) {
         e.preventDefault();
         
@@ -456,4 +457,4 @@ function fillBacktestForm(params) {
     
     // 触发策略检测
     detectStrategy();
-} 
+}

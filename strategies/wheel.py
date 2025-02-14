@@ -213,8 +213,6 @@ class WheelStrategy(OptionStrategy):
         quantity = abs(position.quantity)
         total_quantity = quantity * self.context.contract_multiplier
         
-        # 计算行权费用
-        exercise_fee = quantity * self.context.exercise_fee
 
         is_exercise = False
         
@@ -224,10 +222,10 @@ class WheelStrategy(OptionStrategy):
             # 计算买入成本和手续费
             trade_amount = position.strike * total_quantity
             etf_commission = trade_amount * self.context.etf_commission_rate
-            total_commission = etf_commission + exercise_fee
+            total_commission += etf_commission
 
             # 盈亏 = (行权价 - 当前价格) * 数量 + 总手续费
-            pnl = (position.strike - current_etf_price) * total_quantity * -1 - total_commission
+            pnl = (position.strike - current_etf_price) * total_quantity * -1 - etf_commission
             
             self.has_stock = True
             self.stock_position = total_quantity
@@ -244,7 +242,6 @@ class WheelStrategy(OptionStrategy):
                 f"当前价格: {current_etf_price}\n"
                 f"交易金额: {trade_amount:.2f}\n"
                 f"ETF手续费: {etf_commission:.2f}\n"
-                f"行权费用: {exercise_fee:.2f}\n"
                 f"总手续费: {total_commission:.2f}\n"
                 f"盈亏: {pnl:.2f}\n"
                 f"剩余现金: {self.cash}"
@@ -255,10 +252,10 @@ class WheelStrategy(OptionStrategy):
             # 计算卖出收入和手续费
             trade_amount = position.strike * total_quantity
             etf_commission = trade_amount * self.context.etf_commission_rate
-            total_commission = etf_commission + exercise_fee
+            total_commission += etf_commission
 
             # 盈亏 = (当前价格 - 行权价) * 数量 - 总手续费
-            pnl = (current_etf_price - position.strike) * total_quantity * -1 - total_commission
+            pnl = (current_etf_price - position.strike) * total_quantity * -1 - etf_commission
             
             # 更新现金和持仓状态（扣除所有费用）
             self.cash += pnl
@@ -274,7 +271,6 @@ class WheelStrategy(OptionStrategy):
                 f"当前价格: {current_etf_price}\n"
                 f"交易金额: {trade_amount:.2f}\n"
                 f"ETF手续费: {etf_commission:.2f}\n"
-                f"行权费用: {exercise_fee:.2f}\n"
                 f"总手续费: {total_commission:.2f}\n"
                 f"盈亏: {pnl:.2f}\n"
                 f"剩余现金: {self.cash}"

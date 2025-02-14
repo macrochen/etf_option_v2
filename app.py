@@ -3,7 +3,9 @@ from datetime import datetime
 from routes.scheme_routes import scheme_bp
 from routes.backtest_routes import backtest_bp
 from routes.volatility_routes import volatility_bp
-from routes.stock_data_routes import stock_data_bp  # 导入新的蓝图
+from routes.stock_data_routes import stock_data_bp
+from routes.etf_data_routes import etf_data_bp
+from routes.grid_trade_routes import grid_trade_bp
 
 
 app = Flask(__name__)
@@ -13,6 +15,10 @@ app.register_blueprint(scheme_bp)
 app.register_blueprint(backtest_bp)
 app.register_blueprint(volatility_bp)
 app.register_blueprint(stock_data_bp)  # 注册股票数据蓝图
+app.register_blueprint(etf_data_bp)  # 注册股票数据蓝图
+
+# 注册网格交易蓝图
+app.register_blueprint(grid_trade_bp)
 
 # ETF选项列表
 ETF_OPTIONS = [
@@ -31,5 +37,10 @@ ETF_OPTIONS = [
 def index():
     return render_template('index.html', etf_options=ETF_OPTIONS)
 
-if __name__ == '__main__':
-    app.run(debug=True) 
+def init_app():
+    # 应用初始化代码，不再包含同步操作
+    pass
+    
+if __name__ == "__main__":
+    init_app()
+    app.run(debug=True)

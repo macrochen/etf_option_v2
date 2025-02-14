@@ -50,7 +50,7 @@ class SchemeDatabase:
             
             return self.db.fetch_one('SELECT last_insert_rowid()')[0]
         except Exception as e:
-            log_error(e, "创建方案失败")
+            log_error(e, f"创建方案失败 - 名称: {name}, 参数: {params}, 结果: {results}")
             raise
         
     def get_scheme(self, scheme_id: int) -> Optional[Dict]:

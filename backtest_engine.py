@@ -73,7 +73,6 @@ class BacktestEngine:
             if not self.load_data(context):
                 return None
                 
-            
             # 创建策略实例
             strategy = self._create_strategy(context)
             if not strategy:

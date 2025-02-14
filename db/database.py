@@ -51,3 +51,8 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.execute(query, params)
             return cursor.fetchall() 
+    
+    def commit(self):
+        """提交"""
+        with self.get_connection() as conn:
+            conn.commit()

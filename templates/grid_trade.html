@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <!-- 分析参数设置区 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">网格交易分析</h5>
+        </div>
+        <div class="card-body">
+            <form id="grid-trade-form">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <div class="input-group mb-3">
+                            <select class="form-select" id="etf-select" style="min-width: 200px;">
+                                <option value="">-- 选择ETF --</option>
+                            </select>&nbsp;
+                            <span class="input-group-text">或</span>&nbsp;
+                            <input type="text" class="form-control" id="etf-code-input" 
+                            placeholder="输入ETF代码（如：588080）" 
+                            onkeypress="if(event.keyCode === 13) { event.preventDefault(); document.getElementById('load-etf-btn').click(); }">&nbsp;
+                            <button type="button" class="btn btn-primary" id="load-etf-btn">加载数据</button>
+                        </div>
+                        <div id="date-range-info" class="text-muted small mb-2 d-none"></div>
+                        <div id="loading-status" class="alert alert-info d-none">
+                            正在下载数据，请稍候...
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label class="form-label">分析周期</label>
+                        <div class="btn-group" role="group">
+                            <input type="radio" class="btn-check" name="period-type" id="period1" value="12" checked>
+                            <label class="btn btn-outline-primary" for="period1">1年</label>
+                            
+                            <input type="radio" class="btn-check" name="period-type" id="period2" value="24">
+                            <label class="btn btn-outline-primary" for="period2">2年</label>
+                            
+                            <input type="radio" class="btn-check" name="period-type" id="period3" value="36">
+                            <label class="btn btn-outline-primary" for="period3">3年</label>
+                            
+                            <input type="radio" class="btn-check" name="period-type" id="period4" value="60">
+                            <label class="btn btn-outline-primary" for="period4">5年</label>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary">分析标的</button>
+
+                <button type="button" class="btn btn-primary" id="start-analyze-btn">
+                    分析参数
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 分析结果展示区 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">分析结果</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <div id="analysis-result"></div>
+                </div>
+                <div class="col-md-4">
+                    <div id="score-chart" style="height: 300px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- 参数优化结果展示区 -->
+    <div class="card mb-4 d-none" id="optimization-result-section">
+        <div class="card-header">
+            <h5 class="mb-0">参数配置回测效果对比（TOP 5）</h5>
+        </div>
+        <div class="card-body">
+            <!-- 参数组合表格 -->
+            <div class="table-responsive mb-4">
+                <table class="table table-hover" id="params-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 8%">组合ID</th>
+                            <th style="width: 10%">网格数量</th>
+                            <th style="width: 10%">网格间距</th>
+                            <th style="width: 12%">年化收益率</th>
+                            <th style="width: 10%">夏普比率</th>
+                            <th style="width: 10%">最大回撤</th>
+                            <th style="width: 10%">交易次数</th>
+                            <th style="width: 10%">综合得分</th>
+                            <th style="width: 10%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 回测结果展示区 -->
+    <div class="card mb-4 d-none" id="backtest-result-section">
+        <div class="card-header">
+            <h5 class="mb-0">最优配置回测结果分析</h5>
+        </div>
+        <div class="card-body">
+            <!-- 网格价格列表 -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0">网格价格分布</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row" id="grid-price-list">
+                        <!-- 网格价格将通过JavaScript动态填充 -->
+                    </div>
+                </div>
+            </div>
+            <!-- 价格走势图 -->
+            <div class="card">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <h6 class="mb-0">网格交易走势</h6>
+                            <div class="float-end">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="show-grid-lines" checked>
+                                    <label class="form-check-label" for="show-grid-lines">网格线</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="show-trade-points" checked>
+                                    <label class="form-check-label" for="show-trade-points">交易点</label>
+                                </div>
+                            </div>
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="grid-trading-chart" style="height: 500px;"></div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="grid-price-list">
+                            <!-- 网格价格将通过JavaScript动态填充 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 收益曲线图 -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0">收益率对比</h6>
+                </div>
+                <div class="card-body">
+                    <div id="returns-chart" style="height: 400px;"></div>
+                </div>
+            </div>
+
+            <!-- 交易记录表格 -->
+            <div class="table-responsive mb-4">
+                <table class="table table-hover table-sm" id="trades-table">
+                    <thead>
+                        <tr>
+                            <th>交易时间</th>
+                            <th>交易方向</th>
+                            <th>成交价格</th>
+                            <th>成交数量</th>
+                            <th>交易金额</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/grid_trade.js') }}"></script>
+{% endblock %}

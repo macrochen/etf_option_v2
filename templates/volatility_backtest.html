@@ -220,7 +220,14 @@
             // 重置日期输入框
             $('#start_date').val('');
             $('#end_date').val('');
-            // 其他需要重置的输入框可以在这里添加
+            // 重置保存回测方案相关设置
+            $('#save_scheme').prop('checked', false);
+            $('#scheme_name').val('');
+            $('#schemeNameGroup').addClass('d-none');
+            $('#schemeId').val('');  // 清除方案ID
+            // 重置波动率范围显示
+            // $('#put_vol_range').html('');
+            // $('#call_vol_range').html('');
         });
     });
 </script>
