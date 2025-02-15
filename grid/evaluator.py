@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import Dict, List
 import numpy as np
 import pandas as pd
 
@@ -29,11 +29,17 @@ class BacktestEvaluator:
     def __init__(self):
         # 定义指标权重
         self.weights = {
-            'annual_return': 1,
-            'max_drawdown': 0.0,
-            'sharpe_ratio': 0.0,
-            'trade_frequency': 0.0,
-            'capital_utilization': 0
+            'annual_return': 0.35,
+            'max_drawdown': 0.25,
+            'sharpe_ratio': 0.20,
+            'trade_frequency': 0.10,
+            'capital_utilization': 0.10
+
+            # 'annual_return': 1,
+            # 'max_drawdown': 0.0,
+            # 'sharpe_ratio': 0.0,
+            # 'trade_frequency': 0.0,
+            # 'capital_utilization': 0
         }
     
     def calculate_metrics(self, daily_returns: pd.Series, trade_records: List[dict], 
@@ -61,9 +67,12 @@ class BacktestEvaluator:
         capital_utilization = self._calculate_capital_utilization(trade_records, capital)
         
         # 计算综合评分
-        total_score = self._calculate_total_score(
-            annual_return, max_drawdown, sharpe_ratio,
-            trade_count, capital_utilization
+        total_score = self._calculate_score({
+            'annual_return': annual_return,
+            'max_drawdown': max_drawdown,
+            'sharpe_ratio': sharpe_ratio,
+            'trade_frequency': trade_count,
+            'capital_utilization': capital_utilization}
         )
         
         return EvaluationResult(
@@ -113,52 +122,75 @@ class BacktestEvaluator:
         return (annual_return - risk_free_rate) / annual_volatility if annual_volatility != 0 else 0
     
     def _calculate_capital_utilization(self, trade_records: List[dict], capital: float) -> float:
-        """计算资金利用率"""
-        # if not trade_records:
-        #     return 0.0
-            
-        # # 按时间排序交易记录
-        # sorted_trades = sorted(trade_records, key=lambda x: x['timestamp'])
+        """计算资金利用率（加权平均占用资金法）
         
-        # # 计算每个时点的资金使用情况
-        # cash = capital          # 可用现金
-        # total_cost = 0         # 累计购买成本
-        # utilization_records = []
+        Args:
+            trade_records: 交易记录列表
+            capital: 初始资金
+            
+        Returns:
+            float: 资金利用率（0-1之间的小数）
+        """
+        if not trade_records:
+            return 0.0
+            
+        # 计算每笔交易的金额作为权重
+        occupied_capitals = []
+        current_occupied = 0  # 当前占用资金
         
-        # for trade in sorted_trades:
-        #     if trade['direction'] == 'buy':
-        #         # 买入时减少现金，增加成本
-        #         trade_value = trade['amount'] * trade['price']
-        #         cash -= trade_value
-        #         total_cost += trade_value
-        #     else:
-        #         # 卖出时增加现金，减少成本（按比例）
-        #         trade_value = trade['amount'] * trade['price']
-        #         if total_cost > 0:  # 避免除以零
-        #             cost_ratio = trade_value / (total_cost + cash)  # 卖出部分占总资产的比例
-        #             total_cost -= total_cost * cost_ratio  # 按比例减少成本
-        #         cash += trade_value
-                
-        #     # 计算当前时点的资金利用率（已投入资金占总资金的比例）
-        #     current_utilization = total_cost / capital
-        #     utilization_records.append(current_utilization)
+        for trade in trade_records:
+            trade_value = abs(trade['amount'] * trade['price'])
             
-        # # 计算平均资金利用率
-        # if not utilization_records:
-        #     return 0.0
+            # 根据交易方向更新资金占用
+            if trade['direction'] == 'buy':
+                current_occupied += trade_value
+            else:  # sell
+                current_occupied -= trade_value
             
-        # avg_utilization = sum(utilization_records) / len(utilization_records)
-        # return max(min(avg_utilization, 1.0), 0.0)
-        return 1.0
+            occupied_capitals.append(current_occupied)
+            
+        # 计算权重（每笔交易金额占总交易金额的比例）
+        total_trade_amount = sum(occupied_capitals)
+        if total_trade_amount == 0:
+            return 0.0
+            
+        weights = [amount / total_trade_amount for amount in occupied_capitals]
+        
+        # 计算加权平均占用资金
+        weighted_capital = sum(occupied * weight for occupied, weight in zip(occupied_capitals, weights))
+        
+        # 计算资金利用率（加权平均占用资金 / 初始资金）
+        utilization_rate = weighted_capital / capital
+        
+        # 确保返回值在0-1之间
+        return max(min(utilization_rate, 1.0), 0.0)
     
-    def _calculate_total_score(self, annual_return: float, max_drawdown: float,
-                             sharpe_ratio: float, trade_count: int,
-                             capital_utilization: float) -> float:
-        """计算综合评分"""
-        # 对交易次数进行归一化处理，假设理想交易次数为每月1-2次
-        ideal_annual_trades = 18  # 每月1.5次
-        trade_score = 1 - abs(trade_count - ideal_annual_trades) / ideal_annual_trades
+
+    def _calculate_score(self, evaluation: Dict[str, float]) -> float:
+        """计算综合评分
         
-        return (
-            self.weights['annual_return'] * annual_return
-        )
+        Args:
+            evaluation: 评估指标字典
+            
+        Returns:
+            float: 综合评分
+        """
+        # 对最大回撤取反，因为回撤越小越好
+        evaluation = evaluation.copy()
+        evaluation['max_drawdown'] = -evaluation['max_drawdown']
+        
+        # 对各指标进行标准化（转换到0-1之间）
+        normalized = {}
+        for key in self.weights:
+            value = evaluation[key]
+            if key == 'max_drawdown':
+                # 回撤已经在-1到0之间，转换到0-1
+                normalized[key] = 1 + value
+            else:
+                # 其他指标使用sigmoid函数归一化
+                normalized[key] = 1 / (1 + np.exp(-value))
+        
+        # 计算加权得分
+        score = sum(normalized[key] * self.weights[key] for key in self.weights)
+        
+        return score

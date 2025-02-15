@@ -117,7 +117,7 @@ class TradeExecutor:
             # 更新持仓和资金
             self.position += update_amount
             self.cash -= price * update_amount * (1 + self.fee_rate)
-            logging.info(f"[{timestamp.strftime('%Y-%m-%d')}] 下跌建仓：在价格{price}处补充上方网格持仓{update_amount}股")
+            # logging.info(f"[{timestamp.strftime('%Y-%m-%d')}] 下跌建仓：在价格{price}处补充上方网格持仓{update_amount}股")
             return update_amount
         return None
             
@@ -137,6 +137,6 @@ class TradeExecutor:
             # 更新持仓和资金
             self.position -= update_amount
             self.cash += price * update_amount * (1 - self.fee_rate)
-            logging.info(f"[{timestamp.strftime('%Y-%m-%d')}] 上涨清仓：在价格{price}处清除下方网格持仓{update_amount}股")
+            # logging.info(f"[{timestamp.strftime('%Y-%m-%d')}] 上涨清仓：在价格{price}处清除下方网格持仓{update_amount}股")
             return -update_amount  # 卖出返回负数
         return None

@@ -415,6 +415,7 @@ $(document).ready(function() {
                 <td>${benchmark.sharpe_ratio.toFixed(2)}</td>
                 <td>${(benchmark.max_drawdown * 100).toFixed(2)}%</td>
                 <td>1</td>
+                <td>100%</td>
                 <td>${(benchmark.total_score * 100).toFixed(2)}</td>
                 <td>-</td>
             </tr>
@@ -437,6 +438,7 @@ $(document).ready(function() {
                     <td>${param.metrics.sharpe_ratio.toFixed(2)}</td>
                     <td>${(param.metrics.max_drawdown * 100).toFixed(2)}%</td>
                     <td>${param.metrics.trade_count}</td>
+                    <td>${(param.metrics.capital_utilization * 100).toFixed(2)}%</td>
                     <td>${(param.metrics.score * 100).toFixed(2)}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary run-backtest-btn"
@@ -525,6 +527,9 @@ $(document).ready(function() {
         const sortedGrids = [...grids].sort((a, b) => b.price - a.price);
         
         sortedGrids.forEach((grid, index) => {
+            // 计算收益率
+            const profitRate = (grid.profit / (grid.price * grid.position) * 100).toFixed(2);
+            
             container.append(`
                 <div class="col-md-3 col-sm-4 mb-2">
                     <div class="card ${index === Math.floor(grids.length/2)-1 ? 'border-primary' : ''}">
@@ -533,6 +538,10 @@ $(document).ready(function() {
                             <div class="fw-bold">${grid.price.toFixed(3)}</div>
                             <div class="small text-success">
                                 <i class="bi bi-box-arrow-in-right"></i> ${grid.position}
+                            </div>
+                            <div class="small ${grid.profit > 0 ? 'text-success' : 'text-danger'}">
+                                <i class="bi ${grid.profit > 0 ? 'bi-graph-up-arrow' : 'bi-graph-down-arrow'}"></i>
+                                ${grid.profit.toFixed(2)} (${profitRate}%)
                             </div>
                             <div class="small text-muted">
                                 ${index === 0 ? '上限' : 

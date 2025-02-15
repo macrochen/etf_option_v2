@@ -7,8 +7,9 @@ class Grid:
     """网格数据类"""
     price: float       # 网格价格
     position: int = 0  # 每次交易的数量（必须是100的整数倍）
-    grid_percent: float = 0.0  # 添加：网格间距百分比
+    grid_percent: float = 0.0  # 网格间距百分比
     has_position: bool = False  # 是否持有该网格对应的仓位
+    profit: float = 0.0  # 每个网格的预期收益（卖出时的收益）
 
 class GridGenerator:
     """网格生成器"""
@@ -73,7 +74,24 @@ class GridGenerator:
         # 计算每个网格的交易量
         self._calculate_grid_positions(grids)
         
+        # 计算每个网格的预期收益
+        self._calculate_grid_profits(grids)
+        
         return grids, grid_percent
+        
+    def _calculate_grid_profits(self, grids: List[Grid]) -> None:
+        """计算每个网格的预期收益
+        
+        Args:
+            grids: 网格列表
+        """
+        for i in range(len(grids) - 1):
+            current_grid = grids[i]
+            next_grid = grids[i + 1]
+            # 计算卖出收益：卖出价格 - 买入价格（扣除手续费）
+            buy_cost = current_grid.price * current_grid.position * (1 + self.fee_rate)
+            sell_revenue = next_grid.price * current_grid.position * (1 - self.fee_rate)
+            current_grid.profit = sell_revenue - buy_cost
     
     def _calculate_grid_positions(self, grids: List[Grid]) -> None:
         """计算每个网格的交易量，确保是100的整数倍

@@ -27,7 +27,7 @@ class ParamGenerator:
     def __init__(self):
         # 定义参数空间
         self.param_space = {
-            'grid_count': [6, 8, 10, 12, 14, 16],
+            'grid_count': [6, 8, 10, 12, 14, 16,20,25,30],
             'atr_factor': [0.5, 1.0, 1.5, 2.0]
         }
     

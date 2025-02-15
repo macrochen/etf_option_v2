@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, jsonify, request
 from datetime import datetime, timedelta
 from db.market_db import MarketDatabase
 from grid.backtest_engine import BacktestEngine
-from grid.evaluator import BacktestEvaluator
+from grid.evaluator import BacktestEvaluator, EvaluationResult
 from grid.grid_backtester import GridBacktester
 from grid.grid_calculator import GridCalculator
 import requests
@@ -221,28 +221,10 @@ def analyze_grid_params():
         history_data = market_db.get_grid_trade_data(etf_code, months)
         if not history_data:
             return jsonify({'error': 'ETF数据不存在'}), 404
-        
-
-        # 计算标的持有收益
-        prices = pd.Series(history_data['close'])
-        # 计算每日收益率
-        daily_returns = prices.pct_change().fillna(0)
-
-        evaluator = BacktestEvaluator()  # 添加评估器实例
-        
-        # 计算标的指标
-        benchmark_annual_return = evaluator._calculate_annual_return(daily_returns)
-        benchmark_max_drawdown = evaluator._calculate_max_drawdown(daily_returns)
-        benchmark_sharpe_ratio = evaluator._calculate_sharpe_ratio(daily_returns)
-        # 计算综合评分
-        benchmark_total_score = evaluator._calculate_total_score(
-            benchmark_annual_return, benchmark_max_drawdown, benchmark_sharpe_ratio,
-            1, 1
-        )
             
         # 创建参数优化器
         analyzer = ParameterAnalyzer(initial_capital=initial_capital, fee_rate=fee_rate)
-        
+
         # 执行参数优化
         results = analyzer.analyze(
             hist_data={
@@ -257,6 +239,25 @@ def analyze_grid_params():
         
         # 获取得分最高的结果
         best_result = max(results, key=lambda x: x.evaluation['total_score'])
+
+        # 计算标的持有收益
+        prices = pd.Series(history_data['close'])
+        
+        # 计算每日收益率
+        daily_returns = prices.pct_change().fillna(0)
+        
+        evaluator = BacktestEvaluator()  # 添加评估器实例
+
+        # 计算标的指标
+        benchmark_annual_return = evaluator._calculate_annual_return(daily_returns)
+        benchmark_max_drawdown = evaluator._calculate_max_drawdown(daily_returns)
+        benchmark_sharpe_ratio = evaluator._calculate_sharpe_ratio(daily_returns)
+        benchmark_total_score = evaluator._calculate_score({
+            'annual_return': benchmark_annual_return,
+            'max_drawdown': benchmark_max_drawdown,
+            'sharpe_ratio': benchmark_sharpe_ratio,
+            'trade_frequency': 1,
+            'capital_utilization': 1,})
         
         # 转换结果为前端所需格式
         response = {
@@ -298,7 +299,8 @@ def analyze_grid_params():
                     'index': i,
                     'price': grid.price,
                     'grid_percent': grid.grid_percent,
-                    'position': grid.position
+                    'position': grid.position,
+                    'profit': grid.profit
                 } for i, grid in enumerate(best_result.grids)],
                 
                 # 添加收益率数据
@@ -367,7 +369,8 @@ def run_backtest():
                     'index': i,
                     'price': grid.price,
                     'grid_percent': grid.grid_percent,
-                    'position': grid.position
+                    'position': grid.position,
+                    'profit': grid.profit
                 } for i, grid in enumerate(result.grids)],
                 
                 # 添加收益率数据

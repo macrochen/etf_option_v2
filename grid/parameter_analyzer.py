@@ -13,16 +13,8 @@ class ParameterAnalyzer:
         self.backtest_engine = BacktestEngine(initial_capital, fee_rate)
         self.param_generator = ParamGenerator()
         
-        # 评估指标权重
-        self.weights = {
-            'annual_return': 1,
-            'max_drawdown': 0,
-            'sharpe_ratio': 0,
-            'trade_count': 0,
-            'capital_utilization': 0
-        }
         
-    def analyze(self, hist_data: Dict[str, List], atr: float, top_n: int = 5) -> List[BacktestResult]:
+    def analyze(self, hist_data: Dict[str, List], atr: float, top_n: int = 10) -> List[BacktestResult]:
         """执行参数分析
         
         Args:
@@ -46,38 +38,8 @@ class ParameterAnalyzer:
             )
             
             # 计算综合评分
-            score = self._calculate_score(result.evaluation)
-            result.evaluation['total_score'] = score
             results.append(result)
         
         # 按评分排序并返回前N个结果
         return sorted(results, key=lambda x: x.evaluation['total_score'], reverse=True)[:top_n]
     
-    def _calculate_score(self, evaluation: Dict[str, float]) -> float:
-        """计算综合评分
-        
-        Args:
-            evaluation: 评估指标字典
-            
-        Returns:
-            float: 综合评分
-        """
-        # 对最大回撤取反，因为回撤越小越好
-        evaluation = evaluation.copy()
-        evaluation['max_drawdown'] = -evaluation['max_drawdown']
-        
-        # 对各指标进行标准化（转换到0-1之间）
-        normalized = {}
-        for key in self.weights:
-            value = evaluation[key]
-            if key == 'max_drawdown':
-                # 回撤已经在-1到0之间，转换到0-1
-                normalized[key] = 1 + value
-            else:
-                # 其他指标使用sigmoid函数归一化
-                normalized[key] = 1 / (1 + np.exp(-value))
-        
-        # 计算加权得分
-        score = sum(normalized[key] * self.weights[key] for key in self.weights)
-        
-        return score
