@@ -159,6 +159,7 @@ class VolatilityDataGenerator:
             'min': round(float(np.min(volatility_series)), 3),
             'max': round(float(np.max(volatility_series)), 3),
             'percentiles': {
+                '90': round(float(np.percentile(volatility_series, 90)), 3), 
                 '25': round(float(np.percentile(volatility_series, 25)), 3),
                 '50': round(float(np.percentile(volatility_series, 50)), 3),
                 '75': round(float(np.percentile(volatility_series, 75)), 3),

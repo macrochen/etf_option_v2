@@ -253,6 +253,96 @@ def get_stock_list():
     stock_list = db.get_stock_list()
     return jsonify(stock_list)
 
+@stock_data_bp.route('/api/price_range/<stock_code>', methods=['GET'])
+def get_price_range(stock_code):
+    """获取指定股票的价格区间数据"""
+    try:
+        market_type = request.args.get('market_type', 'US')
+        
+        # 获取价格数据
+        price_data = db.get_stock_prices(stock_code, market_type)
+        
+        if not price_data:
+            return jsonify({"error": "未找到股票数据"}), 404
+            
+        # 处理数据
+        dates = []
+        closes = []
+        
+        for row in price_data:
+            dates.append(row[0])  # 日期
+            closes.append(float(row[1]))  # 收盘价
+            
+        # 获取最新收盘价
+        latest_price = closes[-1] if closes else None
+
+        # 获取月度波动率数据
+        volatility_generator = create_volatility_generator(market_type, db)
+        monthly_stats_data, _ = volatility_generator.calculate_volatility_stats(stock_code)
+        
+        # 初始化价格水平线数据
+        price_levels = {}
+        
+        # 如果有月度统计数据，计算不同时间段的价格水平线
+        periods = ['3个月', '6个月', '1年', '3年']
+        for period in periods:
+            if monthly_stats_data and period in monthly_stats_data:
+                stats = monthly_stats_data[period]
+                if 'up_volatility' in stats:
+                    up_stats = stats['up_volatility']
+                    price_levels[f'monthly_max_up_{period}'] = latest_price * (1 + up_stats['max'])
+                    price_levels[f'monthly_p90_up_{period}'] = latest_price * (1 + up_stats['percentiles']['90'])
+                
+                if 'down_volatility' in stats:
+                    down_stats = stats['down_volatility']
+                    price_levels[f'monthly_max_down_{period}'] = latest_price * (1 - down_stats['max'])
+                    price_levels[f'monthly_p90_down_{period}'] = latest_price * (1 - down_stats['percentiles']['90'])
+
+        # 获取财报波动统计数据
+        if market_type == 'US':
+            fetcher = EarningsDatesFetcher.create()
+            results = fetcher.get_earnings_volatility(stock_code)
+            
+            if results:
+                # 计算波动率
+                up_volatilities = []
+                down_volatilities = []
+                
+                for row in results:
+                    _, _, _, pre_close, _, close_price, *_ = row
+                    volatility = (close_price - pre_close) / pre_close * 100
+                    if volatility > 0:
+                        up_volatilities.append(volatility)
+                    else:
+                        down_volatilities.append(abs(volatility))
+                
+                if up_volatilities:
+                    up_volatilities.sort(reverse=True)
+                    max_up = up_volatilities[0]
+                    p90_up = up_volatilities[int(len(up_volatilities) * 0.1)] if len(up_volatilities) >= 10 else max_up
+                    price_levels['earnings_max_up'] = latest_price * (1 + max_up/100)
+                    price_levels['earnings_p90_up'] = latest_price * (1 + p90_up/100)
+                
+                if down_volatilities:
+                    down_volatilities.sort(reverse=True)
+                    max_down = down_volatilities[0]
+                    p90_down = down_volatilities[int(len(down_volatilities) * 0.1)] if len(down_volatilities) >= 10 else max_down
+                    price_levels['earnings_max_down'] = latest_price * (1 - max_down/100)
+                    price_levels['earnings_p90_down'] = latest_price * (1 - p90_down/100)
+            
+        return jsonify({
+            "dates": dates,
+            "closes": closes,
+            "latest_price": latest_price,
+            "price_levels": price_levels
+        })
+        
+    except Exception as e:
+        logging.error(f"获取价格区间数据时出错: {e}\n{traceback.format_exc()}")
+        return jsonify({
+            "error": "获取价格区间数据失败",
+            "details": str(e)
+        }), 500
 
 # 创建异常类
 class UnsupportedMarketError(Exception):

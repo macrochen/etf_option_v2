@@ -84,6 +84,26 @@ class USStockDatabase:
             VALUES (?, ?, ?, ?)
         ''', (stock_code, calc_date, json.dumps(monthly_stats), json.dumps(weekly_stats)))
 
+    def get_stock_prices(self, stock_code: str, market_type: str = 'US'):
+        """获取指定股票的所有价格数据
+        
+        Args:
+            stock_code: 股票代码
+            market_type: 市场类型（US:美股, HK:港股），默认为US
+            
+        Returns:
+            list: 包含日期和价格数据的列表，按日期升序排序
+        """
+        stock_code = stock_code.upper()
+        return self.db.fetch_all('''
+            SELECT date, close_price
+            FROM stock_prices 
+            WHERE stock_code = ? AND market_type = ?
+            AND date >= date('now', '-3 years')
+            ORDER BY date ASC
+        ''', (stock_code, market_type))
+    
+
     def get_stock_list(self):
         """获取已下载的股票列表"""
         stocks = self.db.fetch_all('''

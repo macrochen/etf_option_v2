@@ -73,9 +73,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="volatilityModalLabel">波动率数据</h5>
-                    <button type="button" class="close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <div id="volatilityChart" style="width: 1250px; height: 700px;"></div>
@@ -130,7 +128,17 @@
     </style>
 
     <script>
+        // 在 script 开始处添加全局变量
         const periodOrder = ['3个月', '6个月', '1年', '3年', '5年', '10年'];
+        let currentChart = null;  // 添加全局变量存储当前图表实例
+
+        // 添加图表清理函数
+        function clearChart() {
+            if (currentChart) {
+                currentChart.dispose();
+                currentChart = null;
+            }
+        }
 
 
         // 添加获取当前价格的函数
@@ -291,6 +299,14 @@
                                         onclick="showVolatilityWithPrice('${stock.stock_code}', '${stock.market_type}', this)">
                                     显示波动率
                                 </button>
+                                <button class="btn btn-warning" 
+                                        onclick="redownloadStockData('${stock.stock_code}', '${stock.market_type}', this)">
+                                    更新数据
+                                </button>
+                                <button class="btn btn-primary" 
+                                        onclick="showPriceRange('${stock.stock_code}', '${stock.market_type}', this)">
+                                    价格区间
+                                </button>
                                 ${stock.market_type === 'US' ? 
                                     `<button class="btn btn-info" 
                                             onclick="showEarningsVolatility('${stock.stock_code}', '${stock.market_type}', this)">
@@ -301,6 +317,256 @@
                         stockList.appendChild(row);
                     });
                 });
+        }
+
+        // 显示价格区间
+        function showPriceRange(stockCode, marketType, button) {
+            // 显示加载动画
+            document.getElementById('loading').style.display = 'flex';
+            
+            fetch(`/api/price_range/${stockCode}?market_type=${marketType}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("网络响应不正常");
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    clearChart();  // 清理旧图表
+                    const chartDom = document.getElementById('volatilityChart');
+                    currentChart = echarts.init(chartDom);
+                    
+                    const option = {
+                        title: {
+                            text: `${stockCode} 价格走势`,
+                            left: 'center'
+                        },
+                        tooltip: {
+                            trigger: 'axis',
+                            formatter: function(params) {
+                                let result = `${params[0].axisValue}<br/>`;
+                                params.forEach(param => {
+                                    if (param.value !== '-') {
+                                        result += `${param.marker}${param.seriesName}: ${typeof param.value === 'number' ? param.value.toFixed(2) : param.value}<br/>`;
+                                    }
+                                });
+                                return result;
+                            }
+                        },
+                        legend: {
+                            orient: 'vertical',      // 改为垂直布局
+                            right: 10,              // 放在右侧
+                            top: 'middle',          // 垂直居中
+                            textStyle: {
+                                fontSize: 12        // 调小字体
+                            },
+                            itemWidth: 25,          // 图例标记的宽度
+                            itemHeight: 14,         // 图例标记的高度
+                            itemGap: 10,            // 图例项之间的间隔
+                        },
+                        grid: {
+                            left: '3%',
+                            right: '15%',           // 增加右侧空间，为图例留出位置
+                            bottom: '20%',
+                            containLabel: true
+                        },
+                        dataZoom: [
+                            {
+                                type: 'slider',        // 滑动条型缩放组件
+                                show: true,
+                                xAxisIndex: [0],
+                                bottom: '3%',          // 距离底部的距离
+                                height: 20,            // 滑动条高度
+                                start: 50,             // 默认显示最后50%的数据
+                                end: 100
+                            },
+                            {
+                                type: 'inside',        // 内置型缩放组件，允许鼠标滚轮缩放
+                                xAxisIndex: [0],
+                                start: 50,
+                                end: 100
+                            }
+                        ],
+                        xAxis: {
+                            type: 'category',
+                            data: data.dates,
+                            boundaryGap: false
+                        },
+                        yAxis: {
+                            type: 'value',
+                            scale: true,
+                            splitLine: {
+                                show: true
+                            }
+                        },
+                        series: [
+                            {
+                                name: '收盘价',
+                                type: 'line',
+                                data: data.closes,
+                                symbol: 'none',
+                                lineStyle: {
+                                    width: 1
+                                }
+                            },
+                            {
+                                name: '最新价格',
+                                type: 'line',
+                                data: new Array(data.dates.length).fill(data.latest_price.toFixed(2)),
+                                symbol: 'none',
+                                lineStyle: {
+                                    type: 'dashed',
+                                    width: 1,
+                                    color: '#000000'
+                                }
+                            }
+                        ]
+                    };
+
+                    // 如果有价格水平线数据，添加到图表中
+                    if (data.price_levels) {
+                        const periods = ['3个月', '6个月', '1年', '3年'];
+                        const colors = {
+                            '3个月': { up: '#ff0000', down: '#00ff00' },
+                            '6个月': { up: '#ff3333', down: '#33ff33' },
+                            '1年': { up: '#ff6666', down: '#66ff66' },
+                            '3年': { up: '#ff9999', down: '#99ff99' }
+                        };
+
+                        const priceLevels = [];
+
+                        // 先添加财报上涨波动（如果有）
+                        if (data.price_levels.earnings_max_up) {
+                            priceLevels.push({
+                                name: '财报最大上涨',
+                                value: data.price_levels.earnings_max_up,
+                                color: '#ff7777'
+                            });
+                            priceLevels.push({
+                                name: '财报90分位上涨',
+                                value: data.price_levels.earnings_p90_up,
+                                color: '#ff7777'
+                            });
+                        }
+
+                        // 添加月度上涨波动
+                        periods.forEach(period => {
+                            priceLevels.push({
+                                name: `月度90分位上涨(${period})`,
+                                value: data.price_levels[`monthly_p90_up_${period}`],
+                                color: colors[period].up,
+                                opacity: 0.7
+                            });
+                        });
+
+                        // 添加最新价格线
+                        priceLevels.push({
+                            name: '最新价格',
+                            value: data.latest_price,
+                            color: '#000000',
+                            type: 'dashed'
+                        });
+
+                        // 添加月度下跌波动
+                        periods.forEach(period => {
+                            priceLevels.push({
+                                name: `月度90分位下跌(${period})`,
+                                value: data.price_levels[`monthly_p90_down_${period}`],
+                                color: colors[period].down,
+                                opacity: 0.7
+                            });
+                        });
+
+                        // 最后添加财报下跌波动（如果有）
+                        if (data.price_levels.earnings_max_up) {
+                            priceLevels.push({
+                                name: '财报90分位下跌',
+                                value: data.price_levels.earnings_p90_down,
+                                color: '#77ff77'
+                            });
+                            priceLevels.push({
+                                name: '财报最大下跌',
+                                value: data.price_levels.earnings_max_down,
+                                color: '#77ff77'
+                            });
+                        }
+
+                        // 更新图表配置
+                        option.series = [
+                            {
+                                name: '收盘价',
+                                type: 'line',
+                                data: data.closes,
+                                symbol: 'none',
+                                lineStyle: {
+                                    width: 1
+                                }
+                            },
+                            ...priceLevels.map(level => ({
+                                name: level.name,
+                                type: 'line',
+                                data: new Array(data.dates.length).fill(level.value),
+                                symbol: 'none',
+                                lineStyle: {
+                                    type: level.type || 'dashed',
+                                    width: 1,
+                                    color: level.color,
+                                    opacity: level.opacity || 1
+                                }
+                            }))
+                        ];
+
+                        // 更新图例配置，确保顺序一致
+                        option.legend.data = ['收盘价', ...priceLevels.map(level => level.name)];
+                    }
+
+                    currentChart.setOption(option);
+                    $('#volatilityModal').modal('show');
+                })
+                .catch(error => {
+                    console.error("获取价格区间数据时出错:", error);
+                    alert("获取价格区间数据失败");
+                })
+                .finally(() => {
+                    // 隐藏加载动画
+                    document.getElementById('loading').style.display = 'none';
+                });
+        }
+
+        // 重新下载股票数据
+        function redownloadStockData(stockCode, marketType, button) {
+            // 显示加载动画
+            document.getElementById('loading').style.display = 'flex';
+            
+            // 禁用按钮，显示加载状态
+            button.disabled = true;
+            button.textContent = '更新中...';
+
+            const endpoint = marketType === 'US' ? '/download' : '/download_hk';
+            
+            fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ stock_code: stockCode })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                // loadStockList(); // 刷新股票列表
+            })
+            .catch(error => {
+                console.error('更新数据失败:', error);
+                alert('更新数据失败，请重试');
+            })
+            .finally(() => {
+                // 恢复按钮状态
+                button.disabled = false;
+                button.textContent = '更新数据';
+                // 隐藏加载动画
+                document.getElementById('loading').style.display = 'none';
+            });
         }
 
         // 添加新的函数，用于获取价格并显示波动率
@@ -338,8 +604,9 @@
                     return response.json();
                 })
                 .then(data => {
+                    clearChart();  // 清理旧图表
                     const chartDom = document.getElementById('volatilityChart');
-                    const myChart = echarts.init(chartDom);
+                    currentChart = echarts.init(chartDom);
                     
                     // 过滤有效的数据系列
                     const validSeries = [];
@@ -354,6 +621,7 @@
                                 stats.up_volatility.percentiles['25'] * 100,
                                 stats.up_volatility.percentiles['50'] * 100,
                                 stats.up_volatility.percentiles['75'] * 100,
+                                stats.up_volatility.percentiles['90'] * 100,
                                 stats.up_volatility.max * 100
                             ].map(value => value.toFixed(2)) : null;
                         }).filter(item => item !== null);
@@ -374,6 +642,7 @@
                                 stats.down_volatility.percentiles['25'] * 100,
                                 stats.down_volatility.percentiles['50'] * 100,
                                 stats.down_volatility.percentiles['75'] * 100,
+                                stats.down_volatility.percentiles['90'] * 100,
                                 stats.down_volatility.max * 100
                             ].map(value => value.toFixed(2)) : null;
                         }).filter(item => item !== null);
@@ -397,6 +666,7 @@
                                 stats.up_volatility.percentiles['25'] * 100,
                                 stats.up_volatility.percentiles['50'] * 100,
                                 stats.up_volatility.percentiles['75'] * 100,
+                                stats.up_volatility.percentiles['90'] * 100,
                                 stats.up_volatility.max * 100
                             ].map(value => value.toFixed(2)) : null;
                         }).filter(item => item !== null);
@@ -417,6 +687,7 @@
                                 stats.down_volatility.percentiles['25'] * 100,
                                 stats.down_volatility.percentiles['50'] * 100,
                                 stats.down_volatility.percentiles['75'] * 100,
+                                stats.down_volatility.percentiles['90'] * 100,
                                 stats.down_volatility.max * 100
                             ].map(value => value.toFixed(2)) : null;
                         }).filter(item => item !== null);
@@ -452,7 +723,8 @@
                                     };
                                     
                                     return `${params.seriesName} - ${params.name}<br/>
-                                            最大值: ${params.data[5]}% (${calcPrice(params.data[5])})<br/>
+                                            最大值: ${params.data[6]}% (${calcPrice(params.data[6])})<br/>
+                                            90分位: ${params.data[5]}% (${calcPrice(params.data[5])})<br/>
                                             上四分位: ${params.data[4]}% (${calcPrice(params.data[4])})<br/>
                                             中位数: ${params.data[3]}% (${calcPrice(params.data[3])})<br/>
                                             下四分位: ${params.data[2]}% (${calcPrice(params.data[2])})<br/>
@@ -526,7 +798,7 @@
                         }))
                     };
                     
-                    myChart.setOption(option);
+                    currentChart.setOption(option);
                     $('#volatilityModal').modal('show');
                 })
                 .catch(error => {
@@ -554,8 +826,9 @@
                     return response.json();
                 })
                 .then(data => {
+                    clearChart();  // 清理旧图表
                     const chartDom = document.getElementById('volatilityChart');
-                    const myChart = echarts.init(chartDom);
+                    currentChart = echarts.init(chartDom);
                     
                     
                     // 处理财报波动数据统计
@@ -670,6 +943,7 @@
                                     upStats.p25,
                                     upStats.p50,
                                     upStats.p75,
+                                    upStats.p90,
                                     upStats.max
                                 ], []],
                                 itemStyle: {
@@ -698,6 +972,7 @@
                                     downStats.p25,
                                     downStats.p50,
                                     downStats.p75,
+                                    downStats.p90,
                                     downStats.max
                                 ]],
                                 itemStyle: {
@@ -721,7 +996,7 @@
                         ]
                     };
                     
-                    myChart.setOption(option);
+                    currentChart.setOption(option);
                     $('#volatilityModal').modal('show');
                 })
                 .catch(error => {
@@ -752,6 +1027,11 @@
                 const tabId = e.target.id;  // 获取当前被激活的 tab 的 ID
                 loadStockList(tabId);
             });
+        });
+
+        // 添加模态框关闭时的清理
+        $('#volatilityModal').on('hidden.bs.modal', function () {
+            clearChart();
         });
 
         // 页面加载时获取股票列表
