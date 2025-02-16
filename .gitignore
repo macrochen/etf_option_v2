@@ -51,4 +51,4 @@ ENV/
 *.db
 .DS_Store
 
-config/jq_config.py
+config/

@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+
+{% block title %}持仓信息{% endblock %}
+
+{% block content %}
+<style>
+    .nav-tabs .nav-link {
+        color: #000000;  /* 未选中状态为黑色 */
+    }
+    .nav-tabs .nav-link.active {
+        color: #0d6efd;  /* 选中状态为蓝色，使用 Bootstrap 默认的主题蓝色 */
+    }
+    .sortable {
+        cursor: pointer;
+    }
+    .sortable:hover {
+        background-color: #f8f9fa;
+    }
+    .sort-icon::after {
+        content: '↕️';
+        font-size: 12px;
+        margin-left: 5px;
+    }
+    .sort-asc::after {
+        content: '↑';
+    }
+    .sort-desc::after {
+        content: '↓';
+    }
+</style>
+
+<div class="container mt-4">
+    <h2 class="mb-4">我的持仓</h2>
+    <div class="card">
+        <div class="card-body">
+            <ul class="nav nav-tabs mb-3" id="positionTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="us-tab" data-bs-toggle="tab" data-bs-target="#us-positions" type="button" role="tab" aria-controls="us-positions" aria-selected="true">美股持仓</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="hk-tab" data-bs-toggle="tab" data-bs-target="#hk-positions" type="button" role="tab" aria-controls="hk-positions" aria-selected="false">港股持仓</button>
+                </li>
+            </ul>
+            
+            <!-- 修改 Tab 内容区域的初始状态 -->
+            <div class="tab-content" id="positionTabsContent">
+                <!-- 美股持仓 -->
+                <div class="tab-pane fade show active" id="us-positions" role="tabpanel" aria-labelledby="us-tab">
+                    <div id="us-positions-container">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 港股持仓 -->
+                <div class="tab-pane fade" id="hk-positions" role="tabpanel" aria-labelledby="hk-tab">
+                    <div id="hk-positions-container">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// 添加格式化函数
+function formatNumber(value) {
+    if (value === null || value === undefined) return '-';
+    return Number(value).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+// 在渲染完表格后初始化排序功能
+document.addEventListener('DOMContentLoaded', function() {
+    // 添加 tab 切换事件监听
+    const hkTab = document.getElementById('hk-tab');
+    hkTab.addEventListener('shown.bs.tab', function (e) {
+        // 重新初始化港股表格的排序功能
+        const hkContainer = document.getElementById('hk-positions-container');
+        const table = hkContainer.querySelector('table');
+        if (table) {
+            // 移除旧的事件监听器
+            const headers = table.querySelectorAll('.sortable');
+            headers.forEach(header => {
+                const clone = header.cloneNode(true);
+                header.parentNode.replaceChild(clone, header);
+            });
+            // 重新初始化排序
+            initSorting(hkContainer);
+        }
+    });
+    fetch('/positions')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const usContainer = document.getElementById('us-positions-container');
+                renderPositions(usContainer, data.data.us_positions);
+                initSorting(usContainer);
+
+                const hkContainer = document.getElementById('hk-positions-container');
+                renderPositions(hkContainer, data.data.hk_positions);
+                initSorting(hkContainer);
+            } else {
+                showError('获取持仓信息失败');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showError('获取持仓信息失败');
+        });
+});
+
+function renderPositions(container, positions) {
+    if (!positions || positions.length === 0) {
+        container.innerHTML = '<div class="alert alert-info">暂无持仓信息</div>';
+        return;
+    }
+
+    let html = `
+    <div class="table-responsive">
+        <table class="table table-sm">
+            <thead class="table-light">
+                <tr>
+                    <th class="sortable" data-sort="symbol">名称<span class="sort-icon"></span></th>
+                    <th class="sortable text-end" data-sort="market_value">市值/数量<span class="sort-icon"></span></th>
+                    <th class="sortable text-end" data-sort="latest_price">现价/成本<span class="sort-icon"></span></th>
+                    <th class="sortable text-end" data-sort="unrealized_pnl">持仓盈亏<span class="sort-icon"></span></th>
+                    <th class="sortable text-end" data-sort="daily_pnl">今日盈亏<span class="sort-icon"></span></th>
+                    <th class="sortable text-end" data-sort="position_ratio">持仓占比<span class="sort-icon"></span></th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+    positions.forEach(position => {
+        if (position.is_group) {
+            // 添加分组的警示条件判断
+            const showWarning = position.total_market_value < -2000 || position.total_unrealized_pnl < -1000;
+            const warningIcon = showWarning ? '⚠️ ' : '';
+            
+            // 渲染分组标题
+            html += `
+            <tr class="table-group-divider">
+                <td><strong>${position.symbol}${warningIcon}</strong></td>
+                <td class="text-end"><strong>${formatNumber(position.total_market_value)}</strong></td>
+                <td class="text-end">
+                    <strong>${formatNumber(position.latest_price)}</strong>
+                </td>
+                <td class="text-end ${position.total_unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                    <strong>${formatNumber(position.total_unrealized_pnl)}</strong>
+                </td>
+                <td class="text-end ${position.total_daily_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                    <strong>${formatNumber(position.total_daily_pnl)}</strong>
+                </td>
+                <td class="text-end ${position.total_position_ratio >= 0 ? 'text-success' : 'text-danger'}">
+                    <strong>${formatNumber(position.total_position_ratio)}%</strong>
+                </td>
+            </tr>`;
+
+            // 渲染股票行（如果有）
+            if (position.stock) {
+                html += renderStockRow(position.stock, true);
+            }
+
+            // 渲染期权行
+            position.options.forEach(option => {
+                html += renderOptionRow(option, true);
+            });
+        } else {
+            // 渲染单独的股票行
+            html += renderStockRow(position, false);
+        }
+    });
+
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+function renderStockRow(stock, isGroupItem) {
+    const showWarning = stock.market_value < -2000 || stock.unrealized_pnl < -1000;
+    const warningIcon = showWarning ? '⚠️ ' : '';
+    
+    return `
+    <tr>
+        <td>${isGroupItem ? '&nbsp;&nbsp;' : ''}${stock.symbol}${warningIcon}</td>
+        <td class="text-end">${formatNumber(stock.market_value)}<br><small class="text-muted">${stock.quantity}</small></td>
+        <td class="text-end">${formatNumber(stock.latest_price)}<br><small class="text-muted">${formatNumber(stock.average_cost)}</small></td>
+        <td class="text-end ${stock.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
+            ${formatNumber(stock.unrealized_pnl)}
+            <br><small>${formatNumber(stock.unrealized_pnl_percentage)}%</small>
+        </td>
+        <td class="text-end ${stock.daily_pnl >= 0 ? 'text-success' : 'text-danger'}">
+            ${formatNumber(stock.daily_pnl)}
+        </td>
+        <td class="text-end">${formatNumber(stock.position_ratio)}%</td>
+    </tr>`;
+}
+
+function renderOptionRow(option, isGroupItem) {
+    const indent = isGroupItem ? '&nbsp;&nbsp;' : '';
+    const showWarning = option.market_value < -2000 || option.unrealized_pnl < -1000;
+    const warningIcon = showWarning ? '⚠️ ' : '';
+    
+    return `
+    <tr>
+        <td>
+            ${indent}${option.symbol} ${option.put_call}${warningIcon}
+            <br><small class="text-muted">${indent}${option.expiry} ${formatNumber(option.strike)}</small>
+        </td>
+        <td class="text-end">${formatNumber(option.market_value)}<br><small class="text-muted">${option.quantity}</small></td>
+        <td class="text-end">${formatNumber(option.latest_price)}<br><small class="text-muted">${formatNumber(option.average_cost)}</small></td>
+        <td class="text-end ${option.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
+            ${formatNumber(option.unrealized_pnl)}
+            <br><small>${formatNumber(option.unrealized_pnl_percentage)}%</small>
+        </td>
+        <td class="text-end ${option.daily_pnl >= 0 ? 'text-success' : 'text-danger'}">
+            ${formatNumber(option.daily_pnl)}
+        </td>
+        <td class="text-end">${option.position_ratio ? formatNumber(option.position_ratio) : '-'}%</td>
+    </tr>`;
+}
+
+    // 添加排序相关函数
+    function initSorting(container) {
+        const headers = container.querySelectorAll('.sortable');
+        headers.forEach(header => {
+            header.addEventListener('click', () => {
+                const sortKey = header.dataset.sort;
+                const tbody = header.closest('table').querySelector('tbody');
+                const rows = Array.from(tbody.querySelectorAll('tr:not(.table-group-divider)'));
+                
+                // 获取所有行并按分组组织
+                const allRows = Array.from(tbody.querySelectorAll('tr'));
+                const groups = [];
+                let currentGroup = null;
+                
+                allRows.forEach(row => {
+                    if (row.classList.contains('table-group-divider')) {
+                        // 如果遇到新的分组标题行
+                        if (currentGroup) {
+                            groups.push(currentGroup);
+                        }
+                        currentGroup = {
+                            header: row,
+                            rows: []
+                        };
+                    } else {
+                        if (currentGroup && row.querySelector('td:first-child').innerHTML.includes('&nbsp;&nbsp;')) {
+                            // 只有当行是缩进的（属于组合的子项）时才添加到当前组
+                            currentGroup.rows.push(row);
+                        } else {
+                            // 否则作为独立行处理
+                            groups.push({ header: null, rows: [row] });
+                        }
+                    }
+                });
+                
+                if (currentGroup) {
+                    groups.push(currentGroup);
+                }
+                
+                // 移除其他列的排序标记
+                headers.forEach(h => {
+                    if (h !== header) {
+                        h.querySelector('.sort-icon').className = 'sort-icon';
+                    }
+                });
+                
+                // 切换排序方向
+                const sortIcon = header.querySelector('.sort-icon');
+                const isAsc = !sortIcon.classList.contains('sort-asc');
+                sortIcon.className = `sort-icon ${isAsc ? 'sort-asc' : 'sort-desc'}`;
+                
+                // 对分组进行排序
+                groups.sort((a, b) => {
+                    let aVal, bVal;
+                    
+                    // 分别处理 a 和 b 的取值
+                    aVal = a.header ? 
+                        extractGroupValue(a.header, sortKey) : 
+                        extractValue(a.rows[0], sortKey);
+                    
+                    bVal = b.header ? 
+                        extractGroupValue(b.header, sortKey) : 
+                        extractValue(b.rows[0], sortKey);
+                    
+                    if (typeof aVal === 'number' && typeof bVal === 'number') {
+                        return isAsc ? aVal - bVal : bVal - aVal;
+                    }
+                    return isAsc ? 
+                        String(aVal).localeCompare(String(bVal)) : 
+                        String(bVal).localeCompare(String(aVal));
+                });
+                
+                // 清空表格
+                tbody.innerHTML = '';
+                
+                // 重新插入排序后的分组
+                groups.forEach(group => {
+                    if (group.header) {
+                        tbody.appendChild(group.header);
+                    }
+                    group.rows.forEach(row => tbody.appendChild(row));
+                });
+            });
+        });
+    }
+
+    function extractGroupValue(headerRow, key) {
+        switch(key) {
+            case 'symbol':
+                return headerRow.cells[0].textContent.trim();
+            case 'market_value':
+                return parseFloat(headerRow.cells[1].textContent.replace(/[^0-9.-]+/g, '')) || 0;
+            case 'unrealized_pnl':
+                return parseFloat(headerRow.cells[3].textContent.replace(/[^0-9.-]+/g, '')) || 0;
+            case 'position_ratio':
+                return parseFloat(headerRow.cells[5].textContent.replace(/[^0-9.-]+/g, '')) || 0;
+            default:
+                return 0;
+        }
+    }
+
+    function extractValue(row, key) {
+        let cell;
+        switch(key) {
+            case 'symbol':
+                cell = row.cells[0];
+                return cell.textContent.trim();
+            case 'market_value':
+                cell = row.cells[1];
+                return parseFloat(cell.textContent.split('\n')[0].replace(/[^0-9.-]+/g, '')) || 0;
+            case 'latest_price':
+                cell = row.cells[2];
+                return parseFloat(cell.textContent.split('\n')[0].replace(/[^0-9.-]+/g, '')) || 0;
+            case 'unrealized_pnl':
+                cell = row.cells[3];
+                return parseFloat(cell.textContent.split('\n')[1].replace(/[^0-9.-]+/g, '')) || 0;
+            case 'daily_pnl':
+                cell = row.cells[4];
+                return parseFloat(cell.textContent.replace(/[^0-9.-]+/g, '')) || 0;
+            case 'position_ratio':
+                cell = row.cells[5];
+                // 移除所有非数字字符（包括百分号），只保留数字和小数点
+                const value = cell.textContent.replace(/[^0-9.-]+/g, '');
+                return parseFloat(value) || 0;
+            default:
+                return 0;
+        }
+    }
+</script>
+{% endblock %}
