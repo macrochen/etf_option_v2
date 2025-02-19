@@ -7,6 +7,7 @@ from routes.stock_data_routes import stock_data_bp
 from routes.etf_data_routes import etf_data_bp
 from routes.grid_trade_routes import grid_trade_bp
 from routes.tiger_routes import tiger_bp
+from routes.futu_routes import futu_bp
 
 
 app = Flask(__name__)
@@ -39,6 +40,7 @@ def index():
     return render_template('index.html', etf_options=ETF_OPTIONS)
 
 app.register_blueprint(tiger_bp)  # 注册Tiger API蓝图
+app.register_blueprint(futu_bp)  # 注册富途 API蓝图
 
 def init_app():
     # 应用初始化代码，不再包含同步操作
