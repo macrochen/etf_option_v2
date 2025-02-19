@@ -6,25 +6,44 @@ class StockChart {
     initModal() {
         const modalHtml = `
         <div class="modal fade" id="stock-chart-modal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog" style="max-width: 95vw; margin: 10px auto;">
-                <div class="modal-content" style="height: 95vh;">
+            <div class="modal-dialog modal-dialog-resizable" style="max-width: 80vw; margin: 20px auto;">
+                <div class="modal-content" style="height: 80vh;">
                     <div class="modal-header py-2">
                         <h5 class="modal-title"></h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body p-0">
-                        <div id="stock-chart-container" style="height: calc(95vh - 45px);"></div>
+                        <div id="stock-chart-container" style="height: calc(80vh - 45px);"></div>
                     </div>
                 </div>
             </div>
         </div>`;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
-        this.modal = new bootstrap.Modal(document.getElementById('stock-chart-modal'));
+        
+        // 初始化可调整大小功能
+        const dialog = document.querySelector('#stock-chart-modal .modal-dialog');
+        // $(dialog).resizable({
+        //     handles: 'n, e, s, w, ne, se, sw, nw',
+        //     minWidth: 300,
+        //     minHeight: 200,
+        //     resize: (event, ui) => {
+        //         const container = ui.element.find('#stock-chart-container');
+        //         container.css('height', ui.size.height - 45);
+        //     }
+        // });
+        // $(dialog).draggable();
+        
+        // 确保在设置 this.modal 之前 Bootstrap 已加载
+        if (typeof bootstrap !== 'undefined') {
+            this.modal = new bootstrap.Modal(document.getElementById('stock-chart-modal'));
+        } else {
+            console.error('Bootstrap is not loaded');
+        }
     }
 
     showChart(symbol, options = [], button) {
         const modalTitle = document.querySelector('#stock-chart-modal .modal-title');
-        modalTitle.textContent = `${symbol} 股票图表`;
+        modalTitle.textContent = `${symbol} 股票走势图`;
 
         // 先清空图表容器
         const container = document.getElementById('stock-chart-container');
@@ -80,6 +99,9 @@ class StockChart {
 
                 // 创建图表
                 Highcharts.chart('stock-chart-container', {
+                    title: {
+                        text: null
+                    },
                     chart: {
                         type: 'line',
                         zoomType: 'xy',

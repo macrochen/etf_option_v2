@@ -4,7 +4,7 @@
 
 {% block head %}
 {{ super() }}
-<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<!-- <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script> -->
 <script type="text/javascript" src="{{ url_for('static', filename='js/stock-chart.js') }}"></script>
 {% endblock %}
 
@@ -33,6 +33,42 @@
     .sort-desc::after {
         content: '↓';
     }
+    .modal-dialog-resizable {
+        position: fixed !important;
+        margin: 0 !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        height: 80vh;  /* 添加固定高度 */
+        width: 80vw;   /* 添加固定宽度 */
+    }
+
+    .modal-dialog-resizable .modal-content {
+        height: 100%;
+        width: 100%;    /* 确保内容填满对话框 */
+        display: flex;  /* 使用 flex 布局 */
+        flex-direction: column;  /* 垂直方向排列 */
+    }
+
+    .modal-dialog-resizable .modal-body {
+        flex: 1;        /* 让内容区域自动填充剩余空间 */
+        overflow: auto; /* 添加滚动条 */
+    }
+
+    /* .ui-resizable-handle {
+        position: absolute;
+        display: block;
+        width: 10px;
+        height: 10px;
+        background: #f0f0f0;
+        border: 1px solid #ccc;
+    }
+
+    .ui-resizable-se {
+        cursor: se-resize;
+        right: -5px;
+        bottom: -5px;
+    } */
 </style>
 
 <div class="container mt-4">
@@ -82,10 +118,9 @@
                 
                 <!-- 富途持仓 -->
                 <div class="tab-pane fade" id="futu-positions" role="tabpanel" aria-labelledby="futu-tab">
-                    <!-- 添加更新按钮 -->
-                    <div class="d-flex justify-content-end mb-3">
-                        <button class="btn btn-primary btn-sm" onclick="updateFutuPrevClose()">
-                            更新富途收盘价
+                    <div class="d-flex justify-content-end mb-3 gap-2">
+                        <button class="btn btn-primary btn-sm" onclick="getFutuPositions()">
+                            获取富途持仓
                         </button>
                     </div>
                     <div id="futu-positions-container">
@@ -115,6 +150,33 @@
 </div>
 
 <script>
+function getFutuPositions() {
+    const button = document.querySelector('#futu-positions button');
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 获取中...';
+    
+    fetch('/api/futu_positions')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 重新渲染富途持仓数据
+                const futuContainer = document.getElementById('futu-positions-container');
+                renderPositions(futuContainer, data.data.hk_positions, true);
+                initSorting(futuContainer);
+                // alert('成功获取富途持仓数据');
+            } else {
+                alert('获取失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('获取失败，请查看控制台了解详情');
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = '获取富途持仓';
+        });
+}
 
 function updateHKPrevClose() {
     const button = document.querySelector('#hk-positions button');
@@ -149,6 +211,111 @@ function formatNumber(value) {
     });
 }
 
+function getEarliestExpiry(position) {
+    if (!position.is_group || !position.options || position.options.length === 0) {
+        return '9999-12-31'; // 没有期权的排在最后
+    }
+    
+    // 获取所有期权的到期日
+    const expiryDates = position.options.map(opt => opt.expiry);
+    // 返回最早的到期日
+    return expiryDates.sort()[0];
+}
+
+function sortByExpiry(button, isAsc) {
+    // 获取当前激活的标签页
+    const activeTab = document.querySelector('.tab-pane.active');
+    const container = activeTab.querySelector('div[id$="-positions-container"]');
+    const tbody = container.querySelector('tbody');
+    
+    // 获取所有分组
+    const groups = [];
+    let currentGroup = null;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    rows.forEach(row => {
+        if (row.classList.contains('table-group-divider')) {
+            if (currentGroup) {
+                groups.push(currentGroup);
+            }
+            currentGroup = {
+                header: row,
+                rows: [],
+                position: JSON.parse(row.dataset.position || '{}')
+            };
+        } else if (currentGroup && row.querySelector('td:first-child').innerHTML.includes('&nbsp;&nbsp;')) {
+            currentGroup.rows.push(row);
+        } else {
+            if (currentGroup) {
+                groups.push(currentGroup);
+            }
+            // 单独的股票行作为没有期权的分组处理
+            groups.push({
+                header: row,
+                rows: [],
+                position: JSON.parse(row.dataset.position || '{}')
+            });
+            currentGroup = null;
+        }
+    });
+    
+    if (currentGroup) {
+        groups.push(currentGroup);
+    }
+    
+    // 按到期日排序
+    groups.sort((a, b) => {
+        const aExpiry = getEarliestExpiry(a.position);
+        const bExpiry = getEarliestExpiry(b.position);
+        
+        // 首先按到期日排序
+        const expiryCompare = isAsc ? 
+            aExpiry.localeCompare(bExpiry) : 
+            bExpiry.localeCompare(aExpiry);
+            
+        // 如果到期日相同，则按股票代码排序
+        if (expiryCompare === 0) {
+            const aSymbol = a.position.symbol || '';
+            const bSymbol = b.position.symbol || '';
+            return aSymbol.localeCompare(bSymbol);  // 股票代码永远按升序排列
+        }
+        
+        return expiryCompare;
+    });
+    
+    // 清空表格
+    tbody.innerHTML = '';
+    
+    // 重新插入排序后的分组
+    groups.forEach(group => {
+        tbody.appendChild(group.header);
+        group.rows.forEach(row => tbody.appendChild(row));
+    });
+    
+    // 更新按钮状态
+    const buttons = button.parentElement.querySelectorAll('button');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    button.classList.add('active');
+}
+
+function toggleExpirySort(button) {
+    // 检查当前排序状态
+    const icon = button.querySelector('i');
+    const isAsc = icon.classList.contains('fa-sort-amount-up');
+    
+    // 切换图标和排序方向
+    if (isAsc) {
+        icon.classList.remove('fa-sort-amount-up');
+        icon.classList.add('fa-sort-amount-down');
+    } else {
+        icon.classList.remove('fa-sort-amount-down');
+        icon.classList.add('fa-sort-amount-up');
+    }
+    
+    // 调用原有的排序函数
+    sortByExpiry(button, !isAsc);
+}
+
 // 在渲染完表格后初始化排序功能
 document.addEventListener('DOMContentLoaded', function() {
     // 添加 tab 切换事件监听
@@ -173,11 +340,11 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.status === 'success') {
                 const usContainer = document.getElementById('us-positions-container');
-                renderPositions(usContainer, data.data.us_positions);
+                renderPositions(usContainer, data.data.us_positions, false);
                 initSorting(usContainer);
 
                 const hkContainer = document.getElementById('hk-positions-container');
-                renderPositions(hkContainer, data.data.hk_positions);
+                renderPositions(hkContainer, data.data.hk_positions, false);
                 initSorting(hkContainer);
             } else {
                 showError('获取持仓信息失败');
@@ -189,7 +356,29 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 });
 
-function renderPositions(container, positions) {
+// 添加计算期权总市值的辅助函数
+function calculateTotalOptionValue(positions) {
+    return positions.reduce((total, position) => {
+        if (position.is_group && position.options) {
+            return total + position.options.reduce((optionTotal, option) => 
+                optionTotal + (option.market_value || 0), 0);
+        }
+        return total;
+    }, 0);
+}
+
+// 添加计算期权总盈亏的辅助函数
+function calculateTotalOptionPnL(positions) {
+    return positions.reduce((total, position) => {
+        if (position.is_group && position.options) {
+            return total + position.options.reduce((optionTotal, option) => 
+                optionTotal + (option.unrealized_pnl || 0), 0);
+        }
+        return total;
+    }, 0);
+}
+
+function renderPositions(container, positions, isFutu = false) {
     if (!positions || positions.length === 0) {
         container.innerHTML = '<div class="alert alert-info">暂无持仓信息</div>';
         return;
@@ -197,6 +386,19 @@ function renderPositions(container, positions) {
 
     let html = `
     <div class="table-responsive">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleExpirySort(this)">
+                    <i class="fas fa-sort-amount-down"></i> 按到期日排序
+                </button>
+            </div>
+            <div class="text-end">
+                <div class="small">
+                    <span class="me-3">期权总市值: <strong class="${calculateTotalOptionValue(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionValue(positions))}</strong></span>
+                    <span>期权总盈亏: <strong class="${calculateTotalOptionPnL(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionPnL(positions))}</strong></span>
+                </div>
+            </div>
+        </div>
         <table class="table table-sm">
             <thead class="table-light">
                 <tr>
@@ -218,36 +420,45 @@ function renderPositions(container, positions) {
             
             // 渲染分组标题
             html += `
-            <tr class="table-group-divider">
-                <td>
-                    <strong>
-                        <a href="javascript:void(0)" class="text-decoration-none text-reset" 
-                           onclick='stockChart.showChart("${position.symbol}", ${JSON.stringify(position.options).replace(/'/g, "&#39;")}, this)'>
-                            ${position.symbol}${warningIcon}
-                        </a>
-                        <button class="btn btn-link btn-sm p-0 ms-2" 
-                                onclick='event.stopPropagation(); redownloadStockData("${position.symbol}", "${position.market_type || 'US'}", this)'>
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
-                    </strong>
-                </td>
-                <td class="text-end"><strong>${formatNumber(position.total_market_value)}</strong></td>
-                <td class="text-end">
-                    <button class="btn btn-sm btn-primary" 
-                            onclick="getCurrentPrice('${position.symbol}', '${position.market_type || 'US'}', this)">
-                        显示价格
-                    </button>
-                </td>
-                <td class="text-end ${position.total_unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
-                    <strong>${formatNumber(position.total_unrealized_pnl)}</strong>
-                </td>
-                <td class="text-end ${position.total_daily_pnl >= 0 ? 'text-success' : 'text-danger'}">
-                    <strong>${formatNumber(position.total_daily_pnl)}</strong>
-                </td>
-                <td class="text-end ${position.total_position_ratio >= 0 ? 'text-success' : 'text-danger'}">
-                    <strong>${formatNumber(position.total_position_ratio)}%</strong>
-                </td>
-            </tr>`;
+                <tr class="table-group-divider" data-position='${JSON.stringify(position)}'>
+                    <td>
+                        <strong>
+                            ${isFutu ? 
+                                `${position.symbol}${warningIcon}` : 
+                                `<a href="javascript:void(0)" class="text-decoration-none text-reset" 
+                                    onclick='stockChart.showChart("${position.symbol}", ${JSON.stringify(position.options).replace(/'/g, "&#39;")}, this)'>
+                                    ${position.symbol}${warningIcon}
+                                </a>`
+                            }
+                            ${!isFutu ? 
+                                `<button class="btn btn-link btn-sm p-0 ms-2" 
+                                        onclick='event.stopPropagation(); redownloadStockData("${position.symbol}", "${position.market_type || 'US'}", this)'>
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>` : 
+                                ''
+                            }
+                        </strong>
+                    </td>
+                    <td class="text-end"><strong>${formatNumber(position.total_market_value)}</strong></td>
+                    <td class="text-end">
+                        ${!isFutu ? 
+                            `<button class="btn btn-sm btn-primary" 
+                                    onclick="getCurrentPrice('${position.symbol}', '${position.market_type || 'US'}', this)">
+                                显示价格
+                            </button>` : 
+                            '-'
+                        }
+                    </td>
+                    <td class="text-end ${position.total_unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                        <strong>${formatNumber(position.total_unrealized_pnl)}</strong>
+                    </td>
+                    <td class="text-end ${position.total_daily_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                        <strong>${formatNumber(position.total_daily_pnl)}</strong>
+                    </td>
+                    <td class="text-end ${position.total_position_ratio >= 0 ? 'text-success' : 'text-danger'}">
+                        <strong>${formatNumber(position.total_position_ratio)}%</strong>
+                    </td>
+                </tr>`;
 
             // 渲染股票行（如果有）
             if (position.stock) {
@@ -511,92 +722,6 @@ function renderOptionRow(option, isGroupItem) {
             button.querySelector('i').classList.remove('fa-spin');
         });
     }
-
-    function updateFutuPrevClose() {
-            const button = document.querySelector('#futu-positions button');
-            button.disabled = true;
-            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 更新中...';
-            
-            fetch('/api/update_futu_prev_close')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        alert(data.message);
-                    } else {
-                        alert('更新失败: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('更新失败，请查看控制台了解详情');
-                })
-                .finally(() => {
-                    button.disabled = false;
-                    button.innerHTML = '更新富途收盘价';
-                });
-        }
-    
-    // 在 DOMContentLoaded 事件处理中添加富途 tab 的事件监听
-    document.addEventListener('DOMContentLoaded', function() {
-        // 添加 tab 切换事件监听
-        const hkTab = document.getElementById('hk-tab');
-        hkTab.addEventListener('shown.bs.tab', function (e) {
-            // 重新初始化港股表格的排序功能
-            const hkContainer = document.getElementById('hk-positions-container');
-            const table = hkContainer.querySelector('table');
-            if (table) {
-                // 移除旧的事件监听器
-                const headers = table.querySelectorAll('.sortable');
-                headers.forEach(header => {
-                    const clone = header.cloneNode(true);
-                    header.parentNode.replaceChild(clone, header);
-                });
-                // 重新初始化排序
-                initSorting(hkContainer);
-            }
-        });
-
-        // 添加 tab 切换事件监听
-        const futuTab = document.getElementById('futu-tab');
-        futuTab.addEventListener('shown.bs.tab', function (e) {
-            const futuContainer = document.getElementById('futu-positions-container');
-            const table = futuContainer.querySelector('table');
-            if (table) {
-                const headers = table.querySelectorAll('.sortable');
-                headers.forEach(header => {
-                    const clone = header.cloneNode(true);
-                    header.parentNode.replaceChild(clone, header);
-                });
-                initSorting(futuContainer);
-            }
-        });
-
-        // 在获取持仓数据时添加富途数据的处理
-        fetch('/positions')
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    const usContainer = document.getElementById('us-positions-container');
-                    renderPositions(usContainer, data.data.us_positions);
-                    initSorting(usContainer);
-
-                    const hkContainer = document.getElementById('hk-positions-container');
-                    renderPositions(hkContainer, data.data.hk_positions);
-                    initSorting(hkContainer);
-
-                    // 添加富途持仓数据渲染
-                    const futuContainer = document.getElementById('futu-positions-container');
-                    renderPositions(futuContainer, data.data.futu_positions);
-                    initSorting(futuContainer);
-                } else {
-                    showError('获取持仓信息失败');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showError('获取持仓信息失败');
-            });
-    });
 
 </script>
 {% endblock %}

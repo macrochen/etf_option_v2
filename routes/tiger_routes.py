@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, render_template, request
+from futu import OpenQuoteContext, RET_OK
 from tigeropen.tiger_open_config import TigerOpenClientConfig
 from tigeropen.common.consts import Language
 from tigeropen.trade.trade_client import TradeClient
@@ -8,7 +9,6 @@ import traceback
 import requests
 from tigeropen.common.consts import SecurityType
 from tigeropen.quote.quote_client import QuoteClient
-from futu import OpenQuoteContext, RET_OK
 
 tiger_bp = Blueprint('tiger', __name__)
 
@@ -17,6 +17,8 @@ def positions_page():
     """渲染持仓信息页面"""
     return render_template('positions.html')
 
+
+    
 def get_tiger_client():
     # 获取配置文件的绝对路径
     current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -247,6 +249,73 @@ def download_prev_close():
             'message': str(e)
         }), 500
 
+def get_prev_close_prices(stock_positions, option_positions, db):
+    """获取所有持仓的昨日收盘价"""
+    def process_market_symbols(symbols, market, prices):
+        """处理指定市场的标的收盘价
+        
+        Args:
+            symbols: 标的代码列表
+            market: 市场类型（'US' 或 'HK'）
+            prices: 从数据库获取的价格字典
+            
+        Returns:
+            更新后的 prev_close_prices 和 missing_prices
+        """
+        for symbol in symbols:
+            date, price = prices.get(symbol, (None, None))
+            if price is not None:
+                prev_close_prices[symbol] = price
+            else:
+                # 查找对应的持仓（股票或期权）
+                stock = next((p for p in stock_positions if p.contract.symbol == symbol), None)
+                option = next((p for p in option_positions if p.contract.symbol == symbol), None)
+                
+                if stock:
+                    current_price = stock.market_value / stock.quantity if stock.quantity else 0
+                    missing_prices.append({
+                        'symbol': symbol,
+                        'market': market,
+                        'prev_close_date': datetime.now().strftime('%Y-%m-%d'),
+                        'prev_close_price': current_price
+                    })
+                elif option:
+                    multiplier = option.contract.multiplier or 100
+                    current_price = option.market_value / (option.quantity * multiplier) if option.quantity else 0
+                    missing_prices.append({
+                        'symbol': symbol,
+                        'market': market,
+                        'prev_close_date': datetime.now().strftime('%Y-%m-%d'),
+                        'prev_close_price': current_price
+                    })
+    
+    prev_close_prices = {}
+    missing_prices = []
+    
+    # 按市场分组symbols
+    us_symbols = []
+    hk_symbols = []
+    for p in stock_positions + option_positions:
+        if p.contract:
+            if p.contract.market == 'US':
+                us_symbols.append(p.contract.symbol)
+            elif p.contract.market == 'HK':
+                hk_symbols.append(p.contract.symbol)
+    
+    # 从数据库获取收盘价
+    us_prices = db.batch_get_prev_close_prices(us_symbols, 'US')
+    hk_prices = db.batch_get_prev_close_prices(hk_symbols, 'HK')
+    
+    # 处理美股和港股数据
+    process_market_symbols(us_symbols, 'US', us_prices)
+    process_market_symbols(hk_symbols, 'HK', hk_prices)
+    
+    # 如果有缺失的价格，保存到数据库
+    if missing_prices:
+        db.batch_save_prev_close_prices(missing_prices)
+    
+    return prev_close_prices
+
 # 修改get_positions函数中获取收盘价的部分
 @tiger_bp.route('/positions')
 def get_positions():
@@ -277,40 +346,9 @@ def get_positions():
         option_positions = client.get_positions(sec_type=SecurityType.OPT)
 
         db = USStockDatabase()
-
+        
         # 获取所有持仓的昨日收盘价
-        symbols = [p.contract.symbol for p in stock_positions + option_positions if p.contract]
-        prev_close_prices = {}
-        missing_prices = []
-        
-        # 按市场分组symbols
-        us_symbols = []
-        hk_symbols = []
-        for p in stock_positions + option_positions:
-            if p.contract:
-                if p.contract.market == 'US':
-                    us_symbols.append(p.contract.symbol)
-                elif p.contract.market == 'HK':
-                    hk_symbols.append(p.contract.symbol)
-        
-        # 从数据库获取收盘价
-        us_prices = db.batch_get_prev_close_prices(us_symbols, 'US')
-        hk_prices = db.batch_get_prev_close_prices(hk_symbols, 'HK')
-        
-        # 合并收盘价数据并记录缺失的价格
-        for symbol in us_symbols:
-            date, price = us_prices.get(symbol, (None, None))
-            if price is not None:
-                prev_close_prices[symbol] = price
-            else:
-                missing_prices.append((symbol, 'US'))
-                
-        for symbol in hk_symbols:
-            date, price = hk_prices.get(symbol, (None, None))
-            if price is not None:
-                prev_close_prices[symbol] = price
-            else:
-                missing_prices.append((symbol, 'HK'))
+        prev_close_prices = get_prev_close_prices(stock_positions, option_positions, db)
 
         # 创建按标的分组的字典和非分组列表
         grouped_positions = {}
@@ -483,7 +521,6 @@ def get_positions():
             'data': {
                 'us_positions': us_positions,
                 'hk_positions': hk_positions,
-                'missing_prev_close': missing_prices  # 添加缺失收盘价的标的列表
             }
         })
         
