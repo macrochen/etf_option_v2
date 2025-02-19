@@ -1,6 +1,7 @@
 from datetime import datetime
 import sqlite3
 import json
+import logging
 from .config import US_STOCK_DB
 from .database import Database  # 引入Database类
 
@@ -40,6 +41,81 @@ class USStockDatabase:
             )
         ''')
         
+        # 添加上一个交易日收盘价表
+        self.db.execute('''
+            CREATE TABLE IF NOT EXISTS prev_close_prices (
+                symbol VARCHAR(20),
+                market VARCHAR(10),
+                prev_close_date DATE,
+                prev_close_price DECIMAL(10,4),
+                update_time TIMESTAMP,
+                PRIMARY KEY (symbol, market)
+            )
+        ''')
+
+    def batch_save_prev_close_prices(self, price_data_list: list):
+        """批量保存上一个交易日收盘价
+        
+        Args:
+            price_data_list: 价格数据列表，每个元素为字典，包含：
+                           symbol: 股票代码
+                           market: 市场类型
+                           prev_close_date: 上一个交易日日期
+                           prev_close_price: 上一个交易日收盘价
+        """
+        if not price_data_list:
+            return
+            
+        self.db.execute_many('''
+            INSERT OR REPLACE INTO prev_close_prices 
+            (symbol, market, prev_close_date, prev_close_price, update_time)
+            VALUES (?, ?, ?, ?, datetime('now'))
+        ''', [(
+            data['symbol'],
+            data['market'],
+            data['prev_close_date'],
+            data['prev_close_price']
+        ) for data in price_data_list])
+
+    def batch_get_prev_close_prices(self, symbols: list, market: str) -> dict:
+        """批量获取上一个交易日收盘价
+        
+        Args:
+            symbols: 股票代码列表
+            market: 市场类型（US/HK）
+            
+        Returns:
+            dict: 以股票代码为key的字典，值为(prev_close_date, prev_close_price)元组
+        """
+        if not symbols:
+            return {}
+            
+        results = self.db.fetch_all('''
+            SELECT symbol, prev_close_date, prev_close_price
+            FROM prev_close_prices
+            WHERE symbol IN ({}) AND market = ?
+        '''.format(','.join(['?'] * len(symbols))), (*symbols, market))
+        
+        return {row[0]: (row[1], row[2]) for row in results}
+
+    def get_prev_close_price(self, symbol: str, market: str) -> tuple[str, float]:
+        """获取单个股票的上一个交易日收盘价
+        
+        Args:
+            symbol: 股票代码
+            market: 市场类型（US/HK）
+            
+        Returns:
+            tuple: (prev_close_date, prev_close_price)，如果没有数据返回(None, None)
+        """
+        result = self.db.fetch_one('''
+            SELECT prev_close_date, prev_close_price
+            FROM prev_close_prices
+            WHERE symbol = ? AND market = ?
+        ''', (symbol, market))
+        
+        return result if result else (None, None)
+
     def save_stock_data(self, stock_code: str, date: str, open_price: float, high_price: float, 
                        low_price: float, close_price: float, adj_close: float, market_type: str = 'US',
                        stock_name: str = None):  # 新增股票名称参数
@@ -103,7 +179,21 @@ class USStockDatabase:
             ORDER BY date ASC
         ''', (stock_code, market_type))
     
-
+    def get_last_update_date(self, stock_code, market_type):
+        """获取指定股票的最后更新日期"""
+        try:
+            result = self.db.fetch_one('''
+                SELECT MAX(date) 
+                FROM stock_prices 
+                WHERE stock_code = ? AND market_type = ?
+            ''', (stock_code, market_type))
+            
+            return datetime.strptime(result[0], '%Y-%m-%d').date() if result and result[0] else None
+            
+        except Exception as e:
+            logging.error(f"获取最后更新日期时出错: {e}")
+            return None
+        
     def get_stock_list(self):
         """获取已下载的股票列表"""
         stocks = self.db.fetch_all('''

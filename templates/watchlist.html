@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}自选股列表{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">自选股列表</h2>
+    <div class="card">
+        <div class="card-body">
+            <!-- 加载动画 -->
+            <div class="loading" id="loading">
+                <div class="loading-content">
+                    <div class="spinner-border" role="status">
+                        <span class="sr-only">加载中...</span>
+                    </div>
+                    <p>数据加载中，请稍后...</p>
+                </div>
+            </div>
+
+            <!-- 自选股列表表格 -->
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>股票代码</th>
+                            <th>公司名称</th>
+                            <th>最新财报日期</th>
+                            <th>当前价格</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="watchlistBody">
+                        <!-- 数据将通过JavaScript动态填充 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- 在 loading div 后添加新的下载提示 -->
+<div class="loading" id="downloadLoading">
+    <div class="loading-content">
+        <div class="spinner-border" role="status">
+            <span class="sr-only">下载中...</span>
+        </div>
+        <p id="downloadMessage">数据下载中，请稍后...</p>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadWatchlist();
+});
+
+function loadWatchlist() {
+    // 显示加载动画
+    document.getElementById('loading').style.display = 'flex';
+
+    fetch('/api/watchlist')
+        .then(response => response.json())
+        .then(response => {
+            if (response.status === 'error') {
+                throw new Error(response.message);
+            }
+
+            const tbody = document.getElementById('watchlistBody');
+            tbody.innerHTML = '';
+
+            response.data.forEach(stock => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${stock.code}</td>
+                    <td>${stock.name}</td>
+                    <td>${stock.earnings_date || '-'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" 
+                                onclick="getCurrentPrice('${stock.code}', '${stock.market}', this)">
+                            显示价格
+                        </button>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="downloadHistoricalData('${stock.code}', '${stock.market}')">
+                            下载历史数据
+                        </button>
+                        <button class="btn btn-sm btn-success" onclick="downloadEarningsData('${stock.code}', '${stock.market}')">
+                            下载财报数据
+                        </button>
+                        <button class="btn btn-sm btn-info" onclick="showEarningsVolatility('${stock.code}', '${stock.market}', this)">
+                            财报日涨幅
+                        </button>
+                        <button class="btn btn-sm btn-warning" onclick="showPriceRange('${stock.code}', '${stock.market}', this)">
+                            价格区间
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        })
+        .catch(error => {
+            console.error('获取自选股列表失败:', error);
+            alert('获取自选股列表失败，请重试');
+        })
+        .finally(() => {
+            // 隐藏加载动画
+            document.getElementById('loading').style.display = 'none';
+        });
+}
+function downloadHistoricalData(code, market) {
+    // 显示下载提示
+    const loadingEl = document.getElementById('downloadLoading');
+    const messageEl = document.getElementById('downloadMessage');
+    loadingEl.style.display = 'flex';
+    messageEl.textContent = `正在下载 ${code} 的历史数据，请稍后...`;
+
+    const endpoint = market === 'HK' ? '/download_hk' : '/download';
+    fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            stock_code: code,
+            market_type: market
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        alert(data.message);
+    })
+    .catch(error => {
+        console.error('下载历史数据失败:', error);
+        alert('下载历史数据失败: ' + error.message);
+    })
+    .finally(() => {
+        // 隐藏下载提示
+        loadingEl.style.display = 'none';
+    });
+}
+
+function downloadEarningsData(code, market) {
+    // 显示下载提示
+    const loadingEl = document.getElementById('downloadLoading');
+    const messageEl = document.getElementById('downloadMessage');
+    loadingEl.style.display = 'flex';
+    messageEl.textContent = `正在下载 ${code} 的财报数据，请稍后...`;
+
+    fetch('/api/download_earnings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+            stock_code: code,
+            market_type: market
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        alert(data.message);
+    })
+    .catch(error => {
+        console.error('下载财报数据失败:', error);
+        alert('下载财报数据失败: ' + error.message);
+    })
+    .finally(() => {
+        // 隐藏下载提示
+        loadingEl.style.display = 'none';
+    });
+}
+
+</script>
+
+<style>
+.loading {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 9999;
+}
+
+.loading-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: white;
+}
+
+.btn {
+    margin-right: 5px;
+}
+
+.modal-dialog {
+    max-width: 70%; /* 设置最大宽度为 70% */
+    margin: auto;   /* 居中显示 */
+}
+</style>
+<!-- 在 content block 末尾添加模态框 -->
+<!-- 模态弹窗 -->
+<div class="modal fade" id="volatilityModal" tabindex="-1" role="dialog" aria-labelledby="volatilityModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="volatilityModalLabel">波动率数据</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="volatilityChart" style="width: 1250px; height: 700px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 在 content block 末尾添加脚本引用 -->
+<script src="/static/js/stock_charts.js"></script>
+{% endblock %}

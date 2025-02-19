@@ -2,6 +2,12 @@
 
 {% block title %}持仓信息{% endblock %}
 
+{% block head %}
+{{ super() }}
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='js/stock-chart.js') }}"></script>
+{% endblock %}
+
 {% block content %}
 <style>
     .nav-tabs .nav-link {
@@ -40,9 +46,11 @@
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="hk-tab" data-bs-toggle="tab" data-bs-target="#hk-positions" type="button" role="tab" aria-controls="hk-positions" aria-selected="false">港股持仓</button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="futu-tab" data-bs-toggle="tab" data-bs-target="#futu-positions" type="button" role="tab" aria-controls="futu-positions" aria-selected="false">富途持仓</button>
+                </li>
             </ul>
             
-            <!-- 修改 Tab 内容区域的初始状态 -->
             <div class="tab-content" id="positionTabsContent">
                 <!-- 美股持仓 -->
                 <div class="tab-pane fade show active" id="us-positions" role="tabpanel" aria-labelledby="us-tab">
@@ -57,7 +65,30 @@
                 
                 <!-- 港股持仓 -->
                 <div class="tab-pane fade" id="hk-positions" role="tabpanel" aria-labelledby="hk-tab">
+                    <!-- 添加更新按钮 -->
+                    <div class="d-flex justify-content-end mb-3">
+                        <button class="btn btn-primary btn-sm" onclick="updateHKPrevClose()">
+                            更新港股收盘价
+                        </button>
+                    </div>
                     <div id="hk-positions-container">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 富途持仓 -->
+                <div class="tab-pane fade" id="futu-positions" role="tabpanel" aria-labelledby="futu-tab">
+                    <!-- 添加更新按钮 -->
+                    <div class="d-flex justify-content-end mb-3">
+                        <button class="btn btn-primary btn-sm" onclick="updateFutuPrevClose()">
+                            更新富途收盘价
+                        </button>
+                    </div>
+                    <div id="futu-positions-container">
                         <div class="text-center">
                             <div class="spinner-border" role="status">
                                 <span class="visually-hidden">加载中...</span>
@@ -68,9 +99,47 @@
             </div>
         </div>
     </div>
+    
+    <!-- Add Toast container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="updateToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <strong class="me-auto">更新数据</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+                正在更新股票数据，请稍候...
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
+
+function updateHKPrevClose() {
+    const button = document.querySelector('#hk-positions button');
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 更新中...';
+    
+    fetch('/api/update_hk_prev_close')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 显示成功消息
+                alert(data.message);
+            } else {
+                alert('更新失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('更新失败，请查看控制台了解详情');
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = '更新港股收盘价';
+        });
+}
 // 添加格式化函数
 function formatNumber(value) {
     if (value === null || value === undefined) return '-';
@@ -150,10 +219,24 @@ function renderPositions(container, positions) {
             // 渲染分组标题
             html += `
             <tr class="table-group-divider">
-                <td><strong>${position.symbol}${warningIcon}</strong></td>
+                <td>
+                    <strong>
+                        <a href="javascript:void(0)" class="text-decoration-none text-reset" 
+                           onclick='stockChart.showChart("${position.symbol}", ${JSON.stringify(position.options).replace(/'/g, "&#39;")}, this)'>
+                            ${position.symbol}${warningIcon}
+                        </a>
+                        <button class="btn btn-link btn-sm p-0 ms-2" 
+                                onclick='event.stopPropagation(); redownloadStockData("${position.symbol}", "${position.market_type || 'US'}", this)'>
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </strong>
+                </td>
                 <td class="text-end"><strong>${formatNumber(position.total_market_value)}</strong></td>
                 <td class="text-end">
-                    <strong>${formatNumber(position.latest_price)}</strong>
+                    <button class="btn btn-sm btn-primary" 
+                            onclick="getCurrentPrice('${position.symbol}', '${position.market_type || 'US'}', this)">
+                        显示价格
+                    </button>
                 </td>
                 <td class="text-end ${position.total_unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
                     <strong>${formatNumber(position.total_unrealized_pnl)}</strong>
@@ -185,6 +268,35 @@ function renderPositions(container, positions) {
     container.innerHTML = html;
 }
 
+function getCurrentPrice(stockCode, marketType, buttonElement) {
+    // 显示加载状态
+    buttonElement.disabled = true;
+    buttonElement.textContent = '加载中...';
+
+    fetch(`/api/current_price/${stockCode}?market_type=${marketType}`)
+        .then(response => response.json())
+        .then(data => {
+            // 创建只读输入框
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-control form-control-sm';
+            input.value = data.current_price.toFixed(2);
+            input.readOnly = true;
+            input.style.width = '100px';
+            input.style.display = 'inline-block';
+            
+            // 替换按钮为输入框
+            buttonElement.parentNode.replaceChild(input, buttonElement);
+        })
+        .catch(error => {
+            // 恢复按钮状态，显示错误信息
+            buttonElement.disabled = false;
+            buttonElement.textContent = '显示价格';
+            console.error('获取价格失败:', error);
+            alert('获取价格失败，请重试');
+        });
+}
+
 function renderStockRow(stock, isGroupItem) {
     const showWarning = stock.market_value < -2000 || stock.unrealized_pnl < -1000;
     const warningIcon = showWarning ? '⚠️ ' : '';
@@ -210,11 +322,22 @@ function renderOptionRow(option, isGroupItem) {
     const showWarning = option.market_value < -2000 || option.unrealized_pnl < -1000;
     const warningIcon = showWarning ? '⚠️ ' : '';
     
+    // 检查是否是本周到期
+    const today = new Date();
+    const expiryDate = new Date(option.expiry);
+    const endOfWeek = new Date(today);
+    endOfWeek.setDate(today.getDate() + (6 - today.getDay())); // 设置为本周五
+    const isExpiringThisWeek = expiryDate <= endOfWeek;
+    
+    // 为本周到期的期权添加醒目的标识
+    const expiryWarning = isExpiringThisWeek ? 
+        '<span class="badge bg-danger" style="font-size: 10px; padding: 2px 5px; margin-right: 5px;">本周到期</span>' : '';
+    
     return `
     <tr>
         <td>
             ${indent}${option.symbol} ${option.put_call}${warningIcon}
-            <br><small class="text-muted">${indent}${option.expiry} ${formatNumber(option.strike)}</small>
+            <br><small class="text-muted">${indent}${expiryWarning}${option.expiry} ${formatNumber(option.strike)}</small>
         </td>
         <td class="text-end">${formatNumber(option.market_value)}<br><small class="text-muted">${option.quantity}</small></td>
         <td class="text-end">${formatNumber(option.latest_price)}<br><small class="text-muted">${formatNumber(option.average_cost)}</small></td>
@@ -357,5 +480,123 @@ function renderOptionRow(option, isGroupItem) {
                 return 0;
         }
     }
+
+// 添加更新股票数据的函数
+    function redownloadStockData(stockCode, marketType, button) {
+        // 禁用按钮并添加旋转动画
+        button.disabled = true;
+        button.querySelector('i').classList.add('fa-spin');
+
+        const endpoint = marketType === 'US' ? '/download' : '/download_hk';
+        
+        fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ stock_code: stockCode })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // 显示成功消息
+            alert(`${data.message}\n总记录数: ${data.total}\n成功保存: ${data.count}\n处理失败: ${data.errors}`);
+        })
+        .catch(error => {
+            console.error('更新数据失败:', error);
+            alert('更新数据失败，请重试');
+        })
+        .finally(() => {
+            // 恢复按钮状态，移除旋转动画
+            button.disabled = false;
+            button.querySelector('i').classList.remove('fa-spin');
+        });
+    }
+
+    function updateFutuPrevClose() {
+            const button = document.querySelector('#futu-positions button');
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 更新中...';
+            
+            fetch('/api/update_futu_prev_close')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert(data.message);
+                    } else {
+                        alert('更新失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('更新失败，请查看控制台了解详情');
+                })
+                .finally(() => {
+                    button.disabled = false;
+                    button.innerHTML = '更新富途收盘价';
+                });
+        }
+    
+    // 在 DOMContentLoaded 事件处理中添加富途 tab 的事件监听
+    document.addEventListener('DOMContentLoaded', function() {
+        // 添加 tab 切换事件监听
+        const hkTab = document.getElementById('hk-tab');
+        hkTab.addEventListener('shown.bs.tab', function (e) {
+            // 重新初始化港股表格的排序功能
+            const hkContainer = document.getElementById('hk-positions-container');
+            const table = hkContainer.querySelector('table');
+            if (table) {
+                // 移除旧的事件监听器
+                const headers = table.querySelectorAll('.sortable');
+                headers.forEach(header => {
+                    const clone = header.cloneNode(true);
+                    header.parentNode.replaceChild(clone, header);
+                });
+                // 重新初始化排序
+                initSorting(hkContainer);
+            }
+        });
+
+        // 添加 tab 切换事件监听
+        const futuTab = document.getElementById('futu-tab');
+        futuTab.addEventListener('shown.bs.tab', function (e) {
+            const futuContainer = document.getElementById('futu-positions-container');
+            const table = futuContainer.querySelector('table');
+            if (table) {
+                const headers = table.querySelectorAll('.sortable');
+                headers.forEach(header => {
+                    const clone = header.cloneNode(true);
+                    header.parentNode.replaceChild(clone, header);
+                });
+                initSorting(futuContainer);
+            }
+        });
+
+        // 在获取持仓数据时添加富途数据的处理
+        fetch('/positions')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const usContainer = document.getElementById('us-positions-container');
+                    renderPositions(usContainer, data.data.us_positions);
+                    initSorting(usContainer);
+
+                    const hkContainer = document.getElementById('hk-positions-container');
+                    renderPositions(hkContainer, data.data.hk_positions);
+                    initSorting(hkContainer);
+
+                    // 添加富途持仓数据渲染
+                    const futuContainer = document.getElementById('futu-positions-container');
+                    renderPositions(futuContainer, data.data.futu_positions);
+                    initSorting(futuContainer);
+                } else {
+                    showError('获取持仓信息失败');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showError('获取持仓信息失败');
+            });
+    });
+
 </script>
 {% endblock %}

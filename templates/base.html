@@ -20,6 +20,8 @@
     <script src="{{ url_for('static', filename='js/backtest_results.js') }}"></script>
     <!-- Plotly.js -->
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.24.1/plotly.min.js"></script>
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/modules/annotations.js"></script>
 <style>
         .loading {
             display: none;
@@ -125,6 +127,9 @@
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="/positions_page">持仓信息</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/watchlist">自选股列表</a>
                     </li>
                 </ul>
             </div>

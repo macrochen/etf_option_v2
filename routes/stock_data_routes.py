@@ -13,10 +13,60 @@ from tools.earnings_dates_fetcher import EarningsDatesFetcher
 from tools.volatility_data_generator import USVolatilityDataGenerator
 from tools.volatility_data_generator import HKVolatilityDataGenerator
 from pathlib import Path
+from futu import OpenQuoteContext, RET_OK  # 添加富途API导入
 
 # 创建蓝图
 stock_data_bp = Blueprint('stock_data', __name__)
 db = USStockDatabase()
+
+
+@stock_data_bp.route('/watchlist', methods=['GET'])
+def watchlist_page():
+    """渲染自选股列表页面"""
+    return render_template('watchlist.html')
+
+@stock_data_bp.route('/api/watchlist', methods=['GET'])
+def get_watchlist():
+    """获取富途自选股列表数据"""
+    try:
+        group_name = request.args.get('group_name', '赌财报(当日)')  # 默认获取"港美股"分组
+        
+        # 连接富途API
+        quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
+        
+        try:
+            # 获取自选股分组下的股票列表
+            ret, data = quote_ctx.get_user_security(group_name)
+            
+            if ret != RET_OK:
+                raise Exception(f"获取自选股列表失败: {data}")
+            
+            # 获取股票的基本信息（包括名称等）
+            stock_list = []
+            for code in data['code']:
+                # 直接从data中获取name信息
+                stock_list.append({
+                    'code': code.split('.')[1],  # 股票代码
+                    'name': data['name'][data['code'] == code].iloc[0],  # 从data中获取对应的name
+                    'market': code.split('.')[0],  # 市场类型（US/HK）
+                })
+            
+            return jsonify({
+                'status': 'success',
+                'data': stock_list
+            })
+            
+        finally:
+            # 确保关闭连接
+            quote_ctx.close()
+            
+    except Exception as e:
+        logging.error(f"获取自选股列表失败: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+    
 
 @stock_data_bp.route('/us_stock_volatility_management', methods=['GET'])
 def download_page():
@@ -24,38 +74,70 @@ def download_page():
 
 @stock_data_bp.route('/download', methods=['POST'])
 def download_data():
-    stock_code = request.json['stock_code']  # 从请求中获取股票代码
+    stock_code = request.json['stock_code']
     
     logging.info(f"开始下载美股数据: {stock_code}")
     
     try:
         # 计算时间范围（10年）
-        end_date = datetime.now() - timedelta(days=1)  # 昨天
-        start_date = end_date - timedelta(days=365*10)  # 10年前
+        end_date = datetime.now().date()  # 转换为 date 对象
         
+        # 从数据库获取最后更新日期
+        last_update = db.get_last_update_date(stock_code, 'US')
+        if last_update:
+            start_date = last_update + timedelta(days=1)  # 从上次更新的下一天开始
+            logging.info(f"检测到已有数据，最后更新日期: {last_update.strftime('%Y-%m-%d')}")
+        else:
+            start_date = end_date - timedelta(days=365*10)  # 如果没有数据，则下载10年的数据
+            logging.info("未检测到历史数据，将下载完整的10年数据")
+            
+        logging.info(f"设定下载时间范围: {start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')}")
+        
+        # 如果已经是最新的，直接返回
+        if start_date >= end_date:
+            logging.info(f"股票 {stock_code} 数据已经是最新的，无需更新")
+            return jsonify({
+                "message": f"{stock_code} 数据已经是最新的",
+                "count": 0,
+                "total": 0,
+                "errors": 0
+            })
+
         # 获取股票信息
+        logging.info(f"正在获取 {stock_code} 的股票基本信息...")
         ticker = yf.Ticker(stock_code)
         stock_info = ticker.info
         stock_name = stock_info.get('longName') or stock_info.get('shortName', '')
+        logging.info(f"成功获取股票信息: {stock_name}")
         
         # 下载股价数据
-        logging.info(f"从 Yahoo Finance 获取 {stock_code} ({stock_name}) 的历史数据")
+        logging.info(f"开始从 Yahoo Finance 下载 {stock_code} 的历史数据...")
         data = yf.download(stock_code, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
         
         if data.empty:
             logging.warning(f"股票 {stock_code} 没有获取到任何数据")
             return jsonify({"error": "未能获取到任何数据"}), 404
         
+        total_rows = len(data)
+        logging.info(f"获取到 {total_rows} 条历史数据记录，开始保存到数据库...")
+        
         # 存储到数据库
         success_count = 0
-        for date, row in data.iterrows():
+        error_count = 0
+        last_progress = 0
+        
+        for index, (date, row) in enumerate(data.iterrows(), 1):
             try:
-                # 使用 item() 方法获取单个值并转换为浮点数
+                # 每处理10%输出一次进度
+                progress = (index * 100) // total_rows
+                if progress >= last_progress + 10:
+                    logging.info(f"数据保存进度: {progress}% ({index}/{total_rows})")
+                    last_progress = progress
+                
                 open_price = float(row['Open'].item())
                 high_price = float(row['High'].item())
                 low_price = float(row['Low'].item())
                 close_price = float(row['Close'].item())
-                # 如果有 Adj Close 则使用，否则使用 Close
                 adj_close = float(row['Adj Close'].item()) if 'Adj Close' in row else close_price
                 
                 db.save_stock_data(
@@ -67,10 +149,11 @@ def download_data():
                     close_price,
                     adj_close,
                     'US',
-                    stock_name  # 添加股票名称
+                    stock_name
                 )
                 success_count += 1
             except (TypeError, ValueError) as e:
+                error_count += 1
                 logging.error(f"处理数据时出错: {e}, 股票代码: {stock_code}, 日期: {date}")
                 continue
         
@@ -78,10 +161,16 @@ def download_data():
             logging.warning(f"股票 {stock_code} 没有保存任何有效数据")
             return jsonify({"error": "未能保存任何有效数据"}), 404
             
-        logging.info(f"股票 {stock_code} 数据下载完成，成功保存 {success_count} 条记录")
+        logging.info(f"股票 {stock_code} 数据下载完成:")
+        logging.info(f"- 总记录数: {total_rows}")
+        logging.info(f"- 成功保存: {success_count}")
+        logging.info(f"- 处理失败: {error_count}")
+        
         return jsonify({
             "message": f"{stock_code} 数据下载并保存成功",
-            "count": success_count
+            "count": success_count,
+            "total": total_rows,
+            "errors": error_count
         })
         
     except Exception as e:
@@ -93,7 +182,6 @@ def download_data():
             "stack_trace": stack_trace
         }), 500
     
-    return jsonify({"message": f"{stock_code} data downloaded and saved to database successfully."})
 
 @stock_data_bp.route('/download_hk', methods=['POST'])
 def download_hk_data():
@@ -273,8 +361,9 @@ def get_price_range(stock_code):
             dates.append(row[0])  # 日期
             closes.append(float(row[1]))  # 收盘价
             
-        # 获取最新收盘价
-        latest_price = closes[-1] if closes else None
+        # 获取最新收盘价，优先使用传入的当前价格
+        current_price = request.args.get('current_price')
+        latest_price = float(current_price) if current_price else (closes[-1] if closes else None)
 
         # 获取月度波动率数据
         volatility_generator = create_volatility_generator(market_type, db)
@@ -415,7 +504,7 @@ def download_earnings():
     try:
         data = request.get_json()
         stock_code = data.get('stock_code')
-        market_type = data.get('market_type')
+        market_type = data.get('market_type', 'US')
         
         if not stock_code or not market_type:
             return jsonify({'message': '股票代码和市场类型不能为空'}), 400
