@@ -1,4 +1,6 @@
+import re
 from flask import Blueprint, request, jsonify, render_template
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -15,10 +17,113 @@ from tools.volatility_data_generator import HKVolatilityDataGenerator
 from pathlib import Path
 from futu import OpenQuoteContext, RET_OK  # 添加富途API导入
 
+import requests
+import json
+from pathlib import Path
+import os
+
+from utils.config_utils import get_config_value, save_config_value
+
 # 创建蓝图
 stock_data_bp = Blueprint('stock_data', __name__)
 db = USStockDatabase()
 
+
+# 从配置文件读取 API keys
+
+# 替换原有的静态 API key
+ALPHA_VANTAGE_API_KEY = get_config_value('api_keys.alpha_vantage')
+TIINGO_API_KEY = get_config_value('api_keys.tiingo')
+
+# 添加 API key 检查
+if not ALPHA_VANTAGE_API_KEY:
+    logging.warning("AlphaVantage API key 未配置")
+if not TIINGO_API_KEY:
+    logging.warning("Tiingo API key 未配置")
+# 速率限制：最多 500 次请求/天，10 次/分钟。
+def download_from_tiingo(stock_code, start_date):
+    """从 Tiingo 下载数据"""
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Token {TIINGO_API_KEY}'
+    }
+    
+    # Tiingo API endpoint
+    url = f'https://api.tiingo.com/tiingo/daily/{stock_code}/prices'
+    params = {
+        'startDate': start_date.strftime('%Y-%m-%d'),
+        'endDate': datetime.now().strftime('%Y-%m-%d'),
+        'format': 'json'
+    }
+    
+    response = requests.get(url, headers=headers, params=params)
+    response.raise_for_status()
+    data = response.json()
+    
+    if not data:
+        raise Exception("Tiingo API 返回空数据")
+    
+    # 转换数据格式
+    df_data = []
+    for item in data:
+        # 将字符串日期转换为 datetime 对象
+        date_str = item['date'].split('T')[0]
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        
+        df_data.append({
+            'Date': date_obj,  # 使用 datetime 对象而不是字符串
+            'Open': float(item['open']),
+            'High': float(item['high']),
+            'Low': float(item['low']),
+            'Close': float(item['close']),
+            'Adj Close': float(item['adjClose']),
+        })
+    
+    return pd.DataFrame(df_data).set_index('Date')
+
+def get_preferred_data_source(stock_code):
+    """获取股票首选的数据源"""
+    return get_config_value('data_source.default','yahoo')
+
+def save_preferred_data_source(stock_code, source):
+    """保存股票的首选数据源"""
+    if not save_config_value('data_source.default', source):
+        logging.error(f"保存数据源配置失败: {source}")
+
+def download_from_alpha_vantage(stock_code, start_date):
+    """从 AlphaVantage 下载数据"""
+    url = f'https://www.alphavantage.co/query'
+    params = {
+        'function': 'TIME_SERIES_DAILY_ADJUSTED',
+        'symbol': stock_code,
+        'apikey': ALPHA_VANTAGE_API_KEY,
+        'outputsize': 'full'
+    }
+    
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    data = response.json()
+    
+    if 'Time Series (Daily)' not in data:
+        raise Exception(f"AlphaVantage API 返回无效数据: {data.get('Note', '未知错误')}")
+    
+    # 转换数据格式
+    daily_data = data['Time Series (Daily)']
+    df_data = []
+    for date, values in daily_data.items():
+        if date >= start_date.strftime('%Y-%m-%d'):
+            df_data.append({
+                'Date': date,
+                'Open': float(values['1. open']),
+                'High': float(values['2. high']),
+                'Low': float(values['3. low']),
+                'Close': float(values['4. close']),
+                'Adj Close': float(values['5. adjusted close']),
+            })
+    
+    return pd.DataFrame(df_data).set_index('Date')
+
+        
 
 @stock_data_bp.route('/watchlist', methods=['GET'])
 def watchlist_page():
@@ -104,16 +209,36 @@ def download_data():
             })
 
         # 获取股票信息
-        logging.info(f"正在获取 {stock_code} 的股票基本信息...")
-        ticker = yf.Ticker(stock_code)
-        stock_info = ticker.info
-        stock_name = stock_info.get('longName') or stock_info.get('shortName', '')
-        logging.info(f"成功获取股票信息: {stock_name}")
+        # 获取股票信息和数据
+        logging.info(f"正在获取 {stock_code} 的数据...")
+        preferred_source = get_preferred_data_source(stock_code)
         
-        # 下载股价数据
-        logging.info(f"开始从 Yahoo Finance 下载 {stock_code} 的历史数据...")
-        data = yf.download(stock_code, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
-        
+        try:
+            if preferred_source == 'alphavantage':
+                data = download_from_alpha_vantage(stock_code, start_date)
+                stock_name = stock_code  # AlphaVantage 可能无法获取股票名称
+            elif preferred_source == 'tiingo':
+                data = download_from_tiingo(stock_code, start_date)
+                stock_name = stock_code  # Tiingo 也可能无法获取股票名称
+            else:
+                # 尝试使用 Yahoo Finance
+                ticker = yf.Ticker(stock_code)
+                stock_info = ticker.info
+                stock_name = stock_info.get('longName') or stock_info.get('shortName', '')
+                data = yf.download(stock_code, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
+        except Exception as e:
+            if preferred_source == 'yahoo':
+                # Yahoo 失败时切换到 AlphaVantage
+                logging.warning(f"Yahoo Finance 下载失败，切换到 AlphaVantage: {e}")
+                try:
+                    data = download_from_alpha_vantage(stock_code, start_date)
+                    stock_name = stock_code
+                    save_preferred_data_source(stock_code, 'alphavantage')
+                    logging.info(f"成功从 AlphaVantage 获取数据，已更新首选数据源")
+                except Exception as alpha_error:
+                    raise Exception(f"所有数据源都失败。Yahoo: {e}, AlphaVantage: {alpha_error}")
+            else:
+                raise e
         if data.empty:
             logging.warning(f"股票 {stock_code} 没有获取到任何数据")
             return jsonify({"error": "未能获取到任何数据"}), 404
@@ -292,35 +417,64 @@ def download_hk_data():
             "details": str(e),
             "stack_trace": stack_trace
         }), 500
+    
+
+def get_price_from_web(stock_code, market_type):
+    """从雅虎财经网页抓取当前价格"""
+    symbol = f"{stock_code}.HK" if market_type == 'HK' else stock_code
+    url = f"https://finance.yahoo.com/quote/{symbol}"
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # 查找价格元素 - 更新选择器以匹配实际的HTML结构
+        price_element = soup.find('span', {'class': 'base', 'data-testid': 'qsp-price'})
+        
+        if price_element:
+            # 移除逗号和空格后再转换为浮点数
+            price_text = price_element.text.replace(',', '').strip()
+            return float(price_text)
+        else:
+            raise Exception(f"未找到{stock_code}的价格数据")
+            
+    except Exception as e:
+        logging.error(f"从网页抓取价格失败: {e}")
+        raise
 
 @stock_data_bp.route('/api/current_price/<stock_code>', methods=['GET'])
 def get_current_price(stock_code):
     """获取指定股票的当前价格"""
     try:
-        # 从请求参数中获取市场类型，默认为US
         market_type = request.args.get('market_type', 'US')
-        
         logging.info(f"开始获取{market_type}市场的{stock_code}当前价格")
         
-        # 根据市场类型构建完整的股票代码
         full_code = f"{stock_code}.HK" if market_type == 'HK' else stock_code
+        price_source = get_config_value('price_source.type', 'web')
         
-        # 使用yfinance获取实时数据
-        ticker = yf.Ticker(full_code)
-        current_data = ticker.history(period='1d')
-        
-        if current_data.empty:
-            logging.warning(f"无法获取{stock_code}的当前价格数据")
-            return jsonify({"error": "无法获取当前价格"}), 404
+        if price_source == 'web':
+            latest_price = get_price_from_web(stock_code, market_type)
+        else:
+            # 使用原有的API方式
+            ticker = yf.Ticker(full_code)
+            current_data = ticker.history(period='1d')
             
-        # 获取最新价格
-        latest_price = float(current_data['Close'].iloc[-1])
+            if current_data.empty:
+                raise Exception("无法获取当前价格数据")
+                
+            latest_price = float(current_data['Close'].iloc[-1])
         
-        logging.info(f"成功获取{stock_code}当前价格: {latest_price}")
+        logging.info(f"成功获取{stock_code}当前价格: {latest_price} (来源: {price_source})")
         return jsonify({
             "stock_code": stock_code,
             "market_type": market_type,
             "current_price": latest_price,
+            "source": price_source,
             "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
         
@@ -346,6 +500,11 @@ def get_price_range(stock_code):
     """获取指定股票的价格区间数据"""
     try:
         market_type = request.args.get('market_type', 'US')
+        
+        # 处理港股代码格式
+        if market_type == 'HK':
+            # 只保留最后4位数字
+            stock_code = stock_code[-4:].zfill(4)
         
         # 获取价格数据
         price_data = db.get_stock_prices(stock_code, market_type)
@@ -600,4 +759,66 @@ def get_earnings_volatility(stock_code):
         return jsonify({
             'error': '获取财报波动数据失败',
             'details': str(e)
+        }), 500
+    
+def get_option_delta_from_barchart(stock_code, expiry_date, strike_price, option_type):
+    """从 BarChart 获取期权的 delta 值"""
+    url = f'https://www.barchart.com/stocks/quotes/{stock_code}|{expiry_date}|{strike_price:.2f}{option_type}/overview'
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # 更新选择器以匹配实际的HTML结构
+        delta_element = soup.find('span', {
+            'class': 'right ng-hide',
+            'data-ng-show': "key === 'source'"
+        })
+        
+        if delta_element:
+            # 查找内部的 span 元素
+            value_span = delta_element.find('span', {'data-ng-bind-html': 'value'})
+            if value_span and value_span.text:
+                try:
+                    return float(value_span.text.strip())
+                except ValueError:
+                    raise Exception(f"无法解析delta值: {value_span.text}")
+        
+        raise Exception("未找到delta数据")
+            
+    except Exception as e:
+        logging.error(f"从BarChart获取期权delta值失败: {e}")
+        raise
+
+@stock_data_bp.route('/api/option_delta/<option_symbol>', methods=['GET'])
+def get_option_delta_api(option_symbol):
+    """获取期权delta值的API接口"""
+    try:
+        # 解析期权代码，例如：AAPL250321P00205000
+        match = re.match(r'([A-Z]+)(\d{2})(\d{2})(\d{2})([CP])(\d+)', option_symbol)
+        if not match:
+            return jsonify({"error": "无效的期权代码格式"}), 400
+            
+        stock_code = match.group(1)
+        year = '20' + match.group(2)
+        month = match.group(3)
+        day = match.group(4)
+        option_type = match.group(5)
+        strike_price = float(match.group(6)) / 1000  # 转换为实际价格
+        
+        expiry_date = f"{year}{month}{day}"
+        
+        delta = get_option_delta_from_barchart(stock_code, expiry_date, strike_price, option_type)
+        return jsonify({"delta": delta})
+        
+    except Exception as e:
+        return jsonify({
+            "error": "获取期权delta值失败",
+            "details": str(e)
         }), 500

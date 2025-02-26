@@ -41,7 +41,7 @@ class StockChart {
         }
     }
 
-    showChart(symbol, options = [], button) {
+    showChart(symbol, options = [], button, market = 'US') {
         const modalTitle = document.querySelector('#stock-chart-modal .modal-title');
         modalTitle.textContent = `${symbol} 股票走势图`;
 
@@ -68,7 +68,7 @@ class StockChart {
         }
 
         // 获取价格数据
-        const url = `/api/price_range/${symbol}${currentPrice ? `?current_price=${currentPrice}` : ''}`;
+        const url = `/api/price_range/${symbol}?market_type=${market}${currentPrice ? `&current_price=${currentPrice}` : ''}`;
         
         fetch(url)
             .then(response => response.json())

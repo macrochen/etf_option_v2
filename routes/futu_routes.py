@@ -3,18 +3,26 @@ from futu import *
 import logging
 import traceback
 
+from routes.tiger_routes import HK_STOCK_NAMES
+
 futu_bp = Blueprint('futu', __name__)
 # 在文件开头添加映射表
 STOCK_NAME_MAPPING = {
     '中国平安': '平安',
     '腾讯控股': '腾讯',
+    '安踏体育': '安踏',
+    '携程集团': '携程',
+    '比亚迪股份': '比亚迪',
     '美团-W': '美团',
     '京东集团-SW': '京东',
+    '阿里巴巴-W': '阿里',
     # 可以根据需要添加更多映射
 }
 
 # 添加反向映射
 OPTION_NAME_MAPPING = {v: k for k, v in STOCK_NAME_MAPPING.items()}
+NAME_TO_CODE_MAPPING = {v: k for k, v in HK_STOCK_NAMES.items()}  # 使用 HK_STOCK_NAMES 创建反向映射
+
 
 @futu_bp.route('/api/futu_positions')
 def get_futu_positions():
@@ -102,6 +110,7 @@ def get_futu_positions():
                 else:
                     grouped_positions[full_name] = {
                         'symbol': full_name,
+                        'code': NAME_TO_CODE_MAPPING.get(full_name),  # 使用反向映射获取代码
                         'stock': None,
                         'options': [position_data],
                         'market': position_data['market'],
@@ -125,6 +134,7 @@ def get_futu_positions():
                     if base_name not in grouped_positions:
                         grouped_positions[base_name] = {
                             'symbol': base_name,
+                            'code': NAME_TO_CODE_MAPPING.get(base_name),  # 使用反向映射获取代码
                             'stock': position_data,
                             'options': [],
                             'market': position_data['market'],

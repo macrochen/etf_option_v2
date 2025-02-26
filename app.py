@@ -8,6 +8,7 @@ from routes.etf_data_routes import etf_data_bp
 from routes.grid_trade_routes import grid_trade_bp
 from routes.tiger_routes import tiger_bp
 from routes.futu_routes import futu_bp
+from routes.earnings_routes import earnings_bp
 
 
 app = Flask(__name__)
@@ -16,11 +17,10 @@ app = Flask(__name__)
 app.register_blueprint(scheme_bp)
 app.register_blueprint(backtest_bp)
 app.register_blueprint(volatility_bp)
-app.register_blueprint(stock_data_bp)  # 注册股票数据蓝图
-app.register_blueprint(etf_data_bp)  # 注册股票数据蓝图
-
-# 注册网格交易蓝图
+app.register_blueprint(stock_data_bp)
+app.register_blueprint(etf_data_bp)
 app.register_blueprint(grid_trade_bp)
+app.register_blueprint(earnings_bp)  # 注册财报分析蓝图
 
 # ETF选项列表
 ETF_OPTIONS = [

@@ -475,11 +475,25 @@ function getCurrentPrice(stockCode, marketType, buttonElement) {
             buttonElement.parentNode.replaceChild(input, buttonElement);
         })
         .catch(error => {
-            // 恢复按钮状态，显示错误信息
-            buttonElement.disabled = false;
-            buttonElement.textContent = '显示价格';
             console.error('获取价格失败:', error);
-            alert('获取价格失败，请重试');
+            // 创建可编辑的输入框
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-control form-control-sm';
+            input.style.width = '100px';
+            input.style.display = 'inline-block';
+            input.placeholder = '请输入价格';
+            
+            // 添加数字输入验证
+            input.addEventListener('input', function() {
+                const value = this.value;
+                if (value && !/^\d*\.?\d*$/.test(value)) {
+                    this.value = value.replace(/[^\d.]/g, '');
+                }
+            });
+            
+            // 替换按钮为输入框
+            buttonElement.parentNode.replaceChild(input, buttonElement);
         });
 }
 

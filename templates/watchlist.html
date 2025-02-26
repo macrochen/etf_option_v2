@@ -91,6 +91,9 @@ function loadWatchlist() {
                         <button class="btn btn-sm btn-warning" onclick="showPriceRange('${stock.code}', '${stock.market}', this)">
                             价格区间
                         </button>
+                        <button class="btn btn-sm btn-danger" onclick="window.open('/earnings_analysis?symbol=${stock.code}', '_blank')">
+                            财报分析
+                        </button>
                     </td>
                 `;
                 tbody.appendChild(row);

@@ -42,6 +42,11 @@ HK_STOCK_NAMES = {
     '03069': '华夏恒生生科',
     '03690': '美团-W',
     '03968': '招商银行',
+    '02020': '安踏体育',
+    '02382': '舜宇光学',
+    '09961': '携程集团',
+    '01211': '比亚迪股份',
+    '09999': '网易',
     '09618': '京东集团-SW'
 }
 
@@ -432,8 +437,8 @@ def get_positions():
                 strike_price = float(symbol_parts[2])  # 转换执行价格为数字
                 option_type = symbol_parts[3]
                 # PUT排在CALL前面，所以PUT用0，CALL用1
-                type_order = 0 if option_type == 'PUT' else 1
-                return (base_symbol, expiry_date, type_order, strike_price)
+                type_order = 0 if option_type == 'CALL' else 1
+                return (base_symbol, expiry_date, type_order, -strike_price)
             return ('', '', 0, 0)  # 默认值，用于无效数据
             
         option_positions = sorted(option_positions, key=option_sort_key)

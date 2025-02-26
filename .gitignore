@@ -52,3 +52,4 @@ ENV/
 .DS_Store
 
 config/
+config/app_config.json
