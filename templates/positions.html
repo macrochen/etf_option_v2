@@ -86,7 +86,6 @@
                     <button class="nav-link" id="futu-tab" data-bs-toggle="tab" data-bs-target="#futu-positions" type="button" role="tab" aria-controls="futu-positions" aria-selected="false">富途持仓</button>
                 </li>
             </ul>
-            
             <div class="tab-content" id="positionTabsContent">
                 <!-- 美股持仓 -->
                 <div class="tab-pane fade show active" id="us-positions" role="tabpanel" aria-labelledby="us-tab">
@@ -354,6 +353,74 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error:', error);
             showError('获取持仓信息失败');
         });
+    
+    // 使用事件委托来处理所有的更新Delta按钮
+    document.addEventListener('click', function(event) {
+        if (event.target.classList.contains('refresh-all-deltas')) {
+            const button = event.target;
+            // 禁用按钮并显示加载状态
+            button.disabled = true;
+            const originalText = button.textContent;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 更新中...';
+            
+            fetch('/api/refresh_all_deltas', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    let successCount = 0;
+                    let failedCount = 0;
+                    
+                    // 更新页面上的delta值
+                    if (data.data.updated_options) {
+                        successCount = data.data.updated_options.length;
+                        data.data.updated_options.forEach(option => {
+                            const refreshButton = document.querySelector(`button[onclick*="${option.symbol}"]`);
+                            if (refreshButton) {
+                                const row = refreshButton.closest('tr');
+                                const deltaSpan = Array.from(row.querySelectorAll('.badge[class*="bg-"]'))
+                                    .find(badge => badge.textContent.includes('Δ'));
+                                
+                                if (deltaSpan) {
+                                    const deltaAbs = Math.abs(option.delta);
+                                    let badgeClass = 'bg-info';
+                                    
+                                    if (deltaAbs >= 0.3) {
+                                        badgeClass = 'bg-danger';  // 高风险红色
+                                    } else if (deltaAbs >= 0.2) {
+                                        badgeClass = 'bg-warning text-dark';  // 中风险黄色
+                                    } else if (deltaAbs >= 0.15) {
+                                        badgeClass = 'bg-secondary';  // 低风险灰色
+                                    }
+                                    
+                                    deltaSpan.className = `badge ${badgeClass}`;
+                                    deltaSpan.textContent = `Δ${formatNumber(option.delta)}`;
+                                }
+                            }
+                        });
+                    }
+                    
+                    if (data.data.failed_options) {
+                        failedCount = data.data.failed_options.length;
+                    }
+                    
+                    alert(`更新完成\n成功：${successCount} 个\n失败：${failedCount} 个`);
+                } else {
+                    alert('更新失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('更新失败，请查看控制台了解详情');
+            })
+            .finally(() => {
+                // 恢复按钮状态
+                button.disabled = false;
+                button.textContent = originalText;
+            });
+        }
+    });
 });
 
 // 添加计算期权总市值的辅助函数
@@ -390,6 +457,9 @@ function renderPositions(container, positions, isFutu = false) {
             <div>
                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleExpirySort(this)">
                     <i class="fas fa-sort-amount-down"></i> 按到期日排序
+                </button>
+                <button class="btn btn-primary btn-sm refresh-all-deltas">
+                    更新Delta
                 </button>
             </div>
             <div class="text-end">
@@ -539,6 +609,54 @@ function renderStockRow(stock, isGroupItem) {
         <td class="text-end">${formatNumber(stock.position_ratio)}%</td>
     </tr>`;
 }
+// 添加刷新delta值的函数
+function refreshOptionDelta(optionSymbol, button) {
+    // 禁用按钮并显示加载状态
+    button.disabled = true;
+    const originalIcon = button.innerHTML;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+    
+    fetch(`/api/refresh_option_delta/${optionSymbol}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // 获取所有带bg-前缀的badge
+            const badges = button.closest('tr').querySelectorAll('.badge[class*="bg-"]');
+            // 找到包含delta值的badge（包含Δ符号的）
+            const deltaSpan = Array.from(badges).find(badge => badge.textContent.includes('Δ'));
+            
+            if (deltaSpan) {
+                const deltaAbs = Math.abs(data.data.delta);
+                let badgeClass = 'bg-info';
+                
+                // 判断风险等级
+                if (deltaAbs >= 0.3) {
+                    badgeClass = 'bg-danger';  // 高风险红色
+                } else if (deltaAbs >= 0.2) {
+                    badgeClass = 'bg-warning text-dark';  // 中风险黄色
+                } else if (deltaAbs >= 0.15) {
+                    badgeClass = 'bg-secondary';  // 低风险灰色
+                }
+                
+                deltaSpan.className = `badge ${badgeClass}`;
+                deltaSpan.textContent = `Δ${formatNumber(data.data.delta)}`;
+            }
+        } else {
+            alert('刷新失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('刷新失败，请查看控制台了解详情');
+    })
+    .finally(() => {
+        // 恢复按钮状态
+        button.disabled = false;
+        button.innerHTML = originalIcon;
+    });
+}
 
 function renderOptionRow(option, isGroupItem) {
     const indent = isGroupItem ? '&nbsp;&nbsp;' : '';
@@ -556,11 +674,39 @@ function renderOptionRow(option, isGroupItem) {
     const expiryWarning = isExpiringThisWeek ? 
         '<span class="badge bg-danger" style="font-size: 10px; padding: 2px 5px; margin-right: 5px;">本周到期</span>' : '';
     
+    // 添加delta值的风险评估和显示
+    let deltaBadgeClass = 'bg-info';  // 默认蓝色
+    const deltaAbs = Math.abs(option.delta || 0);
+    
+    // 对于卖期权（持仓为负）进行风险评估
+    if (option.quantity < 0) {
+        if (deltaAbs >= 0.3) {
+            deltaBadgeClass = 'bg-danger';  // 高风险用红色
+        } else if (deltaAbs >= 0.2) {
+            deltaBadgeClass = 'bg-warning text-dark';  // 中等风险用黄色
+        } else if (deltaAbs >= 0.15) {
+            deltaBadgeClass = 'bg-secondary';  // 低风险用灰色
+        }
+    }
+
+
+    const refreshOption = option.delta !== undefined ? `
+        <button class="btn btn-link btn-sm p-0" style="font-size: 14px;" 
+                onclick="event.stopPropagation(); refreshOptionDelta('${option.futu_symbol}', this)" 
+                title="刷新Delta值">
+            <i class="fas fa-sync-alt"></i>
+        </button>` : '';
+    
+    
+    const deltaDisplay = option.delta !== undefined ? 
+        `<span class="badge ${deltaBadgeClass}" style="font-size: 16px; padding: 2px 5px; margin-right: 5px;">Δ${formatNumber(option.delta)}</span>` : '';
     return `
     <tr>
         <td>
-            ${indent}${option.symbol} ${option.put_call}${warningIcon}
-            <br><small class="text-muted">${indent}${expiryWarning}${option.expiry} ${formatNumber(option.strike)}</small>
+            ${indent}${option.symbol} ${option.put_call}${warningIcon}${refreshOption}
+            <br><small class="text-muted">
+                ${indent}${expiryWarning}${deltaDisplay}${option.expiry} ${formatNumber(option.strike)}
+            </small>
         </td>
         <td class="text-end">${formatNumber(option.market_value)}<br><small class="text-muted">${option.quantity}</small></td>
         <td class="text-end">${formatNumber(option.latest_price)}<br><small class="text-muted">${formatNumber(option.average_cost)}</small></td>

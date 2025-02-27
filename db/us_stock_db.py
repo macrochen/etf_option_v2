@@ -1,7 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import random
 import sqlite3
 import json
 import logging
+from typing import Optional
 from .config import US_STOCK_DB
 from .database import Database  # 引入Database类
 
@@ -52,6 +54,67 @@ class USStockDatabase:
                 PRIMARY KEY (symbol, market)
             )
         ''')
+        
+        # 添加期权delta缓存表
+        self.db.execute('''
+            CREATE TABLE IF NOT EXISTS option_delta_cache (
+                option_symbol VARCHAR(50) PRIMARY KEY,
+                delta FLOAT,
+                update_time TIMESTAMP,
+                next_update_time TIMESTAMP
+            )
+        ''')
+
+    def get_cached_delta(self, option_symbol: str) -> Optional[float]:
+        """从缓存中获取期权delta值
+        
+        Args:
+            option_symbol: 期权代码，例如 'NVDA250321C132000'
+            
+        Returns:
+            float: delta值，如果缓存过期或不存在则返回None
+        """
+        result = self.db.fetch_one('''
+            SELECT delta, next_update_time 
+            FROM option_delta_cache 
+            WHERE option_symbol = ?
+        ''', (option_symbol,))
+        
+        if result:
+            delta, next_update = result
+            if datetime.now() < datetime.fromisoformat(next_update):
+                return delta
+        return None
+
+    def cache_delta(self, option_symbol: str, delta: float):
+        """缓存期权delta值
+        
+        Args:
+            option_symbol: 期权代码
+            delta: delta值
+        """
+        # 随机延迟15-20分钟，避免所有期权同时更新
+        next_update = datetime.now() + timedelta(minutes=15) + timedelta(seconds=random.randint(0, 300))
+        
+        self.db.execute('''
+            INSERT OR REPLACE INTO option_delta_cache 
+            (option_symbol, delta, update_time, next_update_time)
+            VALUES (?, ?, datetime('now'), ?)
+        ''', (option_symbol, delta, next_update.isoformat()))
+
+    def get_expired_delta_options(self) -> list[str]:
+        """获取需要更新delta值的期权列表
+        
+        Returns:
+            list: 需要更新的期权代码列表
+        """
+        results = self.db.fetch_all('''
+            SELECT option_symbol 
+            FROM option_delta_cache 
+            WHERE next_update_time < datetime('now')
+        ''')
+        
+        return [row[0] for row in results]
 
     def batch_save_prev_close_prices(self, price_data_list: list):
         """批量保存上一个交易日收盘价

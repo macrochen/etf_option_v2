@@ -3,6 +3,8 @@ from futu import OpenQuoteContext, RET_OK
 from tigeropen.tiger_open_config import TigerOpenClientConfig
 from tigeropen.common.consts import Language
 from tigeropen.trade.trade_client import TradeClient
+from utils.futu_option import get_option_delta
+
 import os
 import logging
 import traceback
@@ -470,6 +472,18 @@ def get_positions():
                 cost_basis = abs(position.quantity * position.average_cost) if position.quantity and position.average_cost else 0
                 pnl_percentage = (position.unrealized_pnl / cost_basis * 100) if cost_basis else 0
                 market_value = position.market_value * HKD_TO_USD_RATE if contract.market == 'HK' else position.market_value
+
+                # 在option_data字典定义处添加delta值获取逻辑
+                # 构建富途期权代码格式：NVDA250321C132000
+                futu_option_symbol = (
+                    f"{base_symbol}"  # 基础股票代码
+                    f"{expiry_date[2:4]}"  # 年份后两位
+                    f"{expiry_date[4:6]}"  # 月份
+                    f"{expiry_date[6:8]}"  # 日期
+                    f"{option_type[0]}"  # C或P
+                    f"{int(float(strike_price)*1000)}"  # 行权价*1000
+                )
+
                 option_data = {
                     'symbol': base_symbol,
                     'quantity': position.quantity,
@@ -485,7 +499,9 @@ def get_positions():
                     'expiry': formatted_expiry,
                     'put_call': option_type,
                     'daily_pnl': daily_pnl,
-                    'position_ratio': (market_value / total_market_value * 100) if total_market_value else 0
+                    'position_ratio': (market_value / total_market_value * 100) if total_market_value else 0,
+                    'delta': get_option_delta(futu_option_symbol),
+                    'futu_symbol': futu_option_symbol
                 }
                 
                 if base_symbol in grouped_positions:
