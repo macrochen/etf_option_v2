@@ -3,33 +3,59 @@
 {% block content %}
 <div class="container-fluid" style="margin-left:-30px">
     <div class="row justify-content-center">
-        <div class="col-12 col-lg-8">
+        <div class="col-12 col-lg-10">  <!-- 将 col-lg-8 改为 col-lg-10 -->
             <h2 class="text-center">财报期权策略分析</h2>
             <div class="row justify-content-center">
-                <div class="col-12 col-lg-6">
+                <div class="col-12">  <!-- 移除 col-lg-6 使卡片占据整行 -->
                     <div class="card">
                         <div class="card-body">
-                            <div class="form-group">
-                                <label for="symbol">股票代码</label>
-                                <input type="text" class="form-control" id="symbol" placeholder="例如：AAPL" value="{{ symbol }}">
+                            <div class="row">
+                                <!-- 第一列 -->
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="symbol">股票代码</label>
+                                        <input type="text" class="form-control" id="symbol" placeholder="例如：AAPL" value="{{ symbol }}">
+                                    </div>
+                                    <div class="form-group mt-2">
+                                        <label for="atm-call-price">平值看涨期权价格 ($)</label>
+                                        <input type="number" class="form-control" id="atm-call-price" placeholder="例如：2.5" step="0.01">
+                                        <small class="form-text text-muted">输入单张看涨期权的价格</small>
+                                    </div>
+                                    <div class="form-group mt-2">
+                                        <label for="atm-put-price">平值看跌期权价格 ($)</label>
+                                        <input type="number" class="form-control" id="atm-put-price" placeholder="例如：2.3" step="0.01">
+                                        <small class="form-text text-muted">输入单张看跌期权的价格</small>
+                                    </div>
+                                    <div class="form-group mt-2">
+                                        <label for="days-to-expiry">到期天数</label>
+                                        <input type="number" class="form-control" id="days-to-expiry" placeholder="例如：30" step="1">
+                                        <small class="form-text text-muted">输入距离期权到期的天数</small>
+                                    </div>
+                                </div>
+                                
+                                <!-- 第二列 -->
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="current-price-input">当前价格 ($)</label>
+                                        <input type="number" class="form-control" id="current-price-input" placeholder="可选，留空则自动获取" step="0.01">
+                                    </div>
+                                    <div class="form-group mt-2">
+                                        <label for="atm-call-iv">平值看涨期权IV (%)</label>
+                                        <input type="number" class="form-control" id="atm-call-iv" placeholder="例如：50" step="0.01">
+                                        <small class="form-text text-muted">输入看涨期权的隐含波动率</small>
+                                    </div>
+                                    <div class="form-group mt-2">
+                                        <label for="atm-put-iv">平值看跌期权IV (%)</label>
+                                        <input type="number" class="form-control" id="atm-put-iv" placeholder="例如：50" step="0.01">
+                                        <small class="form-text text-muted">输入看跌期权的隐含波动率</small>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="form-group mt-2">
-                                <label for="current-price-input">当前价格 ($)</label>
-                                <input type="number" class="form-control" id="current-price-input" placeholder="可选，留空则自动获取" step="0.01">
-                                <small class="form-text text-muted">如果不输入，系统将自动获取最新价格</small>
-                            </div>
-                            <div class="form-group mt-2">
-                                <label for="atm-call-price">平值看涨期权价格 ($)</label>
-                                <input type="number" class="form-control" id="atm-call-price" placeholder="例如：2.5" step="0.01">
-                                <small class="form-text text-muted">输入单张看涨期权的价格</small>
-                            </div>
-                            <div class="form-group mt-2">
-                                <label for="atm-put-price">平值看跌期权价格 ($)</label>
-                                <input type="number" class="form-control" id="atm-put-price" placeholder="例如：2.3" step="0.01">
-                                <small class="form-text text-muted">输入单张看跌期权的价格</small>
-                            </div>
-                            <div class="text-center mt-3">
-                                <button class="btn btn-primary" id="analyze-btn">分析</button>
+                            <!-- 分析按钮单独一行 -->
+                            <div class="row mt-4">
+                                <div class="col-12">
+                                    <button class="btn btn-primary w-100" id="analyze-btn">分析</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -50,12 +76,32 @@
         <div id="analysis-results" style="display: none;">
             <div class="row justify-content-center">
                 <div class="col-12 col-lg-10">
-                    <!-- 分析结果卡片 -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">分析结果</h5>
+                    <div class="card mt-4">
+                        <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#ivAnalysis" aria-expanded="true" aria-controls="ivAnalysis" style="cursor: pointer;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">基于IV的预期波动分析</h5>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
                         </div>
-                        <div class="card-body">
+                        <div id="ivAnalysis" class="collapse show">
+                            <div class="card-body">
+                                <div id="iv-analysis-content">
+                                    <!-- 动态内容将被 JavaScript 插入到这里 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 分析结果卡片 -->
+                    <div class="card mt-4">
+                        <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#historicalAnalysis" aria-expanded="true" aria-controls="historicalAnalysis" style="cursor: pointer;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">基于历史财报分析结果</h5>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                        </div>
+                        <div id="historicalAnalysis" class="collapse show">
+                            <div class="card-body">
                             <div class="row">
                                 <div class="col-md-4">
                                     <h6>当前价格</h6>
@@ -92,10 +138,14 @@
                     
                     <!-- Straddles策略分析卡片 -->
                     <div class="card mt-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">Straddles策略分析</h5>
+                        <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#straddlesAnalysis" aria-expanded="true" aria-controls="straddlesAnalysis" style="cursor: pointer;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Straddles策略分析</h5>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
                         </div>
-                        <div class="card-body">
+                        <div id="straddlesAnalysis" class="collapse show">
+                            <div class="card-body">
                             <div class="row">
                                 <div class="col-md-6">
                                     <h6>对称策略分析</h6>
@@ -121,20 +171,28 @@
                     
                     <!-- 历史价格走势卡片 -->
                     <div class="card mt-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">历史价格走势与行权价位置</h5>
+                        <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#priceChart" aria-expanded="true" aria-controls="priceChart" style="cursor: pointer;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">历史价格走势与行权价位置</h5>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
                         </div>
-                        <div class="card-body">
+                        <div id="priceChart" class="collapse show">
+                            <div class="card-body">
                             <div id="price-chart" style="height: 600px;"></div>
                         </div>
                     </div>
                     
                     <!-- 历史财报波动数据卡片 -->
                     <div class="card mt-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">历史财报波动数据</h5>
+                        <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#historyData" aria-expanded="true" aria-controls="historyData" style="cursor: pointer;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">历史财报波动数据</h5>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
                         </div>
-                        <div class="card-body">
+                        <div id="historyData" class="collapse show">
+                            <div class="card-body">
                             <div id="history-chart" style="height: 400px;"></div>
                             <div class="table-responsive mt-4">
                                 <table class="table table-striped">
@@ -151,13 +209,18 @@
                                 </table>
                             </div>
                         </div>
-                    </div>
-
+                    </div>·
+                    
+                    <!-- 蒙特卡洛模拟分析卡片 -->
                     <div class="card mt-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">蒙特卡洛模拟分析</h5>
+                        <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#monteCarloAnalysis" aria-expanded="true" aria-controls="monteCarloAnalysis" style="cursor: pointer;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">基于蒙特卡洛模拟分析</h5>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
                         </div>
-                        <div class="card-body">
+                        <div id="monteCarloAnalysis" class="collapse show">
+                            <div class="card-body">
                             <div class="row">
                                 <div class="col-md-6">
                                     <h6>预期变动</h6>
@@ -250,6 +313,10 @@ document.addEventListener('DOMContentLoaded', function() {
 function analyzeEarnings() {
     const symbol = document.getElementById('symbol').value.trim().toUpperCase();
     const currentPrice = document.getElementById('current-price-input').value;
+    const atmCallIv = document.getElementById('atm-call-iv').value;
+    const atmPutIv = document.getElementById('atm-put-iv').value;
+    const daysToExpiry = document.getElementById('days-to-expiry').value;
+
     if (!symbol) {
         showError('请输入股票代码');
         return;
@@ -263,8 +330,11 @@ function analyzeEarnings() {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({ symbol: symbol,
-            current_price: currentPrice || null  // 如果没有输入则传null
-             })
+            current_price: currentPrice || null,  // 如果没有输入则传null
+            atm_call_iv: atmCallIv || null,
+            atm_put_iv: atmPutIv || null,
+            days_to_expiry: daysToExpiry || null
+        })
     })
     .then(response => response.json())
     .then(data => {
@@ -295,10 +365,29 @@ function showError(message) {
     document.getElementById('analysis-results').style.display = 'none';
 }
 
-function showResults(data) {
-    document.getElementById('analysis-results').style.display = 'block';
+function clearPreviousResults() {
+    // 清空 IV 分析内容
+    const ivContent = document.getElementById('iv-analysis-content');
+    if (ivContent) {
+        ivContent.innerHTML = '';
+    }
 
-    // 添加 Straddles 策略分析
+    // 清除之前的风险分析结果
+    const oldRiskAnalysis = document.getElementById('risk-analysis');
+    if (oldRiskAnalysis) {
+        oldRiskAnalysis.remove();
+    }
+
+    // 清除图表
+    Plotly.purge('history-chart');
+    Plotly.purge('price-chart');
+    Plotly.purge('monte-carlo-chart');
+
+    // 清除历史数据表格
+    document.getElementById('history-table').innerHTML = '';
+}
+
+function showStraddlesAnalysis(data) {
     const atmCallPrice = parseFloat(document.getElementById('atm-call-price').value);
     const atmPutPrice = parseFloat(document.getElementById('atm-put-price').value);
     
@@ -356,13 +445,16 @@ function showResults(data) {
     } else {
         // 如果没有输入期权价格，显示提示信息
         const elements = ['symmetric-cost', 'symmetric-required-move', 'symmetric-expected-move', 
-                         'symmetric-profit-analysis', 'asymmetric-cost', 'asymmetric-required-move', 
-                         'asymmetric-expected-move', 'asymmetric-profit-analysis'];
+                            'symmetric-profit-analysis', 'asymmetric-cost', 'asymmetric-required-move', 
+                            'asymmetric-expected-move', 'asymmetric-profit-analysis'];
         elements.forEach(id => {
             document.getElementById(id).textContent = '请输入平值期权价格';
             document.getElementById(id).className = 'text-muted';
         });
     }
+}
+
+function showBasicInfo(data) {
     
     // 显示当前价格
     document.getElementById('current-price').textContent = 
@@ -389,7 +481,10 @@ function showResults(data) {
         data.suggested_strikes.asymmetric.put_strike || '暂无数据';
     document.getElementById('asymmetric-call-strike').textContent = 
         data.suggested_strikes.asymmetric.call_strike || '暂无数据';
-    
+
+}
+
+function showHistoricalData(data) {
     // 绘制历史波动图表
     const trace = {
         x: data.historical_data.dates,
@@ -430,195 +525,207 @@ function showResults(data) {
         `;
         tableBody.appendChild(row);
     }
-    
-    // 绘制价格走势图
+}
+
+function showPriceChart(data) {
     const symbol = document.getElementById('symbol').value.trim().toUpperCase();
     fetch(`/api/price_range/${symbol}?market_type=US`)
         .then(response => response.json())
         .then(priceData => {
-            const priceTrace = {
-                x: priceData.dates.map(date => new Date(date)),
-                y: priceData.closes,
-                type: 'scatter',
-                mode: 'lines',
-                name: '股票价格',
-                line: {
-                    color: '#67B8F7',
-                    width: 2
-                }
-            };
-
-            const traces = [priceTrace];
-
-            // 提前解析行权价值
-            let putStrikeValue, callStrikeValue, asymPutStrikeValue, asymCallStrikeValue;
-            if (data.suggested_strikes.symmetric.put_strike) {
-                putStrikeValue = parseFloat(data.suggested_strikes.symmetric.put_strike.split(' ')[0].substring(1));
-                callStrikeValue = parseFloat(data.suggested_strikes.symmetric.call_strike.split(' ')[0].substring(1));
-            }
-            if (data.suggested_strikes.asymmetric.put_strike) {
-                asymPutStrikeValue = parseFloat(data.suggested_strikes.asymmetric.put_strike.split(' ')[0].substring(1));
-                asymCallStrikeValue = parseFloat(data.suggested_strikes.asymmetric.call_strike.split(' ')[0].substring(1));
-            }
-
-            // 添加对称策略看跌行权价线
-            if (data.suggested_strikes.symmetric.put_strike) {
-                traces.push({
-                    x: priceData.dates.map(date => new Date(date)),
-                    y: Array(priceData.dates.length).fill(putStrikeValue),
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: '对称看跌行权价',
-                    line: {
-                        color: '#dc3545',
-                        dash: 'dash',
-                        width: 1
-                    }
-                });
-            }
-
-            // 添加当前价格线
-            if (data.current_price) {
-                traces.push({
-                    x: priceData.dates.map(date => new Date(date)),
-                    y: Array(priceData.dates.length).fill(data.current_price),
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: '当前价格',
-                    line: {
-                        color: '#000000',
-                        dash: 'dot',
-                        width: 1
-                    }
-                });
-            }
-
-            // 添加对称策略看涨行权价线
-            if (data.suggested_strikes.symmetric.call_strike) {
-                traces.push({
-                    x: priceData.dates.map(date => new Date(date)),
-                    y: Array(priceData.dates.length).fill(callStrikeValue),
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: '对称看涨行权价',
-                    line: {
-                        color: '#28a745',
-                        dash: 'dash',
-                        width: 1
-                    }
-                });
-            }
-
-            // 添加不对称策略行权价线
-            if (data.suggested_strikes.asymmetric.put_strike) {
-                const asymPutStrikeValue = parseFloat(data.suggested_strikes.asymmetric.put_strike.split(' ')[0].substring(1));
-                const asymCallStrikeValue = parseFloat(data.suggested_strikes.asymmetric.call_strike.split(' ')[0].substring(1));
-                
-                traces.push(
-                    {
-                        x: data.historical_data.dates,
-                        y: Array(data.historical_data.dates.length).fill(asymPutStrikeValue),
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: '不对称看跌行权价',
-                        line: {
-                            color: '#dc3545',
-                            dash: 'dot',
-                            width: 1
-                        }
-                    },
-                    {
-                        x: data.historical_data.dates,
-                        y: Array(data.historical_data.dates.length).fill(asymCallStrikeValue),
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: '不对称看涨行权价',
-                        line: {
-                            color: '#28a745',
-                            dash: 'dot',
-                            width: 1
-                        }
-                    }
-                );
-            }
-
-            const priceLayout = {
-                title: '历史价格走势与行权价位置',
-                height: 600,  // 保持图表高度
-                xaxis: {
-                    title: '',
-                    showgrid: true,
-                    type: 'date',
-                    rangeslider: { visible: true }
-                },
-                yaxis: {
-                    title: '价格 ($)',
-                    showgrid: true
-                },
-                showlegend: true,
-                legend: {
-                    orientation: 'h',     // 水平排列图例
-                    y: -0.3,             // 将图例位置往下移动更多
-                    yanchor: 'top',      // 图例顶部对齐
-                    xanchor: 'center',   // 图例居中对齐
-                    x: 0.5              // 水平居中位置
-                },
-                margin: {
-                    l: 50,    // 左边距
-                    r: 50,    // 右边距
-                    t: 50,    // 顶部边距
-                    b: 150    // 增加底部边距，为图例留出更多空间
-                },
-                hovermode: 'closest'
-            };
-
-            const config = {
-                responsive: true,
-                displayModeBar: true,
-                modeBarButtonsToAdd: ['drawline', 'drawopenpath', 'eraseshape'],
-                // 添加时间范围选择按钮
-                rangeselector: {
-                    buttons: [
-                        {
-                            count: 1,
-                            label: '1月',
-                            step: 'month',
-                            stepmode: 'backward'
-                        },
-                        {
-                            count: 6,
-                            label: '6月',
-                            step: 'month',
-                            stepmode: 'backward'
-                        },
-                        {
-                            count: 1,
-                            label: '1年',
-                            step: 'year',
-                            stepmode: 'backward'
-                        },
-                        {
-                            step: 'all',
-                            label: '全部'
-                        }
-                    ]
-                }
-            };
-
+            const traces = [createPriceTrace(priceData)];
+            addStrikeLines(traces, data, priceData);
+            const priceLayout = createPriceLayout();
+            const config = createChartConfig();
+            
             Plotly.newPlot('price-chart', traces, priceLayout, config);
         })
         .catch(error => {
             console.error('获取价格数据失败:', error);
             showError('获取价格数据失败：' + error.message);
         });
+}
 
-    // 显示蒙特卡洛分析结果
-    const expectedChange = data.monte_carlo.expected_change;
-    const p5 = data.monte_carlo.percentiles.p5;
-    const p95 = data.monte_carlo.percentiles.p95;
-    const currentPrice = data.current_price;
+function createPriceTrace(priceData) {
+    return {
+        x: priceData.dates.map(date => new Date(date)),
+        y: priceData.closes,
+        type: 'scatter',
+        mode: 'lines',
+        name: '股票价格',
+        line: {
+            color: '#67B8F7',
+            width: 2
+        }
+    };
+}
+
+function addStrikeLines(traces, data, priceData) {
+    // 提前解析行权价值
+    let putStrikeValue, callStrikeValue, asymPutStrikeValue, asymCallStrikeValue;
+    if (data.suggested_strikes.symmetric.put_strike) {
+        putStrikeValue = parseFloat(data.suggested_strikes.symmetric.put_strike.split(' ')[0].substring(1));
+        callStrikeValue = parseFloat(data.suggested_strikes.symmetric.call_strike.split(' ')[0].substring(1));
+        
+        // 添加对称策略行权价线
+        addSymmetricStrikeLines(traces, priceData, putStrikeValue, callStrikeValue);
+    }
+
+    // 添加当前价格线
+    if (data.current_price) {
+        addCurrentPriceLine(traces, priceData, data.current_price);
+    }
+
+    // 添加不对称策略行权价线
+    if (data.suggested_strikes.asymmetric.put_strike) {
+        asymPutStrikeValue = parseFloat(data.suggested_strikes.asymmetric.put_strike.split(' ')[0].substring(1));
+        asymCallStrikeValue = parseFloat(data.suggested_strikes.asymmetric.call_strike.split(' ')[0].substring(1));
+        addAsymmetricStrikeLines(traces, data, asymPutStrikeValue, asymCallStrikeValue);
+    }
+}
+
+function addSymmetricStrikeLines(traces, priceData, putStrikeValue, callStrikeValue) {
+    traces.push({
+        x: priceData.dates.map(date => new Date(date)),
+        y: Array(priceData.dates.length).fill(putStrikeValue),
+        type: 'scatter',
+        mode: 'lines',
+        name: '对称看跌行权价',
+        line: {
+            color: '#dc3545',
+            dash: 'dash',
+            width: 1
+        }
+    }, {
+        x: priceData.dates.map(date => new Date(date)),
+        y: Array(priceData.dates.length).fill(callStrikeValue),
+        type: 'scatter',
+        mode: 'lines',
+        name: '对称看涨行权价',
+        line: {
+            color: '#28a745',
+            dash: 'dash',
+            width: 1
+        }
+    });
+}
+
+function addCurrentPriceLine(traces, priceData, currentPrice) {
+    traces.push({
+        x: priceData.dates.map(date => new Date(date)),
+        y: Array(priceData.dates.length).fill(currentPrice),
+        type: 'scatter',
+        mode: 'lines',
+        name: '当前价格',
+        line: {
+            color: '#000000',
+            dash: 'dot',
+            width: 1
+        }
+    });
+}
+
+function addAsymmetricStrikeLines(traces, data, asymPutStrikeValue, asymCallStrikeValue) {
+    traces.push({
+        x: data.historical_data.dates,
+        y: Array(data.historical_data.dates.length).fill(asymPutStrikeValue),
+        type: 'scatter',
+        mode: 'lines',
+        name: '不对称看跌行权价',
+        line: {
+            color: '#dc3545',
+            dash: 'dot',
+            width: 1
+        }
+    }, {
+        x: data.historical_data.dates,
+        y: Array(data.historical_data.dates.length).fill(asymCallStrikeValue),
+        type: 'scatter',
+        mode: 'lines',
+        name: '不对称看涨行权价',
+        line: {
+            color: '#28a745',
+            dash: 'dot',
+            width: 1
+        }
+    });
+}
+
+function createPriceLayout() {
+    return {
+        title: '历史价格走势与行权价位置',
+        height: 600,
+        xaxis: {
+            title: '',
+            showgrid: true,
+            type: 'date',
+            rangeslider: { visible: true }
+        },
+        yaxis: {
+            title: '价格 ($)',
+            showgrid: true
+        },
+        showlegend: true,
+        legend: {
+            orientation: 'h',
+            y: -0.3,
+            yanchor: 'top',
+            xanchor: 'center',
+            x: 0.5
+        },
+        margin: {
+            l: 50,
+            r: 50,
+            t: 50,
+            b: 150
+        },
+        hovermode: 'closest'
+    };
+}
+
+function createChartConfig() {
+    return {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToAdd: ['drawline', 'drawopenpath', 'eraseshape'],
+        rangeselector: {
+            buttons: [
+                {
+                    count: 1,
+                    label: '1月',
+                    step: 'month',
+                    stepmode: 'backward'
+                },
+                {
+                    count: 6,
+                    label: '6月',
+                    step: 'month',
+                    stepmode: 'backward'
+                },
+                {
+                    count: 1,
+                    label: '1年',
+                    step: 'year',
+                    stepmode: 'backward'
+                },
+                {
+                    step: 'all',
+                    label: '全部'
+                }
+            ]
+        }
+    };
+}
+
+function showMonteCarloAnalysis(data) {
+    const { monte_carlo, current_price } = data;
+    const { expected_change, percentiles, simulated_changes } = monte_carlo;
     
-    // 计算不同分位数对应的预期价格
+    showMonteCarloBasicInfo(expected_change, percentiles, current_price);
+    showRiskAnalysis(percentiles, simulated_changes);
+    showMonteCarloChart(simulated_changes, expected_change);
+}
+
+function showMonteCarloBasicInfo(expectedChange, percentiles, currentPrice) {
     const calculatePrice = (change) => (currentPrice * (1 + change/100)).toFixed(2);
     
     document.getElementById('monte-carlo-expected').innerHTML = 
@@ -628,37 +735,51 @@ function showResults(data) {
     
     // 添加分位数说明和对应价格
     const percentileExplanations = {
-        p5: `${p5.toFixed(2)}%<br>
+        p5: `${percentiles.p5.toFixed(2)}%<br>
             <small class="text-muted">表示有5%的概率跌幅会超过这个数值</small>
-            ${currentPrice ? `<br><small class="text-danger">对应价格: $${calculatePrice(p5)}</small>` : ''}`,
-        p25: `${data.monte_carlo.percentiles.p25.toFixed(2)}%<br>
+            ${currentPrice ? `<br><small class="text-danger">对应价格: $${calculatePrice(percentiles.p5)}</small>` : ''}`,
+        p25: `${percentiles.p25.toFixed(2)}%<br>
             <small class="text-muted">表示有25%的概率变动幅度会低于这个数值</small>
-            ${currentPrice ? `<br><small class="text-primary">对应价格: $${calculatePrice(data.monte_carlo.percentiles.p25)}</small>` : ''}`,
-        p50: `${data.monte_carlo.percentiles.p50.toFixed(2)}%<br>
+            ${currentPrice ? `<br><small class="text-primary">对应价格: $${calculatePrice(percentiles.p25)}</small>` : ''}`,
+        p50: `${percentiles.p50.toFixed(2)}%<br>
             <small class="text-muted">中位数，一半的模拟结果高于此值，一半低于此值</small>
-            ${currentPrice ? `<br><small class="text-primary">对应价格: $${calculatePrice(data.monte_carlo.percentiles.p50)}</small>` : ''}`,
-        p75: `${data.monte_carlo.percentiles.p75.toFixed(2)}%<br>
+            ${currentPrice ? `<br><small class="text-primary">对应价格: $${calculatePrice(percentiles.p50)}</small>` : ''}`,
+        p75: `${percentiles.p75.toFixed(2)}%<br>
             <small class="text-muted">表示有75%的概率变动幅度会低于这个数值</small>
-            ${currentPrice ? `<br><small class="text-primary">对应价格: $${calculatePrice(data.monte_carlo.percentiles.p75)}</small>` : ''}`,
-        p95: `${p95.toFixed(2)}%<br>
+            ${currentPrice ? `<br><small class="text-primary">对应价格: $${calculatePrice(percentiles.p75)}</small>` : ''}`,
+        p95: `${percentiles.p95.toFixed(2)}%<br>
             <small class="text-muted">表示有5%的概率涨幅会超过这个数值</small>
-            ${currentPrice ? `<br><small class="text-success">对应价格: $${calculatePrice(p95)}</small>` : ''}`
+            ${currentPrice ? `<br><small class="text-success">对应价格: $${calculatePrice(percentiles.p95)}</small>` : ''}`
     };
     
     Object.keys(percentileExplanations).forEach(key => {
         document.getElementById(`monte-carlo-${key}`).innerHTML = percentileExplanations[key];
     });
-    
-    // 添加风险提示
+}
+
+function showRiskAnalysis(percentiles, simulated_changes) {
+    const { p5, p95 } = percentiles;
     const riskRange = Math.abs(p95 - p5).toFixed(2);
-    const upProbability = data.monte_carlo.simulated_changes.filter(x => x > 0).length / data.monte_carlo.simulated_changes.length * 100;
-    const bigDropProb = data.monte_carlo.simulated_changes.filter(x => x < -5).length / data.monte_carlo.simulated_changes.length * 100;
-    const bigRiseProb = data.monte_carlo.simulated_changes.filter(x => x > 5).length / data.monte_carlo.simulated_changes.length * 100;
+    const upProbability = simulated_changes.filter(x => x > 0).length / simulated_changes.length * 100;
+    const bigDropProb = simulated_changes.filter(x => x < -5).length / simulated_changes.length * 100;
+    const bigRiseProb = simulated_changes.filter(x => x > 5).length / simulated_changes.length * 100;
     
     // 计算标准差
-    const mean = data.monte_carlo.simulated_changes.reduce((a, b) => a + b, 0) / data.monte_carlo.simulated_changes.length;
-    const stdDev = Math.sqrt(data.monte_carlo.simulated_changes.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / data.monte_carlo.simulated_changes.length).toFixed(2);
+    const mean = simulated_changes.reduce((a, b) => a + b, 0) / simulated_changes.length;
+    const stdDev = Math.sqrt(simulated_changes.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / simulated_changes.length).toFixed(2);
     
+    const riskAnalysis = createRiskAnalysisElement(riskRange, p5, p95, stdDev, mean, upProbability, bigDropProb, bigRiseProb);
+    
+    // 修改插入位置
+    const riskContainer = document.getElementById('risk-analysis-container');
+    const oldAnalysis = document.getElementById('risk-analysis');
+    if (oldAnalysis) {
+        oldAnalysis.remove();
+    }
+    riskContainer.appendChild(riskAnalysis);
+}
+
+function createRiskAnalysisElement(riskRange, p5, p95, stdDev, mean, upProbability, bigDropProb, bigRiseProb) {
     const riskAnalysis = document.createElement('div');
     riskAnalysis.className = 'alert alert-info mt-3';
     riskAnalysis.id = 'risk-analysis';
@@ -705,22 +826,12 @@ function showResults(data) {
             </ul>
         </div>
     `;
-    
-    // 在插入新的分析结果前，先清除旧的分析结果
-    const chartElement = document.getElementById('monte-carlo-chart');
-    const oldAnalysis = document.getElementById('risk-analysis');
-    if (oldAnalysis) {
-        oldAnalysis.remove();
-    }
-    chartElement.parentNode.insertBefore(riskAnalysis, chartElement);
-    
-    // 修改插入位置
-    const riskContainer = document.getElementById('risk-analysis-container');
-    riskContainer.appendChild(riskAnalysis);
+    return riskAnalysis;
+}
 
-    // 绘制蒙特卡洛模拟分布图
+function showMonteCarloChart(simulated_changes, expected_change) {
     const monteCarloTrace = {
-        x: data.monte_carlo.simulated_changes,
+        x: simulated_changes,
         type: 'histogram',
         name: '模拟结果分布',
         marker: {
@@ -738,7 +849,7 @@ function showResults(data) {
         },
         showlegend: false,
         annotations: [{
-            x: expectedChange,
+            x: expected_change,
             y: 0,
             xref: 'x',
             yref: 'paper',
@@ -751,6 +862,61 @@ function showResults(data) {
     };
     
     Plotly.newPlot('monte-carlo-chart', [monteCarloTrace], monteCarloLayout);
+}
+
+function showIVAnalysis(data) {
+    if (!data.iv_analysis) {
+        return;
+    }
+
+    const ivAnalysisHtml = createIVAnalysisHTML(data.iv_analysis);
+    insertIVAnalysis(ivAnalysisHtml);
+}
+
+function createIVAnalysisHTML(ivAnalysis) {
+    return `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>预期波动范围</h6>
+                <ul class="list-unstyled">
+                    <li>美元波动: ±$${ivAnalysis.expected_move_dollar.toFixed(2)}</li>
+                    <li>百分比波动: ±${ivAnalysis.expected_move_percent.toFixed(2)}%</li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <h6>预期价格区间</h6>
+                <ul class="list-unstyled">
+                    <li>上限: $${ivAnalysis.expected_high.toFixed(2)}</li>
+                    <li>下限: $${ivAnalysis.expected_low.toFixed(2)}</li>
+                </ul>
+            </div>
+        </div>
+    `;
+}
+
+function insertIVAnalysis(ivAnalysisHtml) {
+    const ivContent = document.getElementById('iv-analysis-content');
+    if (ivContent) {
+        ivContent.innerHTML = ivAnalysisHtml;
+    }
+}
+
+function showResults(data) {
+    document.getElementById('analysis-results').style.display = 'block';
+    
+    clearPreviousResults();
+
+    showStraddlesAnalysis(data);
+
+    showBasicInfo(data);
+
+    showHistoricalData(data);
+    
+    showPriceChart(data);
+    
+    showMonteCarloAnalysis(data);
+
+    showIVAnalysis(data);
 
 }
 

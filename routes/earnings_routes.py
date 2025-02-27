@@ -85,19 +85,77 @@ def monte_carlo_simulation(historical_movements, n_simulations=10000):
         'simulated_changes': simulated_changes
     }
 
+def calculate_expected_move(current_price, iv, days_to_expiry):
+    """
+    计算基于IV的预期波动率
+    
+    Args:
+        current_price (float): 当前股价
+        iv (float): 隐含波动率(以小数形式,如50%=0.50)
+        days_to_expiry (int): 到期天数
+        
+    Returns:
+        dict: 包含预期波动的字典
+    """
+    # 计算时间因子
+    time_factor = math.sqrt(days_to_expiry / 365)
+    
+    # 计算预期波动(美元)
+    expected_move_dollar = current_price * iv * time_factor
+    
+    # 计算预期波动(百分比)
+    expected_move_percent = (expected_move_dollar / current_price) * 100
+    
+    # 计算预期价格范围
+    expected_high = current_price + expected_move_dollar
+    expected_low = current_price - expected_move_dollar
+    
+    return {
+        'expected_move_dollar': expected_move_dollar,
+        'expected_move_percent': expected_move_percent,
+        'expected_high': expected_high,
+        'expected_low': expected_low
+    }
+
 @earnings_bp.route('/api/earnings/analysis', methods=['POST'])
 def analyze_earnings():
     data = request.json
     symbol = data.get('symbol')
     input_price = data.get('current_price')  # 获取用户输入的价格
     
+    # 修复 IV 数据类型转换
+    atm_call_iv = float(data.get('atm_call_iv', 0)) / 100 if data.get('atm_call_iv') else 0
+    atm_put_iv = float(data.get('atm_put_iv', 0)) / 100 if data.get('atm_put_iv') else 0
+    days_to_expiry = int(data.get('days_to_expiry', 0)) if data.get('days_to_expiry') else 0
+    
     # 如果用户没有输入价格，则通过API获取
     if input_price is None:
-        current_price_response = get_current_price(symbol)
-        current_price_data = current_price_response.get_json()
-        current_price = current_price_data.get('current_price')
+        try:
+            current_price_response = get_current_price(symbol)
+            current_price_data = current_price_response.get_json()
+            current_price = current_price_data.get('current_price')
+            if current_price is None:
+                return jsonify({
+                    'error': f'无法获取 {symbol} 的当前价格，请手动输入当前价格'
+                }), 400
+        except Exception as e:
+            return jsonify({
+                'error': f'获取 {symbol} 的当前价格时出错：{str(e)}，请手动输入当前价格'
+            }), 400
     else:
-        current_price = float(input_price)
+        try:
+            current_price = float(input_price)
+        except ValueError:
+            return jsonify({
+                'error': f'输入的价格格式不正确：{input_price}，请输入有效的数字'
+            }), 400
+    
+    # 如果有IV数据,计算IV预期波动
+    iv_expected_move = None
+    if current_price and (atm_call_iv or atm_put_iv) and days_to_expiry:
+        # 使用看涨和看跌期权IV的平均值
+        avg_iv = (atm_call_iv + atm_put_iv) / 2 if atm_call_iv and atm_put_iv else (atm_call_iv or atm_put_iv)
+        iv_expected_move = calculate_expected_move(current_price, avg_iv, days_to_expiry)
     
     # 获取历史财报数据
     fetcher = EarningsDatesFetcher()
@@ -193,5 +251,6 @@ def analyze_earnings():
             'expected_change': monte_carlo_results['expected_change'],
             'percentiles': monte_carlo_results['percentiles'],
             'simulated_changes': monte_carlo_results['simulated_changes'][:1000]  # 只返回部分模拟数据用于绘图
-        }
+        },
+        'iv_analysis': iv_expected_move
     })
