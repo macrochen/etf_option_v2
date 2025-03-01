@@ -28,11 +28,20 @@ class Database:
         finally:
             conn.close()
     
-    def execute(self, query: str, params: tuple = ()) -> None:
-        """执行SQL语句"""
+    def execute(self, query: str, params: tuple = ()) -> sqlite3.Cursor:
+        """执行SQL语句
+        
+        Args:
+            query: SQL查询语句
+            params: 查询参数
+            
+        Returns:
+            sqlite3.Cursor: 数据库游标对象，可用于获取lastrowid等信息
+        """
         with self.get_connection() as conn:
             with conn:  # 自动处理事务
-                conn.execute(query, params)
+                cursor = conn.execute(query, params)
+                return cursor
     
     def execute_many(self, query: str, params_list: List[tuple]) -> None:
         """执行多条SQL语句"""

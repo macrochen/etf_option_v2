@@ -53,3 +53,5 @@ ENV/
 
 config/
 config/app_config.json
+
+temp/

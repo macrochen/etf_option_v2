@@ -65,6 +65,113 @@ class USStockDatabase:
             )
         ''')
 
+        # 添加模拟交易持仓表
+        self.db.execute('''
+            CREATE TABLE IF NOT EXISTS sim_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol VARCHAR(50) NOT NULL,        -- 股票代码或期权代码
+                market VARCHAR(10) NOT NULL,        -- US/HK
+                position_type VARCHAR(10) NOT NULL, -- stock/option
+                direction VARCHAR(10) NOT NULL,     -- long/short
+                quantity INTEGER NOT NULL,
+                price DECIMAL(10,4) NOT NULL,
+                open_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                -- 期权特有字段
+                underlying VARCHAR(50),             -- 期权标的
+                expiry DATE,                        -- 到期日
+                strike DECIMAL(10,4),              -- 行权价
+                option_type VARCHAR(10)             -- call/put
+            )
+        ''')
+
+    def create_sim_position(self, position_data: dict) -> int:
+        """创建模拟交易持仓
+        
+        Args:
+            position_data: 持仓数据字典
+        
+        Returns:
+            int: 新创建的持仓ID
+        """
+        if position_data['type'] == 'stock':
+            query = '''
+                INSERT INTO sim_positions 
+                (symbol, market, position_type, direction, quantity, price)
+                VALUES (?, ?, 'stock', ?, ?, ?)
+            '''
+            params = (
+                position_data['symbol'],
+                position_data['market'],
+                position_data['direction'],
+                position_data['quantity'],
+                position_data['price']
+            )
+        else:  # option
+            # 构建期权代码
+            expiry = datetime.strptime(position_data['expiry'], '%Y-%m-%d')
+            strike = float(position_data['strike'])
+            option_symbol = f"{position_data['underlying']}{expiry.strftime('%y%m%d')}{position_data['optionType'][0].upper()}{int(strike*1000):08d}"
+            
+            query = '''
+                INSERT INTO sim_positions 
+                (symbol, market, position_type, direction, quantity, price,
+                underlying, expiry, strike, option_type)
+                VALUES (?, ?, 'option', ?, ?, ?, ?, ?, ?, ?)
+            '''
+            params = (
+                option_symbol,
+                position_data['market'],
+                position_data['direction'],
+                position_data['quantity'],
+                position_data['price'],
+                position_data['underlying'],
+                position_data['expiry'],
+                position_data['strike'],
+                position_data['optionType']
+            )
+        
+        cursor = self.db.execute(query, params)
+        return cursor.lastrowid
+
+
+    def close_sim_position(self, position_id: int) -> bool:
+        """关闭模拟交易持仓
+        
+        Args:
+            position_id: 持仓ID
+        
+        Returns:
+            bool: 是否成功关闭
+        """
+        result = self.db.execute('''
+            DELETE FROM sim_positions
+            WHERE id = ?
+        ''', (position_id,))
+        
+        return result.rowcount > 0
+
+    def get_sim_positions(self) -> list:
+        """获取所有模拟持仓"""
+        return self.db.fetch_all('''
+            SELECT * FROM sim_positions
+            ORDER BY open_time DESC
+        ''')
+
+    def get_sim_position(self, position_id: int) -> Optional[dict]:
+        """获取单个模拟持仓详情"""
+        result = self.db.fetch_one('''
+            SELECT * FROM sim_positions
+            WHERE id = ?
+        ''', (position_id,))
+        
+        if not result:
+            return None
+            
+        columns = ['id', 'symbol', 'market', 'position_type', 'direction', 
+                'quantity', 'price', 'open_time', 'underlying', 'expiry', 
+                'strike', 'option_type']
+        return dict(zip(columns, result))
+
     def get_cached_delta(self, option_symbol: str) -> Optional[float]:
         """从缓存中获取期权delta值
         

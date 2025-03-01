@@ -3,7 +3,7 @@ from futu import OpenQuoteContext, RET_OK
 from tigeropen.tiger_open_config import TigerOpenClientConfig
 from tigeropen.common.consts import Language
 from tigeropen.trade.trade_client import TradeClient
-from utils.futu_option import get_option_delta
+from utils.futu_data_service import get_option_delta
 
 import os
 import logging

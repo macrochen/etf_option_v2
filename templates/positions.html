@@ -85,6 +85,9 @@
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="futu-tab" data-bs-toggle="tab" data-bs-target="#futu-positions" type="button" role="tab" aria-controls="futu-positions" aria-selected="false">富途持仓</button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="sim-tab" data-bs-toggle="tab" data-bs-target="#sim-positions" type="button" role="tab" aria-controls="sim-positions" aria-selected="false">模拟持仓</button>
+                </li>
             </ul>
             <div class="tab-content" id="positionTabsContent">
                 <!-- 美股持仓 -->
@@ -123,17 +126,144 @@
                         </button>
                     </div>
                     <div id="futu-positions-container">
-                        <div class="text-center">
-                            <div class="spinner-border" role="status">
-                                <span class="visually-hidden">加载中...</span>
-                            </div>
-                        </div>
+                        
+                    </div>
+                </div>
+
+                <!-- 模拟持仓面板 -->
+                <div class="tab-pane fade" id="sim-positions" role="tabpanel" aria-labelledby="sim-tab">
+                    <div class="d-flex justify-content-end mb-3 gap-2">
+                        <button class="btn btn-primary" onclick="loadSimPositions()">
+                            加载持仓
+                        </button>
+                        <button class="btn btn-primary" onclick="openNewTradeModal()">
+                            新建交易
+                        </button>
+                    </div>
+                    <div id="sim-positions-container">
                     </div>
                 </div>
             </div>
         </div>
     </div>
     
+    <!-- 新建交易模态框 -->
+    <div class="modal fade" id="newTradeModal" tabindex="-1" aria-labelledby="newTradeModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="newTradeModalLabel">新建模拟交易</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 交易类型选择标签页 -->
+                    <ul class="nav nav-tabs" id="tradeTypeTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="stock-trade-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#stock-trade" type="button" role="tab">股票交易</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="option-trade-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#option-trade" type="button" role="tab">期权交易</button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content mt-3" id="tradeTypeContent">
+                        <!-- 股票交易表单 -->
+                        <div class="tab-pane fade show active" id="stock-trade" role="tabpanel">
+                            <form id="stockTradeForm">
+                                <div class="mb-3">
+                                    <label class="form-label">股票代码</label>
+                                    <input type="text" class="form-control" id="stockSymbol" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">市场类型</label>
+                                    <select class="form-select" id="stockMarket" required>
+                                        <option value="US">美股</option>
+                                        <option value="HK">港股</option>
+                                    </select>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">交易方向</label>
+                                        <select class="form-select" id="stockDirection" required>
+                                            <option value="buy">买入</option>
+                                            <option value="sell">卖出</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">数量</label>
+                                        <input type="number" class="form-control" id="stockQuantity" required>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">价格</label>
+                                        <input type="number" class="form-control" id="stockPrice" step="0.01" required>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- 期权交易表单 -->
+                        <div class="tab-pane fade" id="option-trade" role="tabpanel">
+                            <form id="optionTradeForm">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">标的代码</label>
+                                        <input type="text" class="form-control" id="optionUnderlying" required>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">市场类型</label>
+                                        <select class="form-select" id="optionMarket" required>
+                                            <option value="US">美股</option>
+                                            <option value="HK">港股</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">到期日期</label>
+                                        <input type="date" class="form-control" id="optionExpiry" required>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">行权价格</label>
+                                        <input type="number" class="form-control" id="optionStrike" step="0.01" required>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">期权类型</label>
+                                        <select class="form-select" id="optionType" required>
+                                            <option value="call">认购 (Call)</option>
+                                            <option value="put">认沽 (Put)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">交易方向</label>
+                                        <select class="form-select" id="optionDirection" required>
+                                            <option value="buy">买入</option>
+                                            <option value="sell">卖出</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">数量</label>
+                                        <input type="number" class="form-control" id="optionQuantity" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">价格</label>
+                                        <input type="number" class="form-control" id="optionPrice" step="0.01" required>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="submitTrade()">提交交易</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- Add Toast container -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
         <div id="updateToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
@@ -149,6 +279,116 @@
 </div>
 
 <script>
+
+// 打开新建交易模态框
+function openNewTradeModal() {
+    const modal = new bootstrap.Modal(document.getElementById('newTradeModal'));
+    modal.show();
+}
+
+
+
+// 当选择到期日时更新行权价
+document.getElementById('optionExpiry').addEventListener('change', function() {
+    const expiry = this.value;
+    const strikeSelect = document.getElementById('optionStrike');
+    
+    if (!expiry || !window.optionChainData) {
+        strikeSelect.innerHTML = '<option value="">请先选择到期日</option>';
+        strikeSelect.disabled = true;
+        return;
+    }
+    
+    // 更新行权价选择框
+    const strikes = window.optionChainData.strikes[expiry] || [];
+    strikeSelect.innerHTML = '<option value="">请选择行权价</option>';
+    strikes.forEach(strike => {
+        strikeSelect.innerHTML += `<option value="${strike}">${strike}</option>`;
+    });
+    strikeSelect.disabled = false;
+});
+
+// 提交交易
+function submitTrade() {
+    const activeTab = document.querySelector('#tradeTypeTabs .nav-link.active');
+    const isStockTrade = activeTab.id === 'stock-trade-tab';
+    
+    let formData;
+    if (isStockTrade) {
+        formData = {
+            type: 'stock',
+            symbol: document.getElementById('stockSymbol').value,
+            market: document.getElementById('stockMarket').value,  // 添加市场类型
+            direction: document.getElementById('stockDirection').value,
+            quantity: parseInt(document.getElementById('stockQuantity').value),
+            price: parseFloat(document.getElementById('stockPrice').value)
+        };
+    } else {
+        formData = {
+            type: 'option',
+            underlying: document.getElementById('optionUnderlying').value,
+            market: document.getElementById('optionMarket').value,  // 添加市场类型
+            expiry: document.getElementById('optionExpiry').value,
+            strike: parseFloat(document.getElementById('optionStrike').value),
+            optionType: document.getElementById('optionType').value,
+            direction: document.getElementById('optionDirection').value,
+            quantity: parseInt(document.getElementById('optionQuantity').value),
+            price: parseFloat(document.getElementById('optionPrice').value)
+        };
+    }
+    
+    fetch('/api/sim_trade', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('交易提交成功');
+            bootstrap.Modal.getInstance(document.getElementById('newTradeModal')).hide();
+            // 刷新模拟持仓数据
+            loadSimPositions();
+        } else {
+            alert('交易提交失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('交易提交失败，请重试');
+    });
+}
+
+// 加载模拟持仓数据
+function loadSimPositions() {
+    const container = document.getElementById('sim-positions-container');
+    container.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+        </div>
+    `;
+    
+    fetch('/api/sim_positions')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                renderPositions(container, data.data.positions);
+                initSorting(container);
+            } else {
+                container.innerHTML = '<div class="alert alert-danger">加载失败</div>';
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            container.innerHTML = '<div class="alert alert-danger">加载失败</div>';
+        });
+}
+
+
 function getFutuPositions() {
     const button = document.querySelector('#futu-positions button');
     button.disabled = true;
@@ -201,12 +441,12 @@ function updateHKPrevClose() {
             button.innerHTML = '更新港股收盘价';
         });
 }
-// 添加格式化函数
-function formatNumber(value) {
+// 修改格式化函数，添加 isDelta 参数
+function formatNumber(value, isDelta = false) {
     if (value === null || value === undefined) return '-';
     return Number(value).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
+        minimumFractionDigits: isDelta ? 3 : 2,
+        maximumFractionDigits: isDelta ? 3 : 2
     });
 }
 
@@ -376,26 +616,33 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (data.data.updated_options) {
                         successCount = data.data.updated_options.length;
                         data.data.updated_options.forEach(option => {
-                            const refreshButton = document.querySelector(`button[onclick*="${option.symbol}"]`);
-                            if (refreshButton) {
-                                const row = refreshButton.closest('tr');
-                                const deltaSpan = Array.from(row.querySelectorAll('.badge[class*="bg-"]'))
-                                    .find(badge => badge.textContent.includes('Δ'));
-                                
-                                if (deltaSpan) {
-                                    const deltaAbs = Math.abs(option.delta);
-                                    let badgeClass = 'bg-info';
-                                    
-                                    if (deltaAbs >= 0.3) {
-                                        badgeClass = 'bg-danger';  // 高风险红色
-                                    } else if (deltaAbs >= 0.2) {
-                                        badgeClass = 'bg-warning text-dark';  // 中风险黄色
-                                    } else if (deltaAbs >= 0.15) {
-                                        badgeClass = 'bg-secondary';  // 低风险灰色
+                            // 找到对应的行
+                            const rows = document.querySelectorAll('tr');
+                            for (const row of rows) {
+                                // 检查行中是否包含该期权的刷新按钮
+                                const refreshButton = row.querySelector(`button[onclick*="${option.symbol}"]`);
+                                if (refreshButton) {
+                                    // 找到Delta单元格
+                                    const deltaCell = row.cells[3]; // Delta列是第4列(索引为3)
+                                    if (deltaCell) {
+                                        const deltaSpan = deltaCell.querySelector('.badge');
+                                        if (deltaSpan) {
+                                            const deltaAbs = Math.abs(option.delta);
+                                            let badgeClass = 'bg-info';
+                                            
+                                            if (deltaAbs >= 0.3) {
+                                                badgeClass = 'bg-danger';  // 高风险红色
+                                            } else if (deltaAbs >= 0.2) {
+                                                badgeClass = 'bg-warning text-dark';  // 中风险黄色
+                                            } else if (deltaAbs >= 0.15) {
+                                                badgeClass = 'bg-secondary';  // 低风险灰色
+                                            }
+                                            
+                                            deltaSpan.className = `badge ${badgeClass}`;
+                                            deltaSpan.textContent = `${formatNumber(option.delta, true)}`;
+                                        }
                                     }
-                                    
-                                    deltaSpan.className = `badge ${badgeClass}`;
-                                    deltaSpan.textContent = `Δ${formatNumber(option.delta)}`;
+                                    break;
                                 }
                             }
                         });
@@ -423,6 +670,16 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// 添加计算期权总数量的辅助函数
+function calculateTotalOptionCount(positions) {
+    return positions.reduce((total, position) => {
+        if (position.is_group && position.options) {
+            return total + position.options.length;
+        }
+        return total;
+    }, 0);
+}
+
 // 添加计算期权总市值的辅助函数
 function calculateTotalOptionValue(positions) {
     return positions.reduce((total, position) => {
@@ -445,6 +702,37 @@ function calculateTotalOptionPnL(positions) {
     }, 0);
 }
 
+function updatePriceAlerts(market = 'US') {  // 默认为美股市场
+    const button = event.target;
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 更新中...';
+    
+    fetch('/api/update_price_alerts', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ market: market })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(`更新成功\n添加：${data.data.added_count} 个\n删除：${data.data.removed_count} 个`);
+        } else {
+            alert('更新失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('更新失败，请查看控制台了解详情');
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = originalText;
+    });
+}
+
 function renderPositions(container, positions, isFutu = false) {
     if (!positions || positions.length === 0) {
         container.innerHTML = '<div class="alert alert-info">暂无持仓信息</div>';
@@ -461,9 +749,13 @@ function renderPositions(container, positions, isFutu = false) {
                 <button class="btn btn-primary btn-sm refresh-all-deltas">
                     更新Delta
                 </button>
+                <button class="btn btn-warning btn-sm" onclick="updatePriceAlerts()">
+                    更新到价提醒
+                </button>
             </div>
             <div class="text-end">
                 <div class="small">
+                    <span class="me-3">期权数量: <strong>${calculateTotalOptionCount(positions)}</strong></span>
                     <span class="me-3">期权总市值: <strong class="${calculateTotalOptionValue(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionValue(positions))}</strong></span>
                     <span>期权总盈亏: <strong class="${calculateTotalOptionPnL(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionPnL(positions))}</strong></span>
                 </div>
@@ -475,6 +767,7 @@ function renderPositions(container, positions, isFutu = false) {
                     <th class="sortable" data-sort="symbol">名称<span class="sort-icon"></span></th>
                     <th class="sortable text-end" data-sort="market_value">市值/数量<span class="sort-icon"></span></th>
                     <th class="sortable text-end" data-sort="latest_price">现价/成本<span class="sort-icon"></span></th>
+                    <th class="sortable text-center" >Delta</th>
                     <th class="sortable text-end" data-sort="unrealized_pnl">持仓盈亏<span class="sort-icon"></span></th>
                     <th class="sortable text-end" data-sort="daily_pnl">今日盈亏<span class="sort-icon"></span></th>
                     <th class="sortable text-end" data-sort="position_ratio">持仓占比<span class="sort-icon"></span></th>
@@ -510,13 +803,17 @@ function renderPositions(container, positions, isFutu = false) {
                     <td class="text-end"><strong>${formatNumber(position.total_market_value)}</strong></td>
                     <td class="text-end">
                         ${!isFutu ? 
-                            `<button class="btn btn-sm btn-primary" 
-                                    onclick="getCurrentPrice('${position.symbol}', '${position.market_type || 'US'}', this)">
-                                显示价格
-                            </button>` : 
+                            `<div class="d-flex align-items-center justify-content-end">
+                                <span class="current-price me-2">-</span>
+                                <button class="btn btn-link btn-sm p-0" 
+                                        onclick="getCurrentPrice('${position.symbol}', '${position.market_type || 'US'}', this)">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </div>` : 
                             '-'
                         }
                     </td>
+                    <td class="text-center">-</td>
                     <td class="text-end ${position.total_unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
                         <strong>${formatNumber(position.total_unrealized_pnl)}</strong>
                     </td>
@@ -548,45 +845,28 @@ function renderPositions(container, positions, isFutu = false) {
 }
 
 function getCurrentPrice(stockCode, marketType, buttonElement) {
-    // 显示加载状态
+    // 禁用按钮并显示加载状态
     buttonElement.disabled = true;
-    buttonElement.textContent = '加载中...';
+    const originalIcon = buttonElement.innerHTML;
+    buttonElement.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
 
+    // 获取价格显示元素
+    const priceElement = buttonElement.closest('div').querySelector('.current-price');
+    
     fetch(`/api/current_price/${stockCode}?market_type=${marketType}`)
         .then(response => response.json())
         .then(data => {
-            // 创建只读输入框
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'form-control form-control-sm';
-            input.value = data.current_price.toFixed(2);
-            input.readOnly = true;
-            input.style.width = '100px';
-            input.style.display = 'inline-block';
-            
-            // 替换按钮为输入框
-            buttonElement.parentNode.replaceChild(input, buttonElement);
+            // 更新价格显示
+            priceElement.textContent = formatNumber(data.current_price);
         })
         .catch(error => {
             console.error('获取价格失败:', error);
-            // 创建可编辑的输入框
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'form-control form-control-sm';
-            input.style.width = '100px';
-            input.style.display = 'inline-block';
-            input.placeholder = '请输入价格';
-            
-            // 添加数字输入验证
-            input.addEventListener('input', function() {
-                const value = this.value;
-                if (value && !/^\d*\.?\d*$/.test(value)) {
-                    this.value = value.replace(/[^\d.]/g, '');
-                }
-            });
-            
-            // 替换按钮为输入框
-            buttonElement.parentNode.replaceChild(input, buttonElement);
+            priceElement.textContent = '获取失败';
+        })
+        .finally(() => {
+            // 恢复按钮状态
+            buttonElement.disabled = false;
+            buttonElement.innerHTML = originalIcon;
         });
 }
 
@@ -594,11 +874,20 @@ function renderStockRow(stock, isGroupItem) {
     const showWarning = stock.market_value < -2000 || stock.unrealized_pnl < -1000;
     const warningIcon = showWarning ? '⚠️ ' : '';
     
+    // 只在模拟交易持仓中显示平仓按钮
+    const closeButton = stock.position_id ? 
+        `<button class="btn btn-danger btn-sm ms-2" 
+            onclick="closePosition(${stock.position_id}, '${stock.symbol}')">
+            平仓
+        </button>` : '';
+    
     return `
     <tr>
-        <td>${isGroupItem ? '&nbsp;&nbsp;' : ''}${stock.symbol}${warningIcon}</td>
+        <td>${isGroupItem ? '&nbsp;&nbsp;' : ''}${stock.symbol}${warningIcon}${closeButton}</td>
         <td class="text-end">${formatNumber(stock.market_value)}<br><small class="text-muted">${stock.quantity}</small></td>
         <td class="text-end">${formatNumber(stock.latest_price)}<br><small class="text-muted">${formatNumber(stock.average_cost)}</small></td>
+        <!-- 新增空的Delta列，保持表格结构一致 -->
+        <td class="text-center">-</td>
         <td class="text-end ${stock.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
             ${formatNumber(stock.unrealized_pnl)}
             <br><small>${formatNumber(stock.unrealized_pnl_percentage)}%</small>
@@ -622,10 +911,10 @@ function refreshOptionDelta(optionSymbol, button) {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            // 获取所有带bg-前缀的badge
-            const badges = button.closest('tr').querySelectorAll('.badge[class*="bg-"]');
-            // 找到包含delta值的badge（包含Δ符号的）
-            const deltaSpan = Array.from(badges).find(badge => badge.textContent.includes('Δ'));
+            // 获取当前行的Delta单元格
+            const row = button.closest('tr');
+            const deltaCell = row.cells[3]; // Delta列是第4列(索引为3)
+            const deltaSpan = deltaCell.querySelector('.badge');
             
             if (deltaSpan) {
                 const deltaAbs = Math.abs(data.data.delta);
@@ -641,7 +930,7 @@ function refreshOptionDelta(optionSymbol, button) {
                 }
                 
                 deltaSpan.className = `badge ${badgeClass}`;
-                deltaSpan.textContent = `Δ${formatNumber(data.data.delta)}`;
+                deltaSpan.textContent = `${formatNumber(data.data.delta, true)}`;
             }
         } else {
             alert('刷新失败: ' + data.message);
@@ -658,11 +947,37 @@ function refreshOptionDelta(optionSymbol, button) {
     });
 }
 
+
+// ... 添加平仓功能的函数 ...
+function closePosition(positionId, symbol) {
+    if (!confirm(`确定要平掉 ${symbol} 的持仓吗？`)) {
+        return;
+    }
+    
+    fetch(`/api/sim_trade/${positionId}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // 刷新模拟持仓数据
+            loadSimPositions();
+            alert('平仓成功');
+        } else {
+            alert('平仓失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('平仓失败，请重试');
+    });
+}
+
 function renderOptionRow(option, isGroupItem) {
     const indent = isGroupItem ? '&nbsp;&nbsp;' : '';
     const showWarning = option.market_value < -2000 || option.unrealized_pnl < -1000;
     const warningIcon = showWarning ? '⚠️ ' : '';
-    
+
     // 检查是否是本周到期
     const today = new Date();
     const expiryDate = new Date(option.expiry);
@@ -689,6 +1004,12 @@ function renderOptionRow(option, isGroupItem) {
         }
     }
 
+    // 只在模拟交易持仓中显示平仓按钮
+    const closeButton = option.position_id && option.is_sim ? 
+        `<button class="btn btn-danger btn-sm ms-2" 
+            onclick="closePosition(${option.position_id}, '${option.symbol}')">
+            平仓
+        </button>` : '';
 
     const refreshOption = option.delta !== undefined ? `
         <button class="btn btn-link btn-sm p-0" style="font-size: 14px;" 
@@ -697,29 +1018,34 @@ function renderOptionRow(option, isGroupItem) {
             <i class="fas fa-sync-alt"></i>
         </button>` : '';
     
-    
+    // Delta显示移到单独的列
     const deltaDisplay = option.delta !== undefined ? 
-        `<span class="badge ${deltaBadgeClass}" style="font-size: 16px; padding: 2px 5px; margin-right: 5px;">Δ${formatNumber(option.delta)}</span>` : '';
+        `<span class="badge ${deltaBadgeClass}" style="font-size: 16px; padding: 2px 5px;">${formatNumber(option.delta, true)}</span>` : '-';
+        
     return `
-    <tr>
-        <td>
-            ${indent}${option.symbol} ${option.put_call}${warningIcon}${refreshOption}
-            <br><small class="text-muted">
-                ${indent}${expiryWarning}${deltaDisplay}${option.expiry} ${formatNumber(option.strike)}
-            </small>
-        </td>
-        <td class="text-end">${formatNumber(option.market_value)}<br><small class="text-muted">${option.quantity}</small></td>
-        <td class="text-end">${formatNumber(option.latest_price)}<br><small class="text-muted">${formatNumber(option.average_cost)}</small></td>
-        <td class="text-end ${option.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
-            ${formatNumber(option.unrealized_pnl)}
-            <br><small>${formatNumber(option.unrealized_pnl_percentage)}%</small>
-        </td>
-        <td class="text-end ${option.daily_pnl >= 0 ? 'text-success' : 'text-danger'}">
-            ${formatNumber(option.daily_pnl)}
-        </td>
-        <td class="text-end">${option.position_ratio ? formatNumber(option.position_ratio) : '-'}%</td>
-    </tr>`;
-}
+        <tr>
+            <td>
+                ${indent}${option.symbol} ${option.put_call}${warningIcon}${closeButton}
+                <br><small class="text-muted">
+                    ${indent}${expiryWarning}${option.expiry} ${formatNumber(option.strike)}
+                </small>
+            </td>
+            <td class="text-end">${formatNumber(option.market_value)}<br><small class="text-muted">${option.quantity}</small></td>
+            <td class="text-end">${formatNumber(option.latest_price)}<br><small class="text-muted">${formatNumber(option.average_cost)}</small></td>
+            <!-- 新增Delta列 -->
+            <td class="text-center">
+                ${deltaDisplay}${refreshOption ? `<div class="mt-1">${refreshOption}</div>` : ''}
+            </td>
+            <td class="text-end ${option.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                ${formatNumber(option.unrealized_pnl)}
+                <br><small>${formatNumber(option.unrealized_pnl_percentage)}%</small>
+            </td>
+            <td class="text-end ${option.daily_pnl >= 0 ? 'text-success' : 'text-danger'}">
+                ${formatNumber(option.daily_pnl)}
+            </td>
+            <td class="text-end">${option.position_ratio ? formatNumber(option.position_ratio) : '-'}%</td>
+        </tr>`;
+    }
 
     // 添加排序相关函数
     function initSorting(container) {
@@ -763,7 +1089,10 @@ function renderOptionRow(option, isGroupItem) {
                 // 移除其他列的排序标记
                 headers.forEach(h => {
                     if (h !== header) {
-                        h.querySelector('.sort-icon').className = 'sort-icon';
+                        const sortIcon = h.querySelector('.sort-icon');
+                        if (sortIcon) { // 添加检查，确保元素存在
+                            sortIcon.className = 'sort-icon';
+                        }
                     }
                 });
                 
