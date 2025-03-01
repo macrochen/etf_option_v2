@@ -80,44 +80,45 @@ def is_us_market_trading_hours() -> bool:
         # 冬令时：22:30 - 05:00
         return (2230 <= current_time <= 2359) or (0 <= current_time <= 500)
 
-def get_option_delta(option_symbol: str) -> Optional[float]:
-    # 暂时采用手动刷新
-    # return 0
+def get_cached_option_delta(option_symbol: str, force_cache: bool = False) -> Optional[float]:
+    """获取期权的delta值，优先使用缓存
     
-    """获取期权的delta值，优先使用缓存"""
+    Args:
+        option_symbol: 期权代码
+        force_cache: 是否强制只使用缓存数据，True表示只从缓存获取，不进行网络请求
+    
+    Returns:
+        float: delta值，如果获取失败则返回None或0
+    """
     db = USStockDatabase()
-    
-    # 检查是否为交易时段
-    is_trading_hours = is_us_market_trading_hours()
     
     # 获取缓存的delta值
-    cached_delta = db.get_cached_delta(option_symbol)
+    cached_delta = db.get_cached_delta(option_symbol, force_cache)
     
-    # 非交易时段，直接返回缓存值（即使已过期）
-    if not is_trading_hours and cached_delta is not None:
+    # 如果有缓存值，直接返回
+    if cached_delta is not None:
         return cached_delta
-    elif cached_delta is not None:
-        return cached_delta
-    else:
-        return 0
-        
+    
+    # 如果没有缓存值，返回默认值0
+    return 0
 
 
-def get_option_delta_with_cached(option_symbol: str) -> Optional[float]:
-    # 暂时采用手动刷新
-    # return 0
+def refresh_option_delta(option_symbol: str) -> Optional[float]:
+    """获取期权的delta值，如果缓存中没有则从富途网站获取并更新缓存
     
-    """获取期权的delta值，优先使用缓存"""
+    Args:
+        option_symbol: 期权代码
+    
+    Returns:
+        float: delta值，如果获取失败则返回None
+    """
     db = USStockDatabase()
-    
-    # 检查是否为交易时段
-    is_trading_hours = is_us_market_trading_hours()
     
     # 获取缓存的delta值
     cached_delta = db.get_cached_delta(option_symbol)
     
     if cached_delta is not None:
-        return cache_delta # 直接取缓存中的
+        return cached_delta  # 修正：返回缓存的delta值，而不是cache_delta函数
     else:
         # 缓存中没有的，到futu取
         try:

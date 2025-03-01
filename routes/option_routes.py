@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from utils.futu_data_service import get_delta_from_futu,get_option_delta_with_cached
+from utils.futu_data_service import get_delta_from_futu,refresh_option_delta
 from db.us_stock_db import USStockDatabase
 from futu import OpenQuoteContext, TrdMarket, PriceReminderType, SetPriceReminderOp, PriceReminderFreq
 import time
@@ -302,7 +302,7 @@ def refresh_all_deltas():
                     for option in position['options']:
                         if 'futu_symbol' in option:
                             try:
-                                delta = get_option_delta_with_cached(option['futu_symbol'])
+                                delta = refresh_option_delta(option['futu_symbol'])
                                 if delta is not None:
                                     db.cache_delta(option['futu_symbol'], delta)
                                     updated_options.append({

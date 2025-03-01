@@ -172,14 +172,15 @@ class USStockDatabase:
                 'strike', 'option_type']
         return dict(zip(columns, result))
 
-    def get_cached_delta(self, option_symbol: str) -> Optional[float]:
+    def get_cached_delta(self, option_symbol: str, ignore_expiry: bool = False) -> Optional[float]:
         """从缓存中获取期权delta值
         
         Args:
             option_symbol: 期权代码，例如 'NVDA250321C132000'
+            ignore_expiry: 是否忽略过期时间，True表示即使缓存过期也返回值
             
         Returns:
-            float: delta值，如果缓存过期或不存在则返回None
+            float: delta值，如果缓存不存在则返回None
         """
         result = self.db.fetch_one('''
             SELECT delta, next_update_time 
@@ -189,8 +190,11 @@ class USStockDatabase:
         
         if result:
             delta, next_update = result
-            if datetime.now() < datetime.fromisoformat(next_update):
+            # 如果设置了忽略过期或者缓存未过期，返回delta值
+            if ignore_expiry or datetime.now() < datetime.fromisoformat(next_update):
                 return delta
+            # 即使过期也返回缓存的值
+            return delta
         return None
 
     def cache_delta(self, option_symbol: str, delta: float):

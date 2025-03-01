@@ -444,10 +444,21 @@ function updateHKPrevClose() {
 // 修改格式化函数，添加 isDelta 参数
 function formatNumber(value, isDelta = false) {
     if (value === null || value === undefined) return '-';
-    return Number(value).toLocaleString('en-US', {
-        minimumFractionDigits: isDelta ? 3 : 2,
-        maximumFractionDigits: isDelta ? 3 : 2
-    });
+    
+    // 将值转换为数字
+    const num = Number(value);
+    
+    // 检查是否为整数（小数部分为0）
+    if (Number.isInteger(num)) {
+        // 如果是整数，直接使用千位分隔符格式化
+        return num.toLocaleString('en-US');
+    } else {
+        // 如果有小数部分，按原来的方式格式化
+        return num.toLocaleString('en-US', {
+            minimumFractionDigits: isDelta ? 3 : 2,
+            maximumFractionDigits: isDelta ? 3 : 2
+        });
+    }
 }
 
 function getEarliestExpiry(position) {
@@ -1034,7 +1045,7 @@ function renderOptionRow(option, isGroupItem) {
             <td class="text-end">${formatNumber(option.latest_price)}<br><small class="text-muted">${formatNumber(option.average_cost)}</small></td>
             <!-- 新增Delta列 -->
             <td class="text-center">
-                ${deltaDisplay}${refreshOption ? `<div class="mt-1">${refreshOption}</div>` : ''}
+                ${deltaDisplay}${refreshOption ? `${refreshOption}` : ''}
             </td>
             <td class="text-end ${option.unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
                 ${formatNumber(option.unrealized_pnl)}

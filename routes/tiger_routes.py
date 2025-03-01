@@ -3,7 +3,7 @@ from futu import OpenQuoteContext, RET_OK
 from tigeropen.tiger_open_config import TigerOpenClientConfig
 from tigeropen.common.consts import Language
 from tigeropen.trade.trade_client import TradeClient
-from utils.futu_data_service import get_option_delta
+from utils.futu_data_service import get_cached_option_delta
 
 import os
 import logging
@@ -484,6 +484,9 @@ def get_positions():
                     f"{int(float(strike_price)*1000)}"  # 行权价*1000
                 )
 
+                # 修改这里，添加force_cache=True参数，确保只从缓存中获取delta值
+                delta_value = get_cached_option_delta(futu_option_symbol, force_cache=True)
+
                 option_data = {
                     'symbol': base_symbol,
                     'quantity': position.quantity,
@@ -500,7 +503,7 @@ def get_positions():
                     'put_call': option_type,
                     'daily_pnl': daily_pnl,
                     'position_ratio': (market_value / total_market_value * 100) if total_market_value else 0,
-                    'delta': get_option_delta(futu_option_symbol),
+                    'delta': delta_value,
                     'futu_symbol': futu_option_symbol
                 }
                 
