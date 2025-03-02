@@ -13,7 +13,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/Users/macrochen/PycharmProjects/etf_option_v2/logs/option_routes.log'),
+        logging.FileHandler('logs/option_routes.log'),  # 修改为相对路径
         logging.StreamHandler()
     ]
 )

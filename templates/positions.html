@@ -1036,9 +1036,9 @@ function renderOptionRow(option, isGroupItem) {
     return `
         <tr>
             <td>
-                ${indent}${option.symbol} ${option.put_call}${warningIcon}${closeButton}
+                ${indent}${option.put_call} ${formatNumber(option.strike)} ${warningIcon}${closeButton}
                 <br><small class="text-muted">
-                    ${indent}${expiryWarning}${option.expiry} ${formatNumber(option.strike)}
+                    ${indent}${expiryWarning}${option.expiry}
                 </small>
             </td>
             <td class="text-end">${formatNumber(option.market_value)}<br><small class="text-muted">${option.quantity}</small></td>

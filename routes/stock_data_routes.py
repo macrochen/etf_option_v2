@@ -137,6 +137,9 @@ def get_watchlist():
         group_name = request.args.get('group_name', '赌财报(当日)')  # 默认获取"港美股"分组
         
         # 连接富途API
+        # 修改 futu 的导入语句
+        from futu.quote_ctx import OpenQuoteContext
+        from futu.common.constant import RET_OK
         quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
         
         try:
