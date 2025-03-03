@@ -16,6 +16,7 @@ STOCK_NAME_MAPPING = {
     '美团-W': '美团',
     '京东集团-SW': '京东',
     '阿里巴巴-W': '阿里',
+    '小米集团': '小米',
     # 可以根据需要添加更多映射
 }
 
@@ -75,6 +76,7 @@ def get_futu_positions():
                 base_name = pos['stock_name']
             
             position_data = {
+                'code': code,  # 股票代码 0700 表示腾讯
                 'symbol': base_name,  # 使用基础股票名称
                 'quantity': safe_float(pos['qty']),
                 'average_cost': safe_float(pos['cost_price']) if pos['cost_price_valid'] else None,  # 持仓成本价
@@ -159,7 +161,21 @@ def get_futu_positions():
         # 合并分组和非分组数据
         final_positions = list(grouped_positions.values()) + ungrouped_positions
         
-        # 按市场分类并按symbol排序
+        # 对期权进行排序的辅助函数
+        def option_sort_key(option):
+            expiry = option['expiry'].replace('-', '')  # 转换为 YYYYMMDD 格式
+            strike_price = float(option['strike'])
+            option_type = option['put_call']
+            # 购（认购）排在沽（认沽）前面
+            type_order = 0 if option_type == '购' else 1
+            return (expiry, type_order, -strike_price)
+        
+        # 对每个分组内的期权进行排序
+        for position in final_positions:
+            if position.get('is_group') and position.get('options'):
+                position['options'].sort(key=option_sort_key)
+        
+        # 分别对美股和港股持仓进行排序（按symbol）
         us_positions = sorted([p for p in final_positions if p.get('market') == 'US'], 
                             key=lambda x: x['symbol'])
         hk_positions = sorted([p for p in final_positions if p.get('market') == 'HK'], 

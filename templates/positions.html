@@ -713,7 +713,7 @@ function calculateTotalOptionPnL(positions) {
     }, 0);
 }
 
-function updatePriceAlerts(market = 'US') {  // 默认为美股市场
+function updatePriceAlerts(market = 'US', isFutu = false) {  // 默认为美股市场
     const button = event.target;
     button.disabled = true;
     const originalText = button.textContent;
@@ -724,7 +724,8 @@ function updatePriceAlerts(market = 'US') {  // 默认为美股市场
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ market: market })
+        body: JSON.stringify({ market: market,
+            is_futu: isFutu })
     })
     .then(response => response.json())
     .then(data => {
@@ -760,7 +761,7 @@ function renderPositions(container, positions, isFutu = false) {
                 <button class="btn btn-primary btn-sm refresh-all-deltas">
                     更新Delta
                 </button>
-                <button class="btn btn-warning btn-sm" onclick="updatePriceAlerts()">
+                <button class="btn btn-warning btn-sm" onclick="updatePriceAlerts('${positions[0]?.market || 'US'}', ${isFutu})">
                     更新到价提醒
                 </button>
             </div>
