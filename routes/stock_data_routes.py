@@ -181,6 +181,112 @@ def get_watchlist():
 def download_page():
     return render_template('stock_volatility_management.html')
 
+@stock_data_bp.route('/api/update_stock_prices', methods=['POST'])
+def update_stock_prices():
+    """批量更新股票价格"""
+    try:
+        market_type = "US"  # 从请求中获取市场类型，默认为 US
+        
+        # 使用 get_position_symbols 获取股票列表
+        from routes.tiger_routes import get_position_symbols
+        symbols = get_position_symbols(market_type)
+        
+        if not symbols:
+            return jsonify({
+                'status': 'error',
+                'message': f'没有找到任何{market_type}市场的持仓'
+            }), 400
+        
+        results = []
+        for symbol in symbols:
+            try:
+                # 使用与 download_data 相同的逻辑更新历史数据
+                end_date = datetime.now().date()
+                last_update = db.get_last_update_date(symbol, 'US')
+                if last_update:
+                    start_date = last_update + timedelta(days=1)
+                else:
+                    start_date = end_date - timedelta(days=365*10)
+
+                if start_date >= end_date:
+                    results.append({
+                        'code': symbol,
+                        'market': market_type,
+                        'message': '数据已是最新',
+                        'status': 'success'
+                    })
+                    continue
+
+                # 获取股票数据
+                preferred_source = get_preferred_data_source(symbol)
+                try:
+                    if preferred_source == 'alphavantage':
+                        data = download_from_alpha_vantage(symbol, start_date)
+                    elif preferred_source == 'tiingo':
+                        data = download_from_tiingo(symbol, start_date)
+                    else:
+                        ticker = yf.Ticker(symbol)
+                        data = yf.download(symbol, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
+
+                    if not data.empty:
+                        # 保存数据到数据库
+                        success_count = 0
+                        for index, (date, row) in enumerate(data.iterrows()):
+                            try:
+                                db.save_stock_data(
+                                    symbol,
+                                    date.date(),
+                                    float(row['Open']),
+                                    float(row['High']),
+                                    float(row['Low']),
+                                    float(row['Close']),
+                                    float(row['Adj Close']),
+                                    'US',
+                                    symbol  # 使用代码作为名称
+                                )
+                                success_count += 1
+                            except Exception as e:
+                                logging.error(f"保存数据失败: {symbol}, {date}, {e}\n{traceback.format_exc()}")
+                                continue
+
+                        results.append({
+                            'code': symbol,
+                            'market': market_type,
+                            'updated_count': success_count,
+                            'status': 'success'
+                        })
+                        time.sleep(1)  # 添加延迟避免请求过快
+                    else:
+                        raise Exception("未获取到数据")
+
+                except Exception as e:
+                    if preferred_source == 'yahoo':
+                        # 直接抛出异常，不切换数据源
+                        raise Exception(f"Yahoo Finance 下载失败: {e}")
+                    else:
+                        raise e
+
+            except Exception as e:
+                results.append({
+                    'code': symbol,
+                    'market': market_type,
+                    'error': str(e),
+                    'status': 'error'
+                })
+                
+        return jsonify({
+            'status': 'success',
+            'data': results
+        })
+        
+    except Exception as e:
+        logging.error(f"更新股价失败: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
 @stock_data_bp.route('/download', methods=['POST'])
 def download_data():
     stock_code = request.json['stock_code']

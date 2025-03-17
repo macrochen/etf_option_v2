@@ -839,6 +839,55 @@ function calculateTotalOptionPnL(positions) {
     }, 0);
 }
 
+function updateStockPrices() {
+    const button = event.target;
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 更新中...';
+    
+    fetch('/api/update_stock_prices', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const successCount = data.data.filter(s => s.status === 'success').length;
+            const failedStocks = data.data.filter(s => s.status === 'error');
+            const errorCount = failedStocks.length;
+            
+            let message = `更新成功\n成功：${successCount} 个\n失败：${errorCount} 个`;
+            
+            // 如果有失败的股票，添加失败详情
+            if (errorCount > 0) {
+                message += '\n\n失败详情：';
+                failedStocks.forEach(stock => {
+                    message += `\n${stock.code}: ${stock.error}`;
+                });
+            }
+            
+            alert(message);
+            
+            // 更新成功后刷新页面以显示最新数据
+            if (successCount > 0) {
+                location.reload();
+            }
+        } else {
+            alert('更新失败: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('更新失败，请查看控制台了解详情');
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = originalText;
+    });
+}
+
 function updatePriceAlerts(market = 'US', isFutu = false) {  // 默认为美股市场
     const button = event.target;
     button.disabled = true;
@@ -1024,6 +1073,11 @@ function renderPositions(container, positions, isFutu = false) {
                 <button class="btn btn-warning btn-sm" onclick="updatePriceAlerts('${positions[0]?.market || 'US'}', ${isFutu})">
                     更新到价提醒
                 </button>
+                ${positions[0]?.market === 'US' ? `
+                <button class="btn btn-info btn-sm" onclick="updateStockPrices()">
+                    更新股价
+                </button>
+                ` : ''}
             </div>
             <div class="text-end">
                 <div class="small">

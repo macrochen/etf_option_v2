@@ -51,7 +51,7 @@ HK_STOCK_NAMES = {
     '09999': '网易',
     '09618': '京东集团-SW',
     '09988': '阿里巴巴-W',
-    '01818': '小米集团',
+    '01810': '小米集团',
 }
 
 @tiger_bp.route('/api/update_hk_prev_close', methods=['GET'])
@@ -237,6 +237,45 @@ def get_prev_close_prices(stock_positions, option_positions, db):
         logging.info(f"使用当前价格作为前收价的标的: {[f'{p['symbol']}({p['market']})' for p in missing_prices]}")
     
     return prev_close_prices
+
+def get_position_symbols(market='US'):
+    """获取指定市场所有持仓的股票代码列表（包括股票和期权标的）
+    
+    Args:
+        market: 市场类型，'US' 或 'HK'
+        
+    Returns:
+        list: 股票代码列表，如 ['AAPL', 'NVDA', ...]
+    """
+    try:
+        client, _ = get_tiger_client()
+        
+        # 获取股票和期权持仓信息
+        stock_positions = client.get_positions(sec_type=SecurityType.STK)
+        option_positions = client.get_positions(sec_type=SecurityType.OPT)
+        
+        # 使用集合去重
+        symbols = set()
+        
+        # 处理股票持仓
+        for position in stock_positions:
+            if (position.contract and position.contract.symbol 
+                and position.contract.market == market):
+                symbols.add(position.contract.symbol)
+        
+        # 处理期权持仓
+        for position in option_positions:
+            if (position.contract and position.contract.symbol 
+                and position.contract.market == market):
+                # 期权代码格式为 "AAPL 240119 180 CALL"，需要提取第一部分
+                base_symbol = position.contract.symbol.split()[0]
+                symbols.add(base_symbol)
+        
+        return sorted(list(symbols))
+        
+    except Exception as e:
+        logging.error(f"获取{market}市场持仓股票代码列表失败: {str(e)}\n{traceback.format_exc()}")
+        return []
 
 # 修改get_positions函数中获取收盘价的部分
 @tiger_bp.route('/positions')
