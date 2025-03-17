@@ -57,14 +57,14 @@ class StockChart {
         // 先显示模态框
         this.modal.show();
 
-        // 获取当前行的价格输入框
+        // 获取当前行的价格显示元素
         const row = button.closest('tr');
         const priceCell = row.querySelector('td:nth-child(3)'); // 价格在第3列
-        const priceInput = priceCell.querySelector('input');
+        const priceSpan = priceCell.querySelector('.current-price');
         
         let currentPrice = null;
-        if (priceInput) {
-            currentPrice = parseFloat(priceInput.value);
+        if (priceSpan && priceSpan.textContent !== '-') {
+            currentPrice = parseFloat(priceSpan.textContent.replace(/,/g, ''));
         }
 
         // 获取价格数据

@@ -138,8 +138,9 @@ def get_watchlist():
         
         # 连接富途API
         # 修改 futu 的导入语句
-        from futu.quote_ctx import OpenQuoteContext
-        from futu.common.constant import RET_OK
+        
+        # from futu.common import OpenQuoteContext
+        # from futu.common.constant import RET_OK
         quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
         
         try:

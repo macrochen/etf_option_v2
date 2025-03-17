@@ -23,7 +23,19 @@ def create_trade():
     """创建模拟交易"""
     try:
         trade_data = request.json
-        required_fields = ['type', 'symbol', 'market', 'direction', 'quantity']
+        trade_type = trade_data.get('type')
+        
+        # 根据交易类型检查必填字段
+        if trade_type == 'stock':
+            required_fields = ['type', 'symbol', 'market', 'direction', 'quantity', 'price']
+        elif trade_type == 'option':
+            required_fields = ['type', 'underlying', 'market', 'direction', 'quantity', 'price',
+                             'expiry', 'strike', 'optionType']
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': '无效的交易类型，必须是 stock 或 option'
+            }), 400
         
         # 检查必填字段
         missing_fields = [field for field in required_fields if field not in trade_data]
@@ -32,16 +44,6 @@ def create_trade():
                 'status': 'error',
                 'message': f'缺少必填字段: {", ".join(missing_fields)}'
             }), 400
-            
-        # 如果是期权交易，检查期权特有字段
-        if trade_data['type'] == 'option':
-            option_fields = ['underlying', 'expiry', 'strike', 'optionType']
-            missing_fields = [field for field in option_fields if field not in trade_data]
-            if missing_fields:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'期权交易缺少必填字段: {", ".join(missing_fields)}'
-                }), 400
         
         result = create_sim_trade(trade_data)
         return jsonify(result)

@@ -303,6 +303,122 @@ def get_delta_from_futu(option_symbol: str) -> Optional[float]:
         )
         return None
 
+
+def _get_market_price_info(soup: BeautifulSoup, symbol: str) -> tuple[Optional[float], Optional[float]]:
+    """从页面解析价格信息
+    
+    Args:
+        soup: BeautifulSoup对象
+        symbol: 股票代码
+    
+    Returns:
+        tuple: (当前价格, 涨跌额)
+    """
+    price_element = soup.find('li', class_='price')
+    if not price_element:
+        logging.warning(f"未找到{symbol}的价格信息")
+        return None, None
+        
+    try:
+        current_price = float(price_element.text.strip())
+        
+        change_price_element = soup.find('span', class_='change-price')
+        if change_price_element:
+            try:
+                change_price = float(change_price_element.text.strip())
+                return current_price, change_price
+            except ValueError:
+                logging.error(f"无法转换{symbol}的涨跌额: {change_price_element.text}")
+                return current_price, None
+        return current_price, None
+    except ValueError:
+        logging.error(f"无法转换{symbol}的价格: {price_element.text}")
+        return None, None
+
+@lru_cache_except_none(maxsize=100)
+def update_prev_close_price(symbol: str, market: str = 'US') -> bool:
+    """更新股票的前一交易日收盘价到数据库
+    
+    Args:
+        symbol: 股票代码
+        market: 市场类型，默认为US
+    
+    Returns:
+        bool: 更新是否成功
+    """
+    _rate_limiter.wait_if_needed()
+    time.sleep(random.uniform(1, 2))
+    
+    url = f"https://www.futunn.com/stock/{symbol}-{market}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 获取价格信息
+        current_price, change_price = _get_market_price_info(soup, symbol)
+        if current_price is None:
+            logging.error(f"获取{symbol}价格信息失败")
+            return False
+            
+        # 根据市场和交易时间决定前收价
+        if market == 'US':
+            is_trading = is_us_market_trading_hours()
+        elif market == 'HK':
+            is_trading = is_hk_market_trading_hours()
+        else:
+            logging.warning(f"暂不支持{market}市场的前收价获取")
+            return False
+            
+        # 计算前收价
+        if is_trading and change_price is not None:
+            prev_close = current_price - change_price
+        else:
+            prev_close = current_price
+            
+        # 更新到数据库
+        try:
+            db = USStockDatabase()
+            db.upsert_prev_close_price(symbol, market, prev_close)
+            logging.info(f"成功更新{symbol}的前收价: {prev_close}")
+            return True
+        except Exception as e:
+            logging.error(f"更新{symbol}前收价到数据库失败: {str(e)}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"获取{symbol}前收价失败: {str(e)}\n{traceback.format_exc()}")
+        return False
+
+def is_hk_market_trading_hours() -> bool:
+    """判断当前是否为港股交易时段
+    
+    港股交易时间：
+    - 北京时间 09:30-16:00
+    """
+    now = datetime.now(pytz.timezone('Asia/Shanghai'))  # 使用北京时间
+    
+    # 判断是否为工作日
+    if now.weekday() >= 5:  # 周六日休市
+        return False
+        
+    # 转换为当天的小时和分钟
+    hour = now.hour
+    minute = now.minute
+    current_time = hour * 100 + minute  # 转为时间数值，例如 09:30 -> 930
+    
+    # 判断是否在交易时段 09:30-16:00
+    return 930 <= current_time <= 1600
+
+
+
 # 使用自定义装饰器替换原来的lru_cache
 @lru_cache_except_none(maxsize=100)
 def get_real_time_price(symbol: str, market: str = 'US') -> Optional[float]:

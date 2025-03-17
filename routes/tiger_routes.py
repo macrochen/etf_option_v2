@@ -170,93 +170,6 @@ def get_raw_positions():
 from datetime import datetime
 from db.us_stock_db import USStockDatabase
 
-# 添加新的下载接口
-@tiger_bp.route('/download_prev_close', methods=['POST'])
-def download_prev_close():
-    """下载指定持仓标的的上一个交易日收盘价"""
-    try:
-        client, _ = get_tiger_client()
-        db = USStockDatabase()
-        
-        # 从请求中获取需要更新的标的列表
-        request_data = request.get_json()
-        symbols_to_update = request_data.get('symbols', [])
-        
-        if not symbols_to_update:
-            return jsonify({
-                'status': 'error',
-                'message': '没有需要更新的标的'
-            })
-        
-        # 按市场分组symbols
-        us_symbols = []
-        hk_symbols = []
-        for symbol, market in symbols_to_update:
-            if market == 'US':
-                us_symbols.append(symbol)
-            elif market == 'HK':
-                hk_symbols.append(symbol)
-        
-        price_data_list = []
-        today = datetime.now().strftime('%Y-%m-%d')
-        
-        # 获取美股数据
-        for symbol in us_symbols:
-            try:
-                import yfinance as yf
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period="2d")
-                if not hist.empty and len(hist) > 1:
-                    price_data_list.append({
-                        'symbol': symbol,
-                        'market': 'US',
-                        'prev_close_date': hist.index[-2].strftime('%Y-%m-%d'),
-                        'prev_close_price': float(hist.iloc[-2]['Close'])
-                    })
-            except Exception as e:
-                logging.error(f"从Yahoo获取{symbol}数据失败: {str(e)}")
-        
-        # 获取港股数据
-        if hk_symbols:
-            try:
-                quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)
-                
-                try:
-                    # 过滤掉期权，只获取股票的快照数据
-                    stock_codes = [f"HK.{symbol}" for symbol in hk_symbols if ' ' not in symbol]  # 期权代码中包含空格
-                    ret, data = quote_ctx.get_market_snapshot(stock_codes)
-                    
-                    if ret == RET_OK and not data.empty:
-                        for _, row in data.iterrows():
-                            symbol = row['code'].split('.')[-1]  # 从 'HK.00700' 提取 '00700'
-                            price_data_list.append({
-                                'symbol': symbol,
-                                'market': 'HK',
-                                'prev_close_date': datetime.now().strftime('%Y-%m-%d'),  # 使用当前日期，因为快照数据不返回日期
-                                'prev_close_price': float(row['prev_close_price'])
-                            })
-                except Exception as e:
-                    logging.error(f"从富途获取快照数据失败: {str(e)}\n{traceback.format_exc()}")
-
-                quote_ctx.close()
-            except Exception as e:
-                logging.error(f"富途API连接失败: {str(e)}\n{traceback.format_exc()}")
-        
-        # 批量保存到数据库
-        if price_data_list:
-            db.batch_save_prev_close_prices(price_data_list)
-            
-        return jsonify({
-            'status': 'success',
-            'message': f'成功下载 {len(price_data_list)} 个标的的收盘价数据'
-        })
-        
-    except Exception as e:
-        logging.error(f"下载收盘价失败: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
 
 def get_prev_close_prices(stock_positions, option_positions, db):
     """获取所有持仓的昨日收盘价"""
@@ -319,9 +232,9 @@ def get_prev_close_prices(stock_positions, option_positions, db):
     process_market_symbols(us_symbols, 'US', us_prices)
     process_market_symbols(hk_symbols, 'HK', hk_prices)
     
-    # 如果有缺失的价格，保存到数据库
+    # 如果有缺失的价格，记录日志
     if missing_prices:
-        db.batch_save_prev_close_prices(missing_prices)
+        logging.info(f"使用当前价格作为前收价的标的: {[f'{p['symbol']}({p['market']})' for p in missing_prices]}")
     
     return prev_close_prices
 
@@ -332,23 +245,23 @@ def get_positions():
         client, quote_client = get_tiger_client()
         
         # 获取实时港币兑美元汇率
-        try:
-            response = requests.get("https://open.er-api.com/v6/latest/HKD")
-            data = response.json()
-            HKD_TO_USD_RATE = data['rates']['USD']
-        except Exception as e:
-            error_context = {
-                'function': 'get_positions',
-                'step': 'get_exchange_rate',
-                'api': 'open.er-api.com',
-                'error_type': type(e).__name__
-            }
-            logging.error(
-                f"获取汇率失败. Context: {error_context}\n"
-                f"Error message: {str(e)}\n"
-                f"Stacktrace:\n{traceback.format_exc()}"
-            )
-            HKD_TO_USD_RATE = 0.128  # 如果获取失败，使用默认汇率
+        # try:
+        #     response = requests.get("https://open.er-api.com/v6/latest/HKD")
+        #     data = response.json()
+        #     HKD_TO_USD_RATE = data['rates']['USD']
+        # except Exception as e:
+        #     error_context = {
+        #         'function': 'get_positions',
+        #         'step': 'get_exchange_rate',
+        #         'api': 'open.er-api.com',
+        #         'error_type': type(e).__name__
+        #     }
+        #     logging.error(
+        #         f"获取汇率失败. Context: {error_context}\n"
+        #         f"Error message: {str(e)}\n"
+        #         f"Stacktrace:\n{traceback.format_exc()}"
+        #     )
+        HKD_TO_USD_RATE = 0.128  # 如果获取失败，使用默认汇率
 
         # 获取股票和期权持仓信息
         stock_positions = client.get_positions(sec_type=SecurityType.STK)
@@ -398,6 +311,7 @@ def get_positions():
 
                 stock_data = {
                     'symbol': display_symbol,  # 使用映射后的名称
+                    'hk_symbol': symbol,  # 保留港股的代码
                     'quantity': position.quantity,
                     'average_cost': position.average_cost,
                     'market_value': position.market_value,

@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from utils.futu_data_service import get_delta_from_futu,refresh_option_delta
+from utils.futu_data_service import get_delta_from_futu,refresh_option_delta,update_prev_close_price
 from db.us_stock_db import USStockDatabase
 from futu import OpenQuoteContext, TrdMarket, PriceReminderType, SetPriceReminderOp, PriceReminderFreq
 import time
@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 option_bp = Blueprint('option', __name__)
 
-def add_price_reminder(quote_ctx, code, strike, reminder_type, stock_reminder_count, request_count, last_request_time):
+
+def add_price_reminder(quote_ctx, code, strike, reminder_type, stock_reminder_count, 
+                      request_count, last_request_time, expiry_date=None, quantity=0):
     """添加到价提醒的通用函数
     
     Args:
@@ -32,9 +34,7 @@ def add_price_reminder(quote_ctx, code, strike, reminder_type, stock_reminder_co
         stock_reminder_count: 每只股票的提醒计数
         request_count: 当前请求计数
         last_request_time: 上次请求时间
-    
-    Returns:
-        tuple: (是否成功, 新的请求计数, 新的上次请求时间)
+        expiry_date: 期权到期日（可选）
     """
     reminder_type_str = "向上" if reminder_type == PriceReminderType.PRICE_UP else "向下"
     option_type = "CALL" if reminder_type == PriceReminderType.PRICE_UP else "PUT"
@@ -54,13 +54,16 @@ def add_price_reminder(quote_ctx, code, strike, reminder_type, stock_reminder_co
         last_request_time = time.time()
         
     try:
+        expiry_info = f" ({expiry_date})" if expiry_date else ""
+        quantity_info = f" {quantity}" if quantity else ""
+        
         ret, data = quote_ctx.set_price_reminder(
             code=code,
             reminder_type=reminder_type,
             reminder_freq=PriceReminderFreq.ONCE_A_DAY,
             value=strike,
             op=SetPriceReminderOp.ADD,
-            note=f"{option_type}期权行权价 {strike} {reminder_type_str}突破提醒"
+            note=f"{quantity_info} {option_type} {expiry_info}"
         )
         request_count += 1
         
@@ -169,10 +172,13 @@ def get_position_strikes(positions_data, market, is_futu):
                 symbol = market + "." + position['symbol']
 
             if symbol not in position_strikes:
-                position_strikes[symbol] = {'call': set(), 'put': set()}
+                position_strikes[symbol] = {'call': {}, 'put': {}}
             
             for option in position['options']:
                 strike = float(option['strike'])
+                expiry_date = option.get('expiry')
+                quantity = option.get('quantity', 0)  # 获取期权数量
+                
                 # 根据是否是富途持仓和市场类型来判断期权类型
                 if is_futu and market == 'HK':
                     is_call = option['put_call'] == '购'
@@ -180,9 +186,9 @@ def get_position_strikes(positions_data, market, is_futu):
                     is_call = option['put_call'].upper() == 'CALL'
                     
                 if is_call:
-                    position_strikes[symbol]['call'].add(strike)
+                    position_strikes[symbol]['call'][strike] = {'expiry': expiry_date, 'quantity': quantity}
                 else:
-                    position_strikes[symbol]['put'].add(strike)
+                    position_strikes[symbol]['put'][strike] = {'expiry': expiry_date, 'quantity': quantity}
     
     return position_strikes
 
@@ -277,25 +283,30 @@ def update_price_alerts():
         request_count = 0
         last_request_time = time.time()
         
+        # 在 update_price_alerts 函数中
         for code, strikes in position_strikes.items():
             existing_prices = {a['price'] for a in price_alerts.get(code, [])}
             
             # 添加CALL期权的向上突破提醒
-            for strike in strikes['call']:
+            for strike, info in strikes['call'].items():
                 if strike not in existing_prices:
                     success, request_count, last_request_time = add_price_reminder(
                         quote_ctx, code, strike, PriceReminderType.PRICE_UP,
-                        stock_reminder_count, request_count, last_request_time
+                        stock_reminder_count, request_count, last_request_time,
+                        expiry_date=info['expiry'],
+                        quantity=info['quantity']
                     )
                     if success:
                         added_count += 1
             
             # 添加PUT期权的向下突破提醒
-            for strike in strikes['put']:
+            for strike, info in strikes['put'].items():
                 if strike not in existing_prices:
                     success, request_count, last_request_time = add_price_reminder(
                         quote_ctx, code, strike, PriceReminderType.PRICE_DOWN,
-                        stock_reminder_count, request_count, last_request_time
+                        stock_reminder_count, request_count, last_request_time,
+                        expiry_date=info['expiry'],
+                        quantity=info['quantity']
                     )
                     if success:
                         added_count += 1
@@ -356,6 +367,91 @@ def refresh_option_delta(option_symbol):
             'message': str(e)
         }), 500
     
+@option_bp.route('/api/refresh_all_prev_close', methods=['POST'])
+def refresh_all_prev_close():
+    """批量更新所有持仓股票的前一日收盘价"""
+    try:
+        # 从tiger_routes获取当前持仓的股票列表
+        from .tiger_routes import get_positions
+        response = get_positions()
+        positions_data = response.get_json()
+        
+        if positions_data['status'] != 'success':
+            return jsonify({
+                'status': 'error',
+                'message': '获取持仓信息失败'
+            }), 500
+            
+        # 收集所有股票代码和市场
+        market_symbol_dict = {'US': [], 'HK': []}
+        
+        # 处理美股持仓
+        for position in positions_data['data']['us_positions']:
+            symbol = position.get('symbol')
+            if symbol:
+                market_symbol_dict['US'].append(symbol)
+                
+        # 处理港股持仓
+        for position in positions_data['data'].get('hk_positions', []):
+            symbol = position.get('hk_symbol')
+            if symbol:
+                market_symbol_dict['HK'].append(symbol)
+                
+        # 查询数据库中缺失前收价的股票
+        db = USStockDatabase()
+        missing_symbols = db.get_symbols_without_prev_close(market_symbol_dict)
+        
+        # 更新缺失的前收价
+        updated_stocks = []
+        failed_stocks = []
+        
+        for symbol, market in missing_symbols:
+        # if missing_symbols:
+        #     symbol, market = missing_symbols[0]  # 只取第一个
+            try:
+                success = update_prev_close_price(symbol, market)
+                if success:
+                    updated_stocks.append({
+                        'symbol': symbol,
+                        'market': market
+                    })
+                else:
+                    failed_stocks.append({
+                        'symbol': symbol,
+                        'market': market,
+                        'reason': '获取前收价失败'
+                    })
+            except Exception as e:
+                failed_stocks.append({
+                    'symbol': symbol,
+                    'market': market,
+                    'reason': str(e)
+                })
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'total_positions': {
+                    'US': len(market_symbol_dict['US']),
+                    'HK': len(market_symbol_dict['HK'])
+                },
+                'missing_count': len(missing_symbols),
+                'updated_stocks': updated_stocks,
+                'failed_stocks': failed_stocks
+            },
+            'message': f'更新完成：总持仓 US:{len(market_symbol_dict["US"])}个 HK:{len(market_symbol_dict["HK"])}个，'
+                      f'需更新{len(missing_symbols)}个，成功{len(updated_stocks)}个，失败{len(failed_stocks)}个'
+        })
+        
+    except Exception as e:
+        error_msg = f"更新前收价失败: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_msg)
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'stack_trace': error_msg
+        }), 500
+
 @option_bp.route('/api/refresh_all_deltas', methods=['POST'])
 def refresh_all_deltas():
     """批量刷新所有持仓期权的delta值"""

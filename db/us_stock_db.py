@@ -4,6 +4,9 @@ import sqlite3
 import json
 import logging
 from typing import Optional
+
+import pytz
+
 from .config import US_STOCK_DB
 from .database import Database  # 引入Database类
 
@@ -18,7 +21,7 @@ class USStockDatabase:
         self._init_table()
 
     def _init_table(self):
-        """初始化数据表"""
+        """初始化数据表"""  
         self.db.execute('''
             CREATE TABLE IF NOT EXISTS stock_prices (
                 stock_code VARCHAR(10),
@@ -83,6 +86,125 @@ class USStockDatabase:
                 option_type VARCHAR(10)             -- call/put
             )
         ''')
+
+    def upsert_prev_close_price(self, symbol: str, market: str, prev_close_price: float) -> bool:
+        """插入或更新股票前一交易日收盘价
+        
+        Args:
+            symbol: 股票代码
+            market: 市场类型(US/HK)
+            prev_close_price: 前一交易日收盘价
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        try:
+            prev_trading_day = self.get_prev_trading_day()
+            
+            # 检查是否已存在记录
+            existing = self.db.fetch_one('''
+                SELECT prev_close_price 
+                FROM prev_close_prices 
+                WHERE symbol = ? AND market = ? 
+            ''', (symbol, market))
+            
+            if existing:
+                self.db.execute('''
+                    UPDATE prev_close_prices 
+                    SET prev_close_price = ?, update_time = datetime('now')
+                    WHERE symbol = ? AND market = ? AND prev_close_date = ?
+                ''', (prev_close_price, symbol, market, prev_trading_day))
+            else:
+                # 如果不存在，则插入新记录
+                self.db.execute('''
+                    INSERT INTO prev_close_prices 
+                    (symbol, market, prev_close_date, prev_close_price, update_time)
+                    VALUES (?, ?, ?, ?, datetime('now'))
+                ''', (symbol, market, prev_trading_day, prev_close_price))
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"更新{symbol}的前收价失败: {str(e)}")
+            return False
+            
+
+    def get_prev_trading_day(self, date: datetime = None) -> datetime:
+        """获取上一个交易日（基于美东时间）
+        
+        Args:
+            date: 指定日期，默认为当前美东时间
+            
+        Returns:
+            datetime: 上一个交易日
+        """
+        if date is None:
+            # 获取当前美东时间
+            eastern = pytz.timezone('US/Eastern')
+            date = datetime.now(pytz.timezone('Asia/Shanghai')).astimezone(eastern)
+            
+        prev_day = date - timedelta(days=1)
+        
+        # 如果是周一或者前一天是周末，返回上周五
+        if prev_day.weekday() >= 5:  # 5是周六，6是周日
+            days_to_friday = prev_day.weekday() - 4  # 4是周五
+            prev_day = prev_day - timedelta(days=days_to_friday)
+            
+        return prev_day.date()  # 只返回日期部分，不包含时间
+
+    def get_symbols_without_prev_close(self, market_symbol_dict: dict) -> list[tuple[str, str]]:
+        """获取没有前一交易日收盘价的股票列表
+        
+        Args:
+            market_symbol_dict: 市场和股票代码的字典，格式为 {'US': ['AAPL', 'GOOGL'], 'HK': ['00700']}
+            
+        Returns:
+            list[tuple]: 返回 (symbol, market) 元组的列表，表示需要获取前收价的股票
+        """
+        missing_symbols = []
+        prev_trading_day = self.get_prev_trading_day()
+        
+        for market, symbols in market_symbol_dict.items():
+            if not symbols:
+                continue
+                
+            # 查询已有前收价的股票
+            placeholders = ','.join(['?' for _ in symbols])
+            query = f"""
+                SELECT symbol 
+                FROM prev_close_prices 
+                WHERE market = ? 
+                AND symbol IN ({placeholders})
+                AND prev_close_date = ?
+            """
+            
+            existing_symbols = set(row[0] for row in self.db.fetch_all(
+                query, 
+                (market, *symbols, prev_trading_day)
+            ))
+            
+            # 找出没有前收价的股票
+            missing_symbols.extend(
+                (symbol, market) for symbol in symbols 
+                if symbol not in existing_symbols
+            )
+            
+        return missing_symbols
+
+    def get_prev_close(self, symbol: str, market: str) -> float:
+        """获取股票前一交易日收盘价
+        
+        Args:
+            symbol: 股票代码
+            market: 市场(US/HK)
+            
+        Returns:
+            float: 前一交易日收盘价，如果不存在返回None
+        """
+        query = "SELECT prev_close FROM prev_close_prices WHERE symbol = ? AND market = ?"
+        result = self.execute_query(query, (symbol, market))
+        return result[0][0] if result else None
+        
 
     def create_sim_position(self, position_data: dict) -> int:
         """创建模拟交易持仓
