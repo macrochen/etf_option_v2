@@ -115,7 +115,7 @@ def get_next_monthly_expiry(date: datetime, option_data: pd.DataFrame) -> Option
 
         # 如果目标日期超出数据范围，返回None
         if target_date > max_date:
-            print(f"警告: 目标到期日 {target_date.strftime('%Y-%m-%d')} 已超出数据范围")
+            print(f"警告: 目标到期日 {target_date.strftime('%Y-%m-%d')} 已超出数据范围： {max_date.strftime('%Y-%m-%d')}")
             return None
 
         # 如果目标日期不是交易日，向后查找最近的交易日（最多查找10天）

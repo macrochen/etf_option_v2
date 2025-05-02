@@ -197,18 +197,23 @@ def update_stock_prices():
                 'message': f'没有找到任何{market_type}市场的持仓'
             }), 400
         
+        logging.info(f"开始批量更新股票价格，共 {len(symbols)} 个股票")
         results = []
         for symbol in symbols:
             try:
+                logging.info(f"开始处理股票: {symbol}")
                 # 使用与 download_data 相同的逻辑更新历史数据
                 end_date = datetime.now().date()
                 last_update = db.get_last_update_date(symbol, 'US')
                 if last_update:
                     start_date = last_update + timedelta(days=1)
+                    logging.info(f"{symbol} 最后更新日期: {last_update.strftime('%Y-%m-%d')}")
                 else:
                     start_date = end_date - timedelta(days=365*10)
+                    logging.info(f"{symbol} 无历史数据，将下载10年数据")
 
                 if start_date >= end_date:
+                    logging.info(f"{symbol} 数据已是最新")
                     results.append({
                         'code': symbol,
                         'market': market_type,
@@ -219,6 +224,7 @@ def update_stock_prices():
 
                 # 获取股票数据
                 preferred_source = get_preferred_data_source(symbol)
+                logging.info(f"使用数据源: {preferred_source} 获取 {symbol} 数据")
                 try:
                     if preferred_source == 'alphavantage':
                         data = download_from_alpha_vantage(symbol, start_date)
@@ -231,6 +237,9 @@ def update_stock_prices():
                     if not data.empty:
                         # 保存数据到数据库
                         success_count = 0
+                        total_rows = len(data)
+                        logging.info(f"{symbol} 获取到 {total_rows} 条数据记录")
+                        
                         for index, (date, row) in enumerate(data.iterrows()):
                             try:
                                 db.save_stock_data(
@@ -245,6 +254,7 @@ def update_stock_prices():
                                     symbol  # 使用代码作为名称
                                 )
                                 success_count += 1
+                                logging.info(f"{symbol} [{success_count}/{total_rows}] 保存数据: {date.date()} 开:{row['Open']:.2f} 高:{row['High']:.2f} 低:{row['Low']:.2f} 收:{row['Close']:.2f}")
                             except Exception as e:
                                 logging.error(f"保存数据失败: {symbol}, {date}, {e}\n{traceback.format_exc()}")
                                 continue
@@ -255,7 +265,8 @@ def update_stock_prices():
                             'updated_count': success_count,
                             'status': 'success'
                         })
-                        time.sleep(1)  # 添加延迟避免请求过快
+                        logging.info(f"{symbol} 更新完成，成功保存 {success_count}/{total_rows} 条记录")
+                        time.sleep(3)  # 添加延迟避免请求过快
                     else:
                         raise Exception("未获取到数据")
 
@@ -267,20 +278,23 @@ def update_stock_prices():
                         raise e
 
             except Exception as e:
+                logging.error(f"{symbol} 更新失败: {str(e)}")
                 results.append({
                     'code': symbol,
                     'market': market_type,
                     'error': str(e),
                     'status': 'error'
                 })
-                
+
+        logging.info("批量更新股票价格完成")
         return jsonify({
             'status': 'success',
             'data': results
         })
         
     except Exception as e:
-        logging.error(f"更新股价失败: {str(e)}\n{traceback.format_exc()}")
+        error_msg = f"更新股价失败: {str(e)}\n{traceback.format_exc()}"
+        logging.error(error_msg)
         return jsonify({
             'status': 'error',
             'message': str(e)

@@ -109,19 +109,35 @@ class USStockDatabase:
             ''', (symbol, market))
             
             if existing:
-                self.db.execute('''
+                result = self.db.execute('''
                     UPDATE prev_close_prices 
-                    SET prev_close_price = ?, update_time = datetime('now')
-                    WHERE symbol = ? AND market = ? AND prev_close_date = ?
-                ''', (prev_close_price, symbol, market, prev_trading_day))
+                    SET prev_close_price = ?, 
+                        prev_close_date = ?,
+                        update_time = datetime('now')
+                    WHERE symbol = ? AND market = ?
+                ''', (prev_close_price, prev_trading_day, symbol, market))
+                if result.rowcount == 0:
+                    logging.error(
+                        f"更新前收价失败 - 股票: {symbol}, 市场: {market}\n"
+                        f"前收价: {prev_close_price}\n"
+                        f"交易日期: {prev_trading_day}\n"
+                        f"当前记录: {existing}"
+                    )
+                    return False
             else:
                 # 如果不存在，则插入新记录
-                self.db.execute('''
+                result = self.db.execute('''
                     INSERT INTO prev_close_prices 
                     (symbol, market, prev_close_date, prev_close_price, update_time)
                     VALUES (?, ?, ?, ?, datetime('now'))
                 ''', (symbol, market, prev_trading_day, prev_close_price))
-            
+                if result.rowcount == 0:
+                    logging.error(
+                        f"插入前收价失败 - 股票: {symbol}, 市场: {market}\n"
+                        f"前收价: {prev_close_price}\n"
+                        f"交易日期: {prev_trading_day}"
+                    )
+                    return False
             return True
             
         except Exception as e:

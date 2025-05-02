@@ -8,6 +8,12 @@ import sqlite3
 from datetime import datetime, timedelta
 import random
 
+# 在需要使用的地方调用这个函数
+# 添加自定义异常类
+class FutuBlockedException(Exception):
+    """富途请求被屏蔽的异常"""
+    pass
+
 def get_cached_delta(option_symbol: str, db_path: str) -> Optional[float]:
     """从缓存中获取delta值"""
     conn = sqlite3.connect(db_path)
@@ -103,7 +109,7 @@ def get_cached_option_delta(option_symbol: str, force_cache: bool = False) -> Op
     return 0
 
 
-def refresh_option_delta(option_symbol: str) -> Optional[float]:
+def get_option_delta_with_cache(option_symbol: str) -> Optional[float]:
     """获取期权的delta值，如果缓存中没有则从富途网站获取并更新缓存
     
     Args:
@@ -204,105 +210,6 @@ def lru_cache_except_none(maxsize=128):
         return wrapper
     return decorator
 
-@lru_cache_except_none(maxsize=100)  # 使用LRU缓存避免重复请求
-def get_delta_from_futu(option_symbol: str) -> Optional[float]:    
-    """从富途网页获取期权的delta值"""
-    # 在发送请求前检查限流
-    _rate_limiter.wait_if_needed()
-    
-    # 添加随机延时 1-3 秒
-    time.sleep(random.uniform(1, 3))
-    
-    # 构建URL
-    url = f"https://www.futunn.com/stock/{option_symbol}-US"
-    params = {
-        'global_content': '{"promote_id":13766,"sub_promote_id":1}'
-    }
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Referer': 'https://www.futunn.com/'
-    }
-    
-    try:
-        response = requests.get(url, params=params, headers=headers)
-        response.raise_for_status()
-        
-        # 检查页面是否包含期权代码，如果不包含可能是重定向到了错误页面
-        if option_symbol not in response.text:
-            logging.error(
-                f"页面未包含期权代码，可能是重定向到了错误页面\n"
-                f"URL: {url}\n"
-                f"最终URL: {response.url}\n"
-                f"页面标题: {BeautifulSoup(response.text, 'html.parser').title.text if BeautifulSoup(response.text, 'html.parser').title else 'No title'}"
-            )
-            return None
-            
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 尝试查找错误信息或登录提示
-        error_msg = soup.find('div', class_='error-message')
-        if error_msg:
-            logging.error(f"页面返回错误信息: {error_msg.text}")
-            return None
-            
-        # 添加页面内容日志，帮助诊断问题
-        logging.debug(f"期权 {option_symbol} 的响应内容:\n{response.text[:500]}...")  # 只记录前500个字符
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 记录所有找到的span元素，帮助分析页面结构
-        all_spans = soup.find_all('span')
-        logging.debug(f"页面中找到的所有span元素: {[span.text for span in all_spans[:10]]}...")  # 只记录前10个
-        
-        delta_spans = soup.find_all('span', string='Delta')
-        if delta_spans:
-            # 获取Delta值的span（通常是前一个兄弟元素）
-            delta_value = delta_spans[0].find_previous_sibling('span')
-            if delta_value:
-                try:
-                    logging.warning(f"找到期权 {option_symbol} 的Delta值: {delta_value.text}")
-                    return float(delta_value.text)
-                except ValueError:
-                    logging.error(
-                        f"无法转换期权 {option_symbol} 的delta值: {delta_value.text}\n"
-                        f"URL: {url}\n"
-                        f"响应状态码: {response.status_code}"
-                    )
-                    return None
-        
-        logging.warning(
-            f"未找到期权 {option_symbol} 的Delta值\n"
-            f"URL: {url}\n"
-            f"响应状态码: {response.status_code}\n"
-            f"页面是否包含'Delta'文本: {'Delta' in response.text}\n"
-            f"页面是否包含期权代码: {option_symbol in response.text}"
-        )
-        return None
-        
-    except requests.RequestException as e:
-        logging.error(
-            f"请求期权 {option_symbol} 数据失败\n"
-            f"URL: {url}\n"
-            f"错误类型: {type(e).__name__}\n"
-            f"错误信息: {str(e)}\n"
-            f"堆栈信息:\n{traceback.format_exc()}"
-        )
-        return None
-    except Exception as e:
-        logging.error(
-            f"解析期权 {option_symbol} 数据失败\n"
-            f"URL: {url}\n"
-            f"错误类型: {type(e).__name__}\n"
-            f"错误信息: {str(e)}\n"
-            f"堆栈信息:\n{traceback.format_exc()}"
-        )
-        return None
-
 
 def _get_market_price_info(soup: BeautifulSoup, symbol: str) -> tuple[Optional[float], Optional[float]]:
     """从页面解析价格信息
@@ -335,33 +242,164 @@ def _get_market_price_info(soup: BeautifulSoup, symbol: str) -> tuple[Optional[f
         logging.error(f"无法转换{symbol}的价格: {price_element.text}")
         return None, None
 
-@lru_cache_except_none(maxsize=100)
-def update_prev_close_price(symbol: str, market: str = 'US') -> bool:
-    """更新股票的前一交易日收盘价到数据库
+
+def _make_futu_request(symbol: str, market: str = 'US', max_retries: int = 3) -> Optional[requests.Response]:
+    """统一处理富途网站的请求
     
     Args:
-        symbol: 股票代码
-        market: 市场类型，默认为US
+        symbol: 股票或期权代码
+        market: 市场类型（US/HK）
+        max_retries: 最大重试次数
     
     Returns:
-        bool: 更新是否成功
+        Response: 请求响应对象，如果失败则返回None
+        
+    Raises:
+        FutuBlockedException: 当检测到被富途屏蔽时抛出
     """
     _rate_limiter.wait_if_needed()
-    time.sleep(random.uniform(1, 2))
     
     url = f"https://www.futunn.com/stock/{symbol}-{market}"
+    params = {
+        'global_content': '{"promote_id":13766,"sub_promote_id":1}'
+    }
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Referer': 'https://www.futunn.com/'
     }
     
+    for retry in range(max_retries):
+        try:
+            # 随机延时
+            delay = random.uniform(3, 6)
+            logging.info(f"等待 {delay:.1f} 秒后请求 {symbol} 的数据...")
+            time.sleep(delay)
+            
+            response = requests.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            
+            # 检查是否被屏蔽
+            if "403" in response.url or response.url == "https://www.futunn.com/403":
+                logging.error(f"请求被屏蔽 (403)，建议等待至少30分钟后再试")
+                raise FutuBlockedException("请求被富途屏蔽，建议等待至少30分钟后再试")
+            
+            # 检查访问频率限制
+            if "访问频繁" in response.text or "请稍后重试" in response.text:
+                if retry < max_retries - 1:
+                    wait_time = (retry + 1) * 60
+                    logging.warning(f"访问频繁，将在 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logging.error(f"请求 {symbol} 数据频繁，建议等待至少30分钟后再试")
+                    raise FutuBlockedException("访问过于频繁，建议等待至少30分钟后再试")
+            
+            return response
+            
+        except FutuBlockedException:
+            raise  # 直接向上抛出屏蔽异常
+        except Exception as e:
+            logging.error(
+                f"请求失败 - 股票: {symbol}, 市场: {market}, 重试次数: {retry+1}/{max_retries}\n"
+                f"URL: {url}\n"
+                f"错误类型: {type(e).__name__}\n"
+                f"错误信息: {str(e)}\n"
+                f"堆栈信息:\n{traceback.format_exc()}"
+            )
+            if retry == max_retries - 1:
+                return None
+            time.sleep((retry + 1) * 30)
+    
+    return None
+
+# 修改现有函数使用新的请求函数
+def _parse_delta_from_page(soup: BeautifulSoup, option_symbol: str) -> Optional[float]:
+    """从富途页面解析期权的delta值
+    
+    Args:
+        soup: BeautifulSoup对象
+        option_symbol: 期权代码
+    
+    Returns:
+        float: delta值，如果获取失败则返回None
+    """
+    
+    delta_spans = soup.find_all('span', string='Delta')
+    if delta_spans:
+        # 获取Delta值的span（通常是前一个兄弟元素）
+        delta_value = delta_spans[0].find_previous_sibling('span')
+        if delta_value:
+            try:
+                logging.warning(f"找到期权 {option_symbol} 的Delta值: {delta_value.text}")
+                return float(delta_value.text)
+            except ValueError:
+                logging.error(f"无法转换期权 {option_symbol} 的delta值: {delta_value.text}")
+                return None
+    
+    logging.warning(f"未找到期权 {option_symbol} 的Delta值")
+    return None
+
+def get_delta_from_futu(option_symbol: str) -> Optional[float]:
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
+        """从富途网页获取期权的delta值"""
+        response = _make_futu_request(option_symbol)
+        if not response:
+            return None
+            
+        # 检查页面是否包含期权代码
+        if option_symbol not in response.text:
+            logging.error(f"页面未包含期权代码，可能是重定向到了错误页面")
+            return None
         
         soup = BeautifulSoup(response.text, 'html.parser')
+
+        # 尝试查找错误信息或登录提示
+        error_msg = soup.find('div', class_='error-message')
+        if error_msg:
+            logging.error(f"页面返回错误信息: {error_msg.text}")
+            return None
         
+        # 记录所有找到的span元素，帮助分析页面结构
+        all_spans = soup.find_all('span')
+        logging.debug(f"页面中找到的所有span元素: {[span.text for span in all_spans[:10]]}...")  # 只记录前10个
+
+        return _parse_delta_from_page(soup, option_symbol)
+        
+    except requests.RequestException as e:
+        logging.error(
+            f"请求期权数据失败 - 期权: {option_symbol}\n"
+            f"错误信息: {str(e)}\n"
+            f"堆栈信息:\n{traceback.format_exc()}"
+        )
+        return None
+            
+    except FutuBlockedException:
+        raise  # 直接向上抛出屏蔽异常
+
+    except Exception as e:
+        logging.error(
+            f"解析期权数据失败 - 期权: {option_symbol}\n"
+            f"错误信息: {str(e)}\n"
+            f"堆栈信息:\n{traceback.format_exc()}"
+        )
+        return None
+
+
+# 在需要使用的地方调用这个函数
+def update_prev_close_price(symbol: str, market: str = 'US', max_retries: int = 3, is_option: bool = False) -> bool:
+    """更新股票的前一交易日收盘价到数据库"""
+    
+    try:
+        response = _make_futu_request(symbol, market, max_retries)
+        if not response:
+            return False
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+    
         # 获取价格信息
         current_price, change_price = _get_market_price_info(soup, symbol)
         if current_price is None:
@@ -383,16 +421,28 @@ def update_prev_close_price(symbol: str, market: str = 'US') -> bool:
         else:
             prev_close = current_price
             
-        # 更新到数据库
+        # 创建数据库连接
+        db = USStockDatabase()
+        
+        # 如果是期权，尝试解析并缓存delta值
+        if is_option:
+            delta = _parse_delta_from_page(soup, symbol)
+            if delta is not None:
+                db.cache_delta(symbol, delta)
+                logging.info(f"成功更新期权 {symbol} 的delta值: {delta}")
+            
+        # 更新前收价到数据库
         try:
-            db = USStockDatabase()
             db.upsert_prev_close_price(symbol, market, prev_close)
             logging.info(f"成功更新{symbol}的前收价: {prev_close}")
             return True
         except Exception as e:
             logging.error(f"更新{symbol}前收价到数据库失败: {str(e)}")
             return False
-            
+    
+    except FutuBlockedException:
+        raise  # 直接向上抛出屏蔽异常        
+    
     except Exception as e:
         logging.error(f"获取{symbol}前收价失败: {str(e)}\n{traceback.format_exc()}")
         return False

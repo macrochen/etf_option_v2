@@ -17,6 +17,12 @@ def earnings_analysis():
 
 def calculate_weighted_movement(historical_data, weights=None):
     """计算加权平均变动幅度，使用最近12个季度的数据"""
+    # 检查输入数据是否为空
+    if isinstance(historical_data, np.ndarray) and historical_data.size == 0:
+        return 0
+    if not isinstance(historical_data, np.ndarray) and not historical_data:
+        return 0
+    
     # 只取最近12个季度的数据
     recent_data = historical_data[-12:] if len(historical_data) > 12 else historical_data
     
@@ -56,6 +62,20 @@ def monte_carlo_simulation(historical_movements, n_simulations=10000):
     """
     执行蒙特卡洛模拟分析
     """
+    # 检查输入数据是否为空
+    if isinstance(historical_movements, np.ndarray) and historical_movements.size == 0:
+        return {
+            'expected_change': 0,
+            'percentiles': {'p5': 0, 'p25': 0, 'p50': 0, 'p75': 0, 'p95': 0},
+            'simulated_changes': []
+        }
+    if not isinstance(historical_movements, np.ndarray) and not historical_movements:
+        return {
+            'expected_change': 0,
+            'percentiles': {'p5': 0, 'p25': 0, 'p50': 0, 'p75': 0, 'p95': 0},
+            'simulated_changes': []
+        }
+    
     # 将百分比变化转换为对数收益率
     log_returns = [math.log(1 + x/100) for x in historical_movements]
     
@@ -161,6 +181,9 @@ def analyze_earnings():
     fetcher = EarningsDatesFetcher()
     earnings_data = fetcher.get_earnings_volatility(symbol)
     
+    # 初始化数据结构
+    monte_carlo_data = []
+
     # 按日期倒序排序
     if earnings_data:
         earnings_data = sorted(earnings_data, key=lambda x: x[1], reverse=True)

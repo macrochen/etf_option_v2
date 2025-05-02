@@ -171,7 +171,7 @@ from datetime import datetime
 from db.us_stock_db import USStockDatabase
 
 
-def get_prev_close_prices(stock_positions, option_positions, db):
+def get_prev_close_prices_from_db(stock_positions, option_positions, db):
     """获取所有持仓的昨日收盘价"""
     def process_market_symbols(symbols, market, prices):
         """处理指定市场的标的收盘价
@@ -220,9 +220,35 @@ def get_prev_close_prices(stock_positions, option_positions, db):
     for p in stock_positions + option_positions:
         if p.contract:
             if p.contract.market == 'US':
-                us_symbols.append(p.contract.symbol)
+                if ' ' in p.contract.symbol:  # 是期权
+                    # 解析期权代码
+                    symbol_parts = p.contract.symbol.split()
+                    if len(symbol_parts) >= 4:
+                        base_symbol = symbol_parts[0]  # 底层资产代码
+                        expiry_date = symbol_parts[1]
+                        strike_price = symbol_parts[2]
+                        option_type = symbol_parts[3]
+                        # 添加底层资产代码
+                        us_symbols.append(base_symbol)
+                        # 构建统一格式的期权代码
+                        option_symbol = (
+                            f"{base_symbol}"  # 基础股票代码
+                            f"{expiry_date[2:4]}"  # 年份后两位
+                            f"{expiry_date[4:6]}"  # 月份
+                            f"{expiry_date[6:8]}"  # 日期
+                            f"{option_type[0]}"  # C或P
+                            f"{int(float(strike_price)*1000)}"  # 行权价*1000
+                        )
+                        us_symbols.append(option_symbol)
+                else:  # 是股票
+                    us_symbols.append(p.contract.symbol)
             elif p.contract.market == 'HK':
+                # 港股处理逻辑保持不变
                 hk_symbols.append(p.contract.symbol)
+    
+    # 去重，避免重复获取同一个股票的价格
+    us_symbols = list(set(us_symbols))
+    hk_symbols = list(set(hk_symbols))
     
     # 从数据库获取收盘价
     us_prices = db.batch_get_prev_close_prices(us_symbols, 'US')
@@ -234,7 +260,14 @@ def get_prev_close_prices(stock_positions, option_positions, db):
     
     # 如果有缺失的价格，记录日志
     if missing_prices:
-        logging.info(f"使用当前价格作为前收价的标的: {[f'{p['symbol']}({p['market']})' for p in missing_prices]}")
+        # 构建缺失价格标的的列表
+        missing_symbols = []
+        for p in missing_prices:
+            symbol_info = f"{p['symbol']}({p['market']})"
+            missing_symbols.append(symbol_info)
+        
+        # 记录日志
+        logging.info(f"使用当前价格作为前收价的标的: {missing_symbols}")
     
     return prev_close_prices
 
@@ -309,7 +342,7 @@ def get_positions():
         db = USStockDatabase()
         
         # 获取所有持仓的昨日收盘价
-        prev_close_prices = get_prev_close_prices(stock_positions, option_positions, db)
+        prev_close_prices = get_prev_close_prices_from_db(stock_positions, option_positions, db)
 
         # 创建按标的分组的字典和非分组列表
         grouped_positions = {}
@@ -419,9 +452,6 @@ def get_positions():
                 # 计算期权现价（注意要考虑合约乘数）
                 latest_price = (position.market_value / (position.quantity * multiplier)) if position.quantity else 0
 
-                # 计算期权每日盈亏
-                prev_close = prev_close_prices.get(contract.symbol, 0)
-                daily_pnl = (latest_price - prev_close) * position.quantity * multiplier if prev_close else 0
                 
                 # 计算期权盈亏百分比 - 使用成本价作为基准计算百分比
                 cost_basis = abs(position.quantity * position.average_cost) if position.quantity and position.average_cost else 0
@@ -438,6 +468,11 @@ def get_positions():
                     f"{option_type[0]}"  # C或P
                     f"{int(float(strike_price)*1000)}"  # 行权价*1000
                 )
+
+                # 计算期权每日盈亏
+                prev_close = prev_close_prices.get(futu_option_symbol, 0)
+                base_prev_close = prev_close_prices.get(base_symbol, 0)
+                daily_pnl = (latest_price - prev_close) * position.quantity * multiplier if prev_close else 0
 
                 # 修改这里，添加force_cache=True参数，确保只从缓存中获取delta值
                 delta_value = get_cached_option_delta(futu_option_symbol, force_cache=True)
@@ -477,6 +512,7 @@ def get_positions():
                         'symbol': base_symbol,
                         'stock': None,
                         'options': [option_data],
+                        'latest_price': base_prev_close,  # 没有最新价格就用昨日收盘价
                         'market': option_data['market'],
                         'total_market_value': option_data['market_value'],
                         'total_unrealized_pnl': option_data['unrealized_pnl'],
@@ -488,6 +524,59 @@ def get_positions():
         
         # 合并分组和非分组数据
         final_positions = list(grouped_positions.values()) + ungrouped_positions
+
+        # 计算每个分组的期权涨跌百分比
+        for group in grouped_positions.values():
+            if group['options']:
+                current_price = group['latest_price']
+                nearest_call = None
+                nearest_put = None
+                min_call_diff = float('inf')
+                min_put_diff = float('inf')
+
+                # 找到最接近当前价格的call和put
+                for option in group['options']:
+                    strike = option['strike']
+                    diff = abs(strike - current_price)
+                    
+                    if option['put_call'] == 'CALL':
+                        if diff < min_call_diff:
+                            min_call_diff = diff
+                            nearest_call = option
+                    else:  # PUT
+                        if diff < min_put_diff:
+                            min_put_diff = diff
+                            nearest_put = option
+
+                # 计算涨跌百分比
+                if nearest_call and current_price != 0:  # 添加current_price检查
+                    call_percent = ((nearest_call['strike'] - current_price) / current_price * 100) 
+                    nearest_call['to_strike_percent'] = round(call_percent, 2)
+                elif nearest_call:  # 如果current_price为0
+                    nearest_call['to_strike_percent'] = 0  # 设置默认值
+                
+                if nearest_put and current_price != 0:  # 添加current_price检查
+                    put_percent = ((current_price - nearest_put['strike']) / current_price * 100)
+                    nearest_put['to_strike_percent'] = round(put_percent, 2)
+                elif nearest_put:  # 如果current_price为0
+                    nearest_put['to_strike_percent'] = 0  # 设置默认值
+
+        # 计算每个分组的总delta值
+        for group in grouped_positions.values():
+            total_delta = 0
+            # 如果有股票持仓，计算股票的delta
+            # if group['stock']:
+            #     total_delta += group['stock']['quantity']  # 股票delta = 持仓数量 * 1
+            
+            # 计算期权的delta
+            for option in group['options']:
+                if option['delta'] is not None:
+                    # 期权delta = 期权delta值 * 持仓数量 * 合约乘数
+                    option_delta = option['delta'] * option['quantity']
+                    total_delta += option_delta
+            
+            # 将计算得到的总delta添加到分组中
+            group['total_delta'] = total_delta
         
         # 按市场分类并按symbol排序
         us_positions = sorted([p for p in final_positions if p.get('market') == 'US'], 

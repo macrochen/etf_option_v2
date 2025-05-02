@@ -11,7 +11,8 @@ from routes.futu_routes import futu_bp
 from routes.earnings_routes import earnings_bp
 from routes.option_routes import option_bp
 from routes.sim_trade_routes import sim_trade_bp
-
+import os
+import subprocess
 
 app = Flask(__name__)
 
@@ -52,7 +53,22 @@ def init_app():
     
 if __name__ == "__main__":
     init_app()
+    port = 5001
+    
+    # 检查端口是否被占用
+    try:
+        # 查找占用端口的进程
+        result = subprocess.run(['lsof', '-i', f':{port}'], capture_output=True, text=True)
+        if result.stdout:
+            # 提取PID并终止进程
+            pid = result.stdout.split('\n')[1].split()[1]
+            os.system(f'kill -9 {pid}')
+            print(f'已终止占用端口 {port} 的进程 (PID: {pid})')
+    except Exception as e:
+        print(f'检查端口占用时出错: {e}')
+
     # app.run(host='192.168.31.133', port=5000, debug=True)
     # app.run(host='0.0.0.0', port=5000, debug=True)
-    app.run(host='192.168.31.113', port=5000, debug=True)
-    # app.run(host='127.0.0.1', port=5000, debug=True)
+    # app.run(host='192.168.31.113', port=5000, debug=True)
+    # app.run(host='192.168.31.198', port=5000, debug=True)
+    app.run(host='127.0.0.1', port=port, debug=True)

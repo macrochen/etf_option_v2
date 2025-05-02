@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from utils.futu_data_service import get_delta_from_futu,refresh_option_delta,update_prev_close_price
+from utils.futu_data_service import get_delta_from_futu,update_prev_close_price,FutuBlockedException
 from db.us_stock_db import USStockDatabase
 from futu import OpenQuoteContext, TrdMarket, PriceReminderType, SetPriceReminderOp, PriceReminderFreq
 import time
@@ -367,10 +367,12 @@ def refresh_option_delta(option_symbol):
             'message': str(e)
         }), 500
     
+
 @option_bp.route('/api/refresh_all_prev_close', methods=['POST'])
 def refresh_all_prev_close():
-    """批量更新所有持仓股票的前一日收盘价"""
+    """批量更新所有持仓股票和期权的前一日收盘价"""
     try:
+        logger.info("开始批量更新前收价...")
         # 从tiger_routes获取当前持仓的股票列表
         from .tiger_routes import get_positions
         response = get_positions()
@@ -383,31 +385,40 @@ def refresh_all_prev_close():
             }), 500
             
         # 收集所有股票代码和市场
-        market_symbol_dict = {'US': [], 'HK': []}
+        market_symbol_dict = {'US': []}
+        # 收集所有期权代码（使用相同的数据结构）
+        option_symbol_dict = {'US': []}
         
         # 处理美股持仓
         for position in positions_data['data']['us_positions']:
+            # 处理股票
             symbol = position.get('symbol')
             if symbol:
                 market_symbol_dict['US'].append(symbol)
-                
-        # 处理港股持仓
-        for position in positions_data['data'].get('hk_positions', []):
-            symbol = position.get('hk_symbol')
-            if symbol:
-                market_symbol_dict['HK'].append(symbol)
-                
-        # 查询数据库中缺失前收价的股票
+            
+            # 处理期权
+            if 'options' in position:
+                for option in position['options']:
+                    if 'futu_symbol' in option:
+                        option_symbol_dict['US'].append(option['futu_symbol'])
+        
+        # 查询数据库中缺失前收价的股票和期权（使用同一个接口）
         db = USStockDatabase()
         missing_symbols = db.get_symbols_without_prev_close(market_symbol_dict)
+        missing_options = db.get_symbols_without_prev_close(option_symbol_dict)
         
         # 更新缺失的前收价
         updated_stocks = []
         failed_stocks = []
+        updated_options = []
+        failed_options = []
         
-        for symbol, market in missing_symbols:
-        # if missing_symbols:
-        #     symbol, market = missing_symbols[0]  # 只取第一个
+        # 更新股票前收价
+        total_stocks = len(missing_symbols)
+        logger.info(f"开始更新股票前收价，共 {total_stocks} 个股票需要更新")
+        
+        for index, (symbol, market) in enumerate(missing_symbols, 1):
+            logger.info(f"正在更新股票 [{index}/{total_stocks}] {market}.{symbol} 的前收价")
             try:
                 success = update_prev_close_price(symbol, market)
                 if success:
@@ -415,12 +426,38 @@ def refresh_all_prev_close():
                         'symbol': symbol,
                         'market': market
                     })
+                    logger.info(f"[{index}/{total_stocks}] {market}.{symbol} 更新成功")
                 else:
                     failed_stocks.append({
                         'symbol': symbol,
                         'market': market,
                         'reason': '获取前收价失败'
                     })
+                    logger.warning(f"[{index}/{total_stocks}] {market}.{symbol} 更新失败")
+            except FutuBlockedException as e:
+                logger.error(f"富途请求被屏蔽，终止批量处理: {str(e)}")
+                return jsonify({
+                    'status': 'partial_success',
+                    'data': {
+                        'stocks': {
+                            'total': len(market_symbol_dict['US']),
+                            'updated': updated_stocks,
+                            'failed': failed_stocks,
+                            'remaining': [
+                                {'symbol': sym, 'market': mkt}
+                                for sym, mkt in missing_symbols[index:]
+                            ]
+                        },
+                        'options': {
+                            'total': len(option_symbol_dict['US']),
+                            'updated': updated_options,
+                            'failed': failed_options,
+                            'remaining': missing_options
+                        }
+                    },
+                    'message': f'富途请求被屏蔽，已处理 {len(updated_stocks)}/{total_stocks} 个股票，'
+                             f'期权尚未开始处理'
+                })
             except Exception as e:
                 failed_stocks.append({
                     'symbol': symbol,
@@ -428,19 +465,76 @@ def refresh_all_prev_close():
                     'reason': str(e)
                 })
         
+        # 更新期权前收价
+        total_options = len(missing_options)
+        logger.info(f"开始更新期权前收价，共 {total_options} 个期权需要更新")
+        
+        for index, (option_symbol, market) in enumerate(missing_options, 1):
+            logger.info(f"正在更新期权 [{index}/{total_options}] {option_symbol} 的前收价")
+            try:
+                success = update_prev_close_price(option_symbol, market, is_option=True)
+                if success:
+                    updated_options.append({
+                        'symbol': option_symbol,
+                        'market': market
+                    })
+                    logger.info(f"[{index}/{total_options}] {option_symbol} 更新成功")
+                else:
+                    failed_options.append({
+                        'symbol': option_symbol,
+                        'market': market,
+                        'reason': '获取前收价失败'
+                    })
+                    logger.warning(f"[{index}/{total_options}] {option_symbol} 更新失败")
+            except FutuBlockedException as e:
+                logger.error(f"富途请求被屏蔽，终止批量处理: {str(e)}")
+                return jsonify({
+                    'status': 'partial_success',
+                    'data': {
+                        'stocks': {
+                            'total': len(market_symbol_dict['US']),
+                            'updated': updated_stocks,
+                            'failed': failed_stocks
+                        },
+                        'options': {
+                            'total': len(option_symbol_dict['US']),
+                            'updated': updated_options,
+                            'failed': failed_options,
+                            'remaining': [
+                                {'symbol': sym, 'market': mkt}
+                                for sym, mkt in missing_options[index:]
+                            ]
+                        }
+                    },
+                    'message': f'富途请求被屏蔽，股票已完成更新，期权已处理 {len(updated_options)}/{total_options} 个'
+                })
+            except Exception as e:
+                failed_options.append({
+                    'symbol': option_symbol,
+                    'reason': str(e)
+                })
+        
+        logger.info(f"批量更新完成，股票：成功 {len(updated_stocks)} 个，失败 {len(failed_stocks)} 个；"
+                   f"期权：成功 {len(updated_options)} 个，失败 {len(failed_options)} 个")
+        
         return jsonify({
             'status': 'success',
             'data': {
-                'total_positions': {
-                    'US': len(market_symbol_dict['US']),
-                    'HK': len(market_symbol_dict['HK'])
+                'stocks': {
+                    'total': len(market_symbol_dict['US']),
+                    'updated': updated_stocks,
+                    'failed': failed_stocks
                 },
-                'missing_count': len(missing_symbols),
-                'updated_stocks': updated_stocks,
-                'failed_stocks': failed_stocks
+                'options': {
+                    'total': len(option_symbol_dict['US']),
+                    'updated': updated_options,
+                    'failed': failed_options
+                }
             },
-            'message': f'更新完成：总持仓 US:{len(market_symbol_dict["US"])}个 HK:{len(market_symbol_dict["HK"])}个，'
-                      f'需更新{len(missing_symbols)}个，成功{len(updated_stocks)}个，失败{len(failed_stocks)}个'
+            'message': f'更新完成：股票总数 {len(market_symbol_dict["US"])} 个，'
+                      f'成功 {len(updated_stocks)} 个，失败 {len(failed_stocks)} 个；'
+                      f'期权总数 {len(option_symbol_dict["US"])} 个，'
+                      f'成功 {len(updated_options)} 个，失败 {len(failed_options)} 个'
         })
         
     except Exception as e:
@@ -456,8 +550,13 @@ def refresh_all_prev_close():
 def refresh_all_deltas():
     """批量刷新所有持仓期权的delta值"""
     try:
+        logger.info("开始批量更新期权delta值...")
+        
         # 从tiger_routes获取当前持仓的期权列表
         from .tiger_routes import get_positions
+        from utils.futu_data_service import FutuBlockedException
+        
+        logger.info("正在获取持仓信息...")
         response = get_positions()
         positions_data = response.get_json()
         
@@ -466,46 +565,78 @@ def refresh_all_deltas():
                 'status': 'error',
                 'message': '获取持仓信息失败'
             }), 500
-            
-        # 收集所有期权的futu_symbol
-        updated_options = []
-        failed_options = []
-        db = USStockDatabase()  # 将数据库连接移到循环外
         
+        # 收集所有期权的futu_symbol
+        all_options = []
         for market in ['us_positions']:
             for position in positions_data['data'][market]:
                 if 'options' in position:
-                    for option in position['options']:
-                        if 'futu_symbol' in option:
-                            try:
-                                delta = refresh_option_delta(option['futu_symbol'])
-                                if delta is not None:
-                                    db.cache_delta(option['futu_symbol'], delta)
-                                    updated_options.append({
-                                        'symbol': option['futu_symbol'],
-                                        'delta': delta
-                                    })
-                                else:
-                                    failed_options.append({
-                                        'symbol': option['futu_symbol'],
-                                        'reason': '获取delta值失败'
-                                    })
-                            except Exception as e:
-                                failed_options.append({
-                                    'symbol': option['futu_symbol'],
-                                    'reason': str(e)
-                                })
+                    all_options.extend([
+                        opt['futu_symbol'] for opt in position['options']
+                        if 'futu_symbol' in opt
+                    ])
         
+        total_count = len(all_options)
+        logger.info(f"共找到 {total_count} 个期权需要更新delta值")
+        
+        updated_options = []
+        failed_options = []
+        db = USStockDatabase()
+        
+        for index, option_symbol in enumerate(all_options, 1):
+            logger.info(f"正在更新 [{index}/{total_count}] {option_symbol} 的delta值")
+            try:
+                delta = get_delta_from_futu(option_symbol)
+                if delta is not None:
+                    db.cache_delta(option_symbol, delta)
+                    updated_options.append({
+                        'symbol': option_symbol,
+                        'delta': delta
+                    })
+                    logger.info(f"[{index}/{total_count}] {option_symbol} 更新成功，delta = {delta}")
+                else:
+                    failed_options.append({
+                        'symbol': option_symbol,
+                        'reason': '获取delta值失败'
+                    })
+                    logger.warning(f"[{index}/{total_count}] {option_symbol} 更新失败")
+            except FutuBlockedException as e:
+                # 如果检测到被屏蔽，立即返回已处理的结果
+                logger.error(f"富途请求被屏蔽，终止批量处理: {str(e)}")
+                return jsonify({
+                    'status': 'partial_success',
+                    'data': {
+                        'updated_options': updated_options,
+                        'failed_options': failed_options,
+                        'remaining_options': all_options[index:]
+                    },
+                    'message': f'富途请求被屏蔽，已处理 {len(updated_options)} 个期权，'
+                             f'失败 {len(failed_options)} 个'
+                             f'剩余未处理 {len(all_options) - index} 个'
+                })
+            except Exception as e:
+                failed_options.append({
+                    'symbol': option_symbol,
+                    'reason': str(e)
+                })
+                logger.error(f"[{index}/{total_count}] {option_symbol} 更新出错: {str(e)}")
+        
+        logger.info(f"批量更新完成，成功 {len(updated_options)} 个，失败 {len(failed_options)} 个")
         return jsonify({
             'status': 'success',
             'data': {
                 'updated_options': updated_options,
                 'failed_options': failed_options
-            }
+            },
+            'message': f'成功更新 {len(updated_options)} 个期权的delta值，'
+                      f'失败 {len(failed_options)} 个'
         })
         
     except Exception as e:
+        error_msg = f"批量更新delta值失败: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_msg)
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': str(e),
+            'stack_trace': error_msg
         }), 500

@@ -49,6 +49,10 @@
                                         <input type="number" class="form-control" id="atm-put-iv" placeholder="例如：50" step="0.01">
                                         <small class="form-text text-muted">输入看跌期权的隐含波动率</small>
                                     </div>
+                                    <div class="form-check mt-3">
+                                        <input type="checkbox" class="form-check-input" id="iv-only-analysis">
+                                        <label class="form-check-label" for="iv-only-analysis">仅根据IV分析未来价格涨跌幅</label>
+                                    </div>
                                 </div>
                             </div>
                             <!-- 分析按钮单独一行 -->
@@ -879,7 +883,7 @@ function createIVAnalysisHTML(ivAnalysis) {
             <div class="col-md-6">
                 <h6>预期波动范围</h6>
                 <ul class="list-unstyled">
-                    <li>美元波动: ±$${ivAnalysis.expected_move_dollar.toFixed(2)}</li>
+                    <li>价格波动: ±$${ivAnalysis.expected_move_dollar.toFixed(2)}</li>
                     <li>百分比波动: ±${ivAnalysis.expected_move_percent.toFixed(2)}%</li>
                 </ul>
             </div>
@@ -906,18 +910,20 @@ function showResults(data) {
     
     clearPreviousResults();
 
-    showStraddlesAnalysis(data);
+    // 获取复选框状态
+    const ivOnlyAnalysis = document.getElementById('iv-only-analysis').checked;
 
-    showBasicInfo(data);
-
-    showHistoricalData(data);
-    
-    showPriceChart(data);
-    
-    showMonteCarloAnalysis(data);
-
+    // 显示IV分析结果
     showIVAnalysis(data);
 
+    // 如果未选中"仅IV分析"，则显示其他分析结果
+    if (!ivOnlyAnalysis) {
+        showStraddlesAnalysis(data);
+        showBasicInfo(data);
+        showHistoricalData(data);
+        showPriceChart(data);
+        showMonteCarloAnalysis(data);
+    }
 }
 
 function showIronButterflyAnalysis(currentPrice, expectedUpMove, expectedDownMove, strategyType) {

@@ -649,24 +649,49 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(response => response.json())
             .then(data => {
-                if (data.status === 'success') {
-                    const successCount = data.data.updated_stocks.length;
-                    const failedCount = data.data.failed_stocks.length;
+                if (data.status === 'success' || data.status === 'partial_success') {
+                    const stockData = data.data.stocks;
+                    const optionData = data.data.options;
                     
-                    // 显示更新结果
-                    let message = `更新完成\n成功：${successCount} 个`;
-                    if (failedCount > 0) {
-                        message += `\n失败：${failedCount} 个`;
-                        // 显示失败详情
-                        message += '\n\n失败详情：\n' + data.data.failed_stocks
-                            .map(stock => `${stock.symbol}: ${stock.reason}`)
+                    // 构建消息
+                    let message = '更新结果：\n';
+                    
+                    // 股票更新结果
+                    message += '\n股票：';
+                    message += `\n- 成功：${stockData.updated.length} 个`;
+                    if (stockData.failed.length > 0) {
+                        message += `\n- 失败：${stockData.failed.length} 个`;
+                        message += '\n- 失败详情：\n' + stockData.failed
+                            .map(stock => `  ${stock.symbol}: ${stock.reason}`)
                             .join('\n');
                     }
+                    
+                    // 期权更新结果
+                    message += '\n\n期权：';
+                    message += `\n- 成功：${optionData.updated.length} 个`;
+                    if (optionData.failed.length > 0) {
+                        message += `\n- 失败：${optionData.failed.length} 个`;
+                        message += '\n- 失败详情：\n' + optionData.failed
+                            .map(option => `  ${option.symbol}: ${option.reason}`)
+                            .join('\n');
+                    }
+                    
+                    // 如果是部分成功，显示剩余未处理的数量
+                    if (data.status === 'partial_success') {
+                        if (stockData.remaining?.length > 0) {
+                            message += `\n\n剩余未处理股票：${stockData.remaining.length} 个`;
+                        }
+                        if (optionData.remaining?.length > 0) {
+                            message += `\n剩余未处理期权：${optionData.remaining.length} 个`;
+                        }
+                        message += '\n\n原因：' + data.message;
+                    }
+                    
                     alert(message);
                     
-                    // 如果需要，可以在这里刷新页面或更新表格数据
-                    if (successCount > 0) {
-                        location.reload();  // 刷新页面以显示最新数据
+                    // 如果有成功更新的数据，刷新页面
+                    if (stockData.updated.length > 0 || optionData.updated.length > 0) {
+                        location.reload();
                     }
                 } else {
                     alert('更新失败: ' + data.message);
@@ -745,51 +770,26 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(response => response.json())
             .then(data => {
-                if (data.status === 'success') {
-                    let successCount = 0;
-                    let failedCount = 0;
+                if (data.status === 'success' || data.status === 'partial_success') {
+                    // 构建消息
+                    let message = '更新结果：\n';
+                    message += `\n成功：${data.data.updated_options.length} 个`;
                     
-                    // 更新页面上的delta值
-                    if (data.data.updated_options) {
-                        successCount = data.data.updated_options.length;
-                        data.data.updated_options.forEach(option => {
-                            // 找到对应的行
-                            const rows = document.querySelectorAll('tr');
-                            for (const row of rows) {
-                                // 检查行中是否包含该期权的刷新按钮
-                                const refreshButton = row.querySelector(`button[onclick*="${option.symbol}"]`);
-                                if (refreshButton) {
-                                    // 找到Delta单元格
-                                    const deltaCell = row.cells[3]; // Delta列是第4列(索引为3)
-                                    if (deltaCell) {
-                                        const deltaSpan = deltaCell.querySelector('.badge');
-                                        if (deltaSpan) {
-                                            const deltaAbs = Math.abs(option.delta);
-                                            let badgeClass = 'bg-info';
-                                            
-                                            if (deltaAbs >= 0.3) {
-                                                badgeClass = 'bg-danger';  // 高风险红色
-                                            } else if (deltaAbs >= 0.2) {
-                                                badgeClass = 'bg-warning text-dark';  // 中风险黄色
-                                            } else if (deltaAbs >= 0.15) {
-                                                badgeClass = 'bg-secondary';  // 低风险灰色
-                                            }
-                                            
-                                            deltaSpan.className = `badge ${badgeClass}`;
-                                            deltaSpan.textContent = `${formatNumber(option.delta, true)}`;
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        });
+                    if (data.data.failed_options?.length > 0) {
+                        message += `\n失败：${data.data.failed_options.length} 个`;
+                        message += '\n失败详情：\n' + data.data.failed_options
+                            .map(option => `  ${option.symbol}: ${option.reason}`)
+                            .join('\n');
                     }
                     
-                    if (data.data.failed_options) {
-                        failedCount = data.data.failed_options.length;
+                    // 如果是部分成功，显示剩余未处理的数量和原因
+                    if (data.status === 'partial_success' && data.data.remaining_options?.length > 0) {
+                        message += `\n\n剩余未处理：${data.data.remaining_options.length} 个`;
+                        message += '\n\n原因：' + data.message;
                     }
                     
-                    alert(`更新完成\n成功：${successCount} 个\n失败：${failedCount} 个`);
+                    alert(message);
+                    location.reload();  // 直接刷新页面显示最新数据
                 } else {
                     alert('更新失败: ' + data.message);
                 }
@@ -858,15 +858,26 @@ function updateStockPrices() {
             const failedStocks = data.data.filter(s => s.status === 'error');
             const errorCount = failedStocks.length;
             
-            let message = `更新成功\n成功：${successCount} 个\n失败：${errorCount} 个`;
+            let message = `更新结果：\n`;
             
-            // 如果有失败的股票，添加失败详情
-            if (errorCount > 0) {
-                message += '\n\n失败详情：';
-                failedStocks.forEach(stock => {
-                    message += `\n${stock.code}: ${stock.error}`;
-                });
-            }
+            // 显示所有股票的更新记录
+            data.data.forEach(stock => {
+                if (stock.status === 'success') {
+                    message += `\n${stock.code}: `;
+                    if (stock.message === '数据已是最新') {
+                        message += '数据已是最新';
+                    } else {
+                        message += `成功更新 ${stock.updated_count} 条记录`;
+                    }
+                } else {
+                    message += `\n${stock.code}: 更新失败 - ${stock.error}`;
+                }
+            });
+            
+            // 显示总体统计
+            message += `\n\n总计：`;
+            message += `\n成功：${successCount} 个`;
+            message += `\n失败：${errorCount} 个`;
             
             alert(message);
             
@@ -986,7 +997,8 @@ function toggleMasking(button) {
     // 获取当前激活的标签页内的表格和统计信息
     const activeTab = document.querySelector('.tab-pane.active');
     const table = activeTab.querySelector('table');
-    const statsContainer = activeTab.querySelector('.text-end .small');
+    // 修改这里的选择器以匹配新的统计信息容器
+    const statsContainer = activeTab.querySelector('.d-flex.flex-wrap.gap-3');
     
     // 处理统计信息
     if (statsContainer) {
@@ -1045,6 +1057,23 @@ function toggleMasking(button) {
     localStorage.setItem('isMasked', isMasked);
 }
 
+// 添加计算今日总盈亏的辅助函数
+function calculateTotalDailyPnL(positions) {
+    return positions.reduce((total, position) => {
+        return total + (position.total_daily_pnl || 0);
+    }, 0);
+}
+
+// 添加计算总delta的辅助函数
+function calculateTotalDelta(positions) {
+    return positions.reduce((total, position) => {
+        if (position.total_delta !== undefined) {
+            return total + position.total_delta;
+        }
+        return total;
+    }, 0);
+}
+
 function renderPositions(container, positions, isFutu = false) {
     if (!positions || positions.length === 0) {
         container.innerHTML = '<div class="alert alert-info">暂无持仓信息</div>';
@@ -1053,8 +1082,9 @@ function renderPositions(container, positions, isFutu = false) {
 
     let html = `
     <div class="table-responsive">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
+        <div class="mb-3">
+            <!-- 按钮行 -->
+            <div class="d-flex flex-wrap gap-2 mb-2">
                 <button type="button" class="btn btn-secondary btn-sm" onclick="toggleMasking(this)" title="数据脱敏">
                     <i class="fas fa-eye"></i>
                 </button>
@@ -1068,7 +1098,7 @@ function renderPositions(container, positions, isFutu = false) {
                     更新Delta
                 </button>
                 <button class="btn btn-info btn-sm refresh-all-prev-close">
-                    更新前收价
+                    更新昨日价(delta)
                 </button>
                 <button class="btn btn-warning btn-sm" onclick="updatePriceAlerts('${positions[0]?.market || 'US'}', ${isFutu})">
                     更新到价提醒
@@ -1079,12 +1109,14 @@ function renderPositions(container, positions, isFutu = false) {
                 </button>
                 ` : ''}
             </div>
-            <div class="text-end">
-                <div class="small">
-                    <span class="me-3">期权数量: <strong>${calculateTotalOptionCount(positions)}</strong></span>
-                    <span class="me-3">期权总市值: <strong class="${calculateTotalOptionValue(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionValue(positions))}</strong></span>
-                    <span>期权总盈亏: <strong class="${calculateTotalOptionPnL(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionPnL(positions))}</strong></span>
-                </div>
+            
+            <!-- 统计信息行 -->
+            <div class="d-flex flex-wrap gap-3 justify-content-end">
+                <span>Delta总值: <strong>${formatNumber(calculateTotalDelta(positions))}</strong></span>
+                <span>期权数量: <strong>${calculateTotalOptionCount(positions)}</strong></span>
+                <span>期权总市值: <strong class="${calculateTotalOptionValue(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionValue(positions))}</strong></span>
+                <span>期权总盈亏: <strong class="${calculateTotalOptionPnL(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalOptionPnL(positions))}</strong></span>
+                <span>今日总盈亏: <strong class="${calculateTotalDailyPnL(positions) >= 0 ? 'text-success' : 'text-danger'}">${formatNumber(calculateTotalDailyPnL(positions))}</strong></span>
             </div>
         </div>
         <table class="table table-sm">
@@ -1136,7 +1168,7 @@ function renderPositions(container, positions, isFutu = false) {
                     <td class="text-end">
                         ${!isFutu ? 
                             `<div class="d-flex align-items-center justify-content-end">
-                                <span class="current-price me-2">-</span>
+                                <span class="current-price me-2">${formatNumber(position.latest_price)}</span>
                                 <button class="btn btn-link btn-sm p-0" 
                                         onclick="getCurrentPrice('${position.symbol}', '${position.market_type || 'US'}', this)">
                                     <i class="fas fa-sync-alt"></i>
@@ -1145,7 +1177,7 @@ function renderPositions(container, positions, isFutu = false) {
                             '-'
                         }
                     </td>
-                    <td class="text-center">-</td>
+                    <td class="text-center">${formatNumber(position.total_delta)}</td>
                     <td class="text-end ${position.total_unrealized_pnl >= 0 ? 'text-success' : 'text-danger'}">
                         <strong>${formatNumber(position.total_unrealized_pnl)}</strong>
                     </td>
@@ -1404,7 +1436,9 @@ function renderOptionRow(option, isGroupItem) {
     return `
         <tr>
             <td>
-                ${indent}${option.put_call} ${formatNumber(option.strike)} ${warningIcon}${closeButton}
+                ${indent}${option.put_call} ${formatNumber(option.strike)}${option.to_strike_percent !== undefined ? 
+                    ` (${option.put_call === 'CALL' ? '↑' : '↓'}${Math.abs(formatNumber(option.to_strike_percent))}%)` : 
+                    ''} ${warningIcon}${closeButton}
                 <br><small class="text-muted">
                     ${indent}${expiryWarning}${option.expiry}
                 </small>
@@ -1466,12 +1500,14 @@ function renderOptionRow(option, isGroupItem) {
                         const position = JSON.parse(headerRow.dataset.position || '{}');
                         let sortValue;
                         if (sortKey === 'delta') {
-                            // 对于组，找出最大的delta绝对值
-                            if (position.is_group && position.options) {
-                                sortValue = Math.max(...position.options.map(opt => Math.abs(opt.delta || 0)));
-                            } else {
-                                sortValue = 0; // 股票没有delta值
-                            }
+                            // 使用组的 total_delta 值进行排序
+                            sortValue = position.total_delta || 0;
+                            // // 对于组，找出最大的delta绝对值
+                            // if (position.is_group && position.options) {
+                            //     sortValue = Math.max(...position.options.map(opt => Math.abs(opt.delta || 0)));
+                            // } else {
+                            //     sortValue = 0; // 股票没有delta值
+                            // }
                         } else {
                             sortValue = sortKey === 'symbol' ? position[sortKey] : (position[`total_${sortKey}`] || 0);
                         }

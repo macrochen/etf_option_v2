@@ -102,6 +102,24 @@ class StockChart {
                     title: {
                         text: null
                     },
+                    xAxis: {
+                        type: 'datetime',
+                        dateTimeLabelFormats: {
+                            day: '%Y-%m',
+                            week: '%Y-%m',
+                            month: '%Y-%m',
+                            year: '%Y'
+                        },
+                        gridLineWidth: 1,
+                        labels: {
+                            format: '{value:%Y-%m}',
+                            rotation: 45,
+                            align: 'left',
+                            style: {
+                                fontSize: '11px'
+                            }
+                        }
+                    },
                     chart: {
                         type: 'line',
                         zoomType: 'xy',
