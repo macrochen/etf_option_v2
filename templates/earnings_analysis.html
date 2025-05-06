@@ -8,61 +8,121 @@
             <div class="row justify-content-center">
                 <div class="col-12">  <!-- 移除 col-lg-6 使卡片占据整行 -->
                     <div class="card">
-                        <div class="card-body">
-                            <div class="row">
-                                <!-- 第一列 -->
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="symbol">股票代码</label>
-                                        <input type="text" class="form-control" id="symbol" placeholder="例如：AAPL" value="{{ symbol }}">
+                        <div class="row g-3">
+                            <!-- 第1组：股票基本信息 -->
+                            <div class="col-md-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0">股票信息</h6>
                                     </div>
-                                    <div class="form-group mt-2">
-                                        <label for="atm-call-price">平值看涨期权价格 ($)</label>
-                                        <input type="number" class="form-control" id="atm-call-price" placeholder="例如：2.5" step="0.01">
-                                        <small class="form-text text-muted">输入单张看涨期权的价格</small>
-                                    </div>
-                                    <div class="form-group mt-2">
-                                        <label for="atm-put-price">平值看跌期权价格 ($)</label>
-                                        <input type="number" class="form-control" id="atm-put-price" placeholder="例如：2.3" step="0.01">
-                                        <small class="form-text text-muted">输入单张看跌期权的价格</small>
-                                    </div>
-                                    <div class="form-group mt-2">
-                                        <label for="days-to-expiry">到期天数</label>
-                                        <input type="number" class="form-control" id="days-to-expiry" placeholder="例如：30" step="1">
-                                        <small class="form-text text-muted">输入距离期权到期的天数</small>
-                                    </div>
-                                </div>
-                                
-                                <!-- 第二列 -->
-                                <div class="col-md-6">
-                                    <div class="form-group">
-                                        <label for="current-price-input">当前价格 ($)</label>
-                                        <input type="number" class="form-control" id="current-price-input" placeholder="可选，留空则自动获取" step="0.01">
-                                    </div>
-                                    <div class="form-group mt-2">
-                                        <label for="atm-call-iv">平值看涨期权IV (%)</label>
-                                        <input type="number" class="form-control" id="atm-call-iv" placeholder="例如：50" step="0.01">
-                                        <small class="form-text text-muted">输入看涨期权的隐含波动率</small>
-                                    </div>
-                                    <div class="form-group mt-2">
-                                        <label for="atm-put-iv">平值看跌期权IV (%)</label>
-                                        <input type="number" class="form-control" id="atm-put-iv" placeholder="例如：50" step="0.01">
-                                        <small class="form-text text-muted">输入看跌期权的隐含波动率</small>
-                                    </div>
-                                    <div class="form-check mt-3">
-                                        <input type="checkbox" class="form-check-input" id="iv-only-analysis">
-                                        <label class="form-check-label" for="iv-only-analysis">仅根据IV分析未来价格涨跌幅</label>
+                                    <div class="card-body">
+                                        <div class="form-group">
+                                            <label>市场类型</label>
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="market-type" id="market-us" value="US" checked>
+                                                <label class="btn btn-outline-primary" for="market-us">美股</label>
+                                                
+                                                <input type="radio" class="btn-check" name="market-type" id="market-hk" value="HK">
+                                                <label class="btn btn-outline-primary" for="market-hk">港股</label>
+                                            </div>
+                                        </div>
+                                        <div class="form-group mt-3">
+                                            <label for="symbol">股票代码</label>
+                                            <input type="text" class="form-control" id="symbol" placeholder="" value="{{ symbol }}">
+                                            <small class="form-text text-muted" id="symbol-format-hint">美股直接输入代码，如：AAPL</small>
+                                        </div>
+                                        <div class="form-group mt-3">
+                                            <label for="current-price-input">当前价格 ($)</label>
+                                            <input type="number" class="form-control" id="current-price-input" placeholder="可选，留空则自动获取" step="0.01">
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                            
+                            <!-- 第2组：IV和到期日期 -->
+                            <div class="col-md-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0">波动率与到期日</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <!-- IV输入方式选择 -->
+                                        <div class="form-group mb-3">
+                                            <div class="btn-group w-100" role="group">
+                                                <input type="radio" class="btn-check" name="iv-input-method" id="iv-direct" checked>
+                                                <label class="btn btn-outline-primary" for="iv-direct">输入平值IV</label>
+                                                
+                                                <input type="radio" class="btn-check" name="iv-input-method" id="iv-strike">
+                                                <label class="btn btn-outline-primary" for="iv-strike">输入平值行权价</label>
+                                            </div>
+                                        </div>
+
+                                        <!-- 直接输入IV部分 -->
+                                        <div id="direct-iv-inputs">
+                                            <div class="form-group">
+                                                <label for="atm-call-iv">平值看涨期权IV (%)</label>
+                                                <input type="number" class="form-control" id="atm-call-iv" placeholder="例如：50" step="0.01">
+                                            </div>
+                                            <div class="form-group mt-3">
+                                                <label for="atm-put-iv">平值看跌期权IV (%)</label>
+                                                <input type="number" class="form-control" id="atm-put-iv" placeholder="例如：50" step="0.01">
+                                            </div>
+                                        </div>
+
+                                        <!-- 通过平值期权输入IV部分 -->
+                                        <div id="strike-iv-inputs" style="display: none;">
+                                            <div class="form-group">
+                                                <label for="atm-strike">平值行权价 ($)</label>
+                                                <input type="number" class="form-control" id="atm-strike" placeholder="输入平值行权价" step="0.01">
+                                            </div>
+                                        </div>
+                                        <div class="form-group mt-3">
+                                            <label for="expiry-date">到期日期</label>
+                                            <input type="date" class="form-control" id="expiry-date">
+                                        </div>
+                                        <div class="form-group mt-2">
+                                            <label for="days-to-expiry">距离到期天数</label>
+                                            <input type="text" class="form-control" id="days-to-expiry" readonly>
+                                            <small class="form-text text-muted">根据市场类型自动计算的交易日天数</small>
+                                        </div>
+                                        <div class="form-check mt-3">
+                                            <input type="checkbox" class="form-check-input" id="iv-only-analysis">
+                                            <label class="form-check-label" for="iv-only-analysis">仅根据IV分析未来价格涨跌幅</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 第3组：期权价格 -->
+                            <div class="col-md-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0">期权价格</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="form-group">
+                                            <label for="atm-call-price">平值看涨期权价格 ($)</label>
+                                            <input type="number" class="form-control" id="atm-call-price" placeholder="例如：2.5" step="0.01">
+                                        </div>
+                                        <div class="form-group mt-3">
+                                            <label for="atm-put-price">平值看跌期权价格 ($)</label>
+                                            <input type="number" class="form-control" id="atm-put-price" placeholder="例如：2.3" step="0.01">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
                             <!-- 分析按钮单独一行 -->
                             <div class="row mt-4">
                                 <div class="col-12">
                                     <button class="btn btn-primary w-100" id="analyze-btn">分析</button>
                                 </div>
                             </div>
-                        </div>
-                    </div>
+
+
                 </div>
             </div>
         </div>
@@ -310,7 +370,78 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add click event listener to the button
     document.getElementById('analyze-btn').addEventListener('click', analyzeEarnings);
     
-    // Rest of your JavaScript code...
+    
+    // 市场类型切换处理
+    document.getElementById('market-us').addEventListener('change', function() {
+        document.getElementById('symbol-format-hint').textContent = '美股直接输入代码，如：AAPL';
+        updateExpiryDate();
+    });
+
+    document.getElementById('market-hk').addEventListener('change', function() {
+        document.getElementById('symbol-format-hint').textContent = '港股输入代码，如：00700';
+        updateExpiryDate();
+    });
+
+    // 更新到期日期处理
+    function updateExpiryDate() {
+        const expiryDateInput = document.getElementById('expiry-date');
+        const selectedDate = expiryDateInput.value;
+        if (selectedDate) {
+            handleExpiryDateChange(selectedDate);
+        }
+    }
+
+    // 修改到期日期变化处理函数
+    function handleExpiryDateChange(dateValue) {
+        const marketType = document.querySelector('input[name="market-type"]:checked').value;
+        const expiryDate = new Date(dateValue);
+        const today = new Date();
+        
+        // 设置时间为当天的收盘时间
+        if (marketType === 'US') {
+            // 美股收盘时间 16:00 EDT/EST
+            expiryDate.setUTCHours(20, 0, 0, 0); // UTC 20:00 = EDT 16:00
+            today.setUTCHours(20, 0, 0, 0);
+        } else {
+            // 港股收盘时间 16:00 HKT
+            expiryDate.setUTCHours(8, 0, 0, 0); // UTC 8:00 = HKT 16:00
+            today.setUTCHours(8, 0, 0, 0);
+        }
+        
+        // 计算天数差
+        const diffTime = expiryDate - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        // 更新隐藏的到期天数输入框
+        document.getElementById('days-to-expiry').value = diffDays;
+    }
+
+    // 修改到期日期事件监听器
+    document.getElementById('expiry-date').addEventListener('change', function() {
+        handleExpiryDateChange(this.value);
+    });
+
+
+
+    // IV输入方式切换处理
+    document.getElementById('iv-direct').addEventListener('change', function() {
+        document.getElementById('direct-iv-inputs').style.display = 'block';
+        document.getElementById('strike-iv-inputs').style.display = 'none';
+    });
+
+    document.getElementById('iv-strike').addEventListener('change', function() {
+        document.getElementById('direct-iv-inputs').style.display = 'none';
+        document.getElementById('strike-iv-inputs').style.display = 'block';
+    });
+
+    // 同步两种输入方式的IV值
+    document.getElementById('atm-strike-call-iv').addEventListener('input', function() {
+        document.getElementById('atm-call-iv').value = this.value;
+    });
+
+    document.getElementById('atm-strike-put-iv').addEventListener('input', function() {
+        document.getElementById('atm-put-iv').value = this.value;
+    });
 });
 
 // Make analyzeEarnings globally available

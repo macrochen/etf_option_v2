@@ -316,77 +316,92 @@ def _make_futu_request(symbol: str, market: str = 'US', max_retries: int = 3) ->
     
     return None
 
-# 修改现有函数使用新的请求函数
-def _parse_delta_from_page(soup: BeautifulSoup, option_symbol: str) -> Optional[float]:
-    """从富途页面解析期权的delta值
+def _parse_value_from_page(soup: BeautifulSoup, label: str, option_symbol: str) -> Optional[float]:
+    """从富途页面解析指定标签对应的值
     
     Args:
         soup: BeautifulSoup对象
+        label: 要查找的标签文本（如 'Delta' 或 '隐含波动率'）
         option_symbol: 期权代码
     
     Returns:
-        float: delta值，如果获取失败则返回None
+        float: 解析到的值，如果获取失败则返回None
     """
-    
-    delta_spans = soup.find_all('span', string='Delta')
-    if delta_spans:
-        # 获取Delta值的span（通常是前一个兄弟元素）
-        delta_value = delta_spans[0].find_previous_sibling('span')
-        if delta_value:
+    value_spans = soup.find_all('span', string=label)
+    if value_spans:
+        value_element = value_spans[0].find_previous_sibling('span')
+        if value_element:
             try:
-                logging.warning(f"找到期权 {option_symbol} 的Delta值: {delta_value.text}")
-                return float(delta_value.text)
+                value_text = value_element.text.strip()
+                # 如果是隐含波动率，需要去掉百分号
+                if label == '隐含波动率':
+                    value_text = value_text.replace('%', '')
+                logging.warning(f"找到期权 {option_symbol} 的{label}值: {value_text}")
+                return float(value_text)
             except ValueError:
-                logging.error(f"无法转换期权 {option_symbol} 的delta值: {delta_value.text}")
+                logging.error(f"无法转换期权 {option_symbol} 的{label}值: {value_text}")
                 return None
     
-    logging.warning(f"未找到期权 {option_symbol} 的Delta值")
+    logging.warning(f"未找到期权 {option_symbol} 的{label}值")
     return None
 
-def get_delta_from_futu(option_symbol: str) -> Optional[float]:
+def _parse_delta_from_page(soup: BeautifulSoup, option_symbol: str) -> Optional[float]:
+    """从富途页面解析期权的delta值"""
+    return _parse_value_from_page(soup, 'Delta', option_symbol)
+
+def _parse_iv_from_page(soup: BeautifulSoup, option_symbol: str) -> Optional[float]:
+    """从富途页面解析期权的隐含波动率值"""
+    return _parse_value_from_page(soup, '隐含波动率', option_symbol)
+
+def _get_option_value_from_futu(option_symbol: str, parse_func) -> Optional[float]:
+    """从富途网页获取期权的指定值
+    
+    Args:
+        option_symbol: 期权代码
+        parse_func: 解析函数，用于从页面解析特定值
+    
+    Returns:
+        float: 解析到的值，如果获取失败则返回None
+    """
     try:
-        """从富途网页获取期权的delta值"""
         response = _make_futu_request(option_symbol)
         if not response:
             return None
             
-        # 检查页面是否包含期权代码
         if option_symbol not in response.text:
             logging.error(f"页面未包含期权代码，可能是重定向到了错误页面")
             return None
         
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # 尝试查找错误信息或登录提示
         error_msg = soup.find('div', class_='error-message')
         if error_msg:
             logging.error(f"页面返回错误信息: {error_msg.text}")
             return None
         
-        # 记录所有找到的span元素，帮助分析页面结构
         all_spans = soup.find_all('span')
-        logging.debug(f"页面中找到的所有span元素: {[span.text for span in all_spans[:10]]}...")  # 只记录前10个
+        logging.debug(f"页面中找到的所有span元素: {[span.text for span in all_spans[:10]]}...")
 
-        return _parse_delta_from_page(soup, option_symbol)
+        return parse_func(soup, option_symbol)
         
     except requests.RequestException as e:
-        logging.error(
-            f"请求期权数据失败 - 期权: {option_symbol}\n"
-            f"错误信息: {str(e)}\n"
-            f"堆栈信息:\n{traceback.format_exc()}"
-        )
+        logging.error(f"请求期权数据失败 - 期权: {option_symbol}\n错误信息: {str(e)}\n堆栈信息:\n{traceback.format_exc()}")
         return None
             
     except FutuBlockedException:
-        raise  # 直接向上抛出屏蔽异常
-
+        raise
+        
     except Exception as e:
-        logging.error(
-            f"解析期权数据失败 - 期权: {option_symbol}\n"
-            f"错误信息: {str(e)}\n"
-            f"堆栈信息:\n{traceback.format_exc()}"
-        )
+        logging.error(f"解析期权数据失败 - 期权: {option_symbol}\n错误信息: {str(e)}\n堆栈信息:\n{traceback.format_exc()}")
         return None
+
+def get_delta_from_futu(option_symbol: str) -> Optional[float]:
+    """从富途网页获取期权的delta值"""
+    return _get_option_value_from_futu(option_symbol, _parse_delta_from_page)
+
+def get_iv_from_futu(option_symbol: str) -> Optional[float]:
+    """从富途网页获取期权的隐含波动率值"""
+    return _get_option_value_from_futu(option_symbol, _parse_iv_from_page)
 
 
 # 在需要使用的地方调用这个函数

@@ -62,7 +62,7 @@ if __name__ == "__main__":
         if result.stdout:
             # 提取PID并终止进程
             pid = result.stdout.split('\n')[1].split()[1]
-            os.system(f'kill -9 {pid}')
+            # os.system(f'kill -9 {pid}')
             print(f'已终止占用端口 {port} 的进程 (PID: {pid})')
     except Exception as e:
         print(f'检查端口占用时出错: {e}')

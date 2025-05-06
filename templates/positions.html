@@ -1094,12 +1094,14 @@ function renderPositions(container, positions, isFutu = false) {
                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleExpirySort(this)">
                     <i class="fas fa-sort-amount-down"></i> 按到期日排序
                 </button>
+                ${positions[0]?.market === 'US' ? `
                 <button class="btn btn-primary btn-sm refresh-all-deltas">
                     更新Delta
                 </button>
                 <button class="btn btn-info btn-sm refresh-all-prev-close">
                     更新昨日价(delta)
                 </button>
+                ` : ''}
                 <button class="btn btn-warning btn-sm" onclick="updatePriceAlerts('${positions[0]?.market || 'US'}', ${isFutu})">
                     更新到价提醒
                 </button>
