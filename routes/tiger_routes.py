@@ -52,6 +52,7 @@ HK_STOCK_NAMES = {
     '09618': '京东集团-SW',
     '09988': '阿里巴巴-W',
     '01810': '小米集团',
+    '00016': '新鸿基地产',
 }
 
 @tiger_bp.route('/api/update_hk_prev_close', methods=['GET'])
