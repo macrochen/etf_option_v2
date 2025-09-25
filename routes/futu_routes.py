@@ -45,8 +45,18 @@ def get_futu_positions():
         # 计算总市值（用于计算持仓占比）
         total_market_value = sum(float(pos['market_val']) for _, pos in data.iterrows())
         
+        # 添加一个安全的转换函数
+        def safe_float(value, default=0.0):
+            try:
+                return float(value) if value != 'N/A' else default
+            except (ValueError, TypeError):
+                return default
+
         # 处理所有持仓数据
         for _, pos in data.iterrows():
+            if safe_float(pos['qty']) == 0:
+                continue
+
             # 判断是否为期权
             is_option = ' ' in pos['stock_name']
             base_name = pos['stock_name']
@@ -55,13 +65,6 @@ def get_futu_positions():
             
             # 计算盈亏百分比 - 使用API提供的pl_ratio
             pnl_percentage = float(pos['pl_ratio']) if pos['pl_ratio_valid'] else 0
-            
-            # 添加一个安全的转换函数
-            def safe_float(value, default=0.0):
-                try:
-                    return float(value) if value != 'N/A' else default
-                except (ValueError, TypeError):
-                    return default
             
             if is_option:
                 # 从stock_name解析期权信息：例如 "安踏 250227 67.50 沽"

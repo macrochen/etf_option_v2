@@ -178,6 +178,9 @@ def get_position_strikes(positions_data, market, is_futu):
                 strike = float(option['strike'])
                 expiry_date = option.get('expiry')
                 quantity = option.get('quantity', 0)  # 获取期权数量
+
+                if quantity == 0:
+                    continue
                 
                 # 根据是否是富途持仓和市场类型来判断期权类型
                 if is_futu and market == 'HK':
