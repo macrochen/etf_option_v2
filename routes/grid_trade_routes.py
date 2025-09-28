@@ -209,7 +209,7 @@ def analyze_grid_params():
         # 参数验证和类型转换
         try:
             etf_code = str(data['etf_code'])
-            months = int(data['months'])
+            months = data['months']
             atr = float(data['atr'])
             initial_capital = float(data.get('initial_capital', 100000.0))
             fee_rate = float(data.get('fee_rate', 0.0001))
@@ -242,16 +242,27 @@ def analyze_grid_params():
 
         # 计算标的持有收益
         prices = pd.Series(history_data['close'])
-        
-        # 计算每日收益率
-        daily_returns = prices.pct_change().fillna(0)
+        daily_returns_for_stats = prices.pct_change().fillna(0) # 用于计算波动率相关的指标
         
         evaluator = BacktestEvaluator()  # 添加评估器实例
 
-        # 计算标的指标
-        benchmark_annual_return = evaluator._calculate_annual_return(daily_returns)
-        benchmark_max_drawdown = evaluator._calculate_max_drawdown(daily_returns)
-        benchmark_sharpe_ratio = evaluator._calculate_sharpe_ratio(daily_returns)
+        # 按照用户的要求，使用期初开盘价和期末收盘价计算总收益率
+        if history_data and len(history_data['open']) > 0 and history_data['open'][0] is not None and history_data['open'][0] > 0:
+            benchmark_total_return = (history_data['close'][-1] / history_data['open'][0]) - 1
+        else:
+            benchmark_total_return = 0.0
+
+        # 基于新的总收益率重新计算年化收益率
+        days = len(daily_returns_for_stats)
+        if days > 0:
+            years = days / 252
+            benchmark_annual_return = (1 + benchmark_total_return) ** (1 / years) - 1 if benchmark_total_return > -1 else -1
+        else:
+            benchmark_annual_return = 0.0
+
+        # 其他指标（如夏普比率、最大回撤）仍基于日收盘价计算
+        benchmark_max_drawdown = evaluator._calculate_max_drawdown(daily_returns_for_stats)
+        benchmark_sharpe_ratio = evaluator._calculate_sharpe_ratio(daily_returns_for_stats)
         benchmark_total_score = evaluator._calculate_score({
             'annual_return': benchmark_annual_return,
             'max_drawdown': benchmark_max_drawdown,
@@ -269,6 +280,7 @@ def analyze_grid_params():
                     'grid_percent': result.params['grid_percent'],  # ATR系数
                 },
                 'metrics': {
+                    'total_return': result.evaluation['total_return'],  # 总收益率
                     'annual_return': result.evaluation['annual_return'],  # 年化收益率
                     'sharpe_ratio': result.evaluation['sharpe_ratio'],  # 夏普比率
                     'max_drawdown': result.evaluation['max_drawdown'],  # 最大回撤
@@ -279,7 +291,8 @@ def analyze_grid_params():
             } for i, result in enumerate(results)],
 
             'benchmark': {
-                'daily_returns': (daily_returns.cumsum() * 100).tolist(),  # 转换为累积收益率并转为百分比
+                'total_return': benchmark_total_return, # 总收益率
+                'daily_returns': (daily_returns_for_stats.cumsum() * 100).tolist(),  # 转换为累积收益率并转为百分比
                 'annual_return': benchmark_annual_return,
                 'max_drawdown': benchmark_max_drawdown,
                 'sharpe_ratio': benchmark_sharpe_ratio,

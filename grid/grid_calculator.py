@@ -26,6 +26,15 @@ class GridCalculator:
         """
         # 转换为DataFrame
         df = self._convert_to_dataframe(history_data)
+
+        # 检查数据长度
+        if len(df) < 45: # ADX等指标需要足够数据，45天是一个安全阈值
+            return {
+                'suitable': False,
+                'reason': '数据周期太短（少于45天），无法进行有效分析。请选择更长的时间范围。',
+                'scores': {'volatility_score': 0, 'trend_score': 0, 'oscillation_score': 0, 'safety_score': 0},
+                'atr': 0
+            }
         
         # 计算技术指标
         df = self._calculate_indicators(df)

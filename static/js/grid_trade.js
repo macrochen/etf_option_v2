@@ -46,6 +46,9 @@ $(document).ready(function() {
 
     // 添加ETF选择变化事件处理
     $('#etf-select').on('change', function() {
+        const etfCode = $(this).val();
+        $('#etf-code-input').val(etfCode); // 将选中的ETF代码填充到输入框
+
         const $selected = $(this).find('option:selected');
         const startDate = $selected.data('start');
         const endDate = $selected.data('end');
@@ -114,7 +117,7 @@ $(document).ready(function() {
         
         const formData = {
             etf_code: $('#etf-select').val(),
-            months: parseInt($('input[name="period-type"]:checked').val() || '12'),
+            months: $('input[name="period-type"]:checked').val() || '12',
             initial_amount: parseFloat($('#initial-capital').val() || 100000)
         };
 
@@ -412,6 +415,7 @@ $(document).ready(function() {
             <tr class="table-info">
                 <td colspan="3">标的持有</td>
                 <td>${(benchmark.annual_return * 100).toFixed(2)}%</td>
+                <td>${(benchmark.total_return * 100).toFixed(2)}%</td>
                 <td>${benchmark.sharpe_ratio.toFixed(2)}</td>
                 <td>${(benchmark.max_drawdown * 100).toFixed(2)}%</td>
                 <td>1</td>
@@ -435,6 +439,7 @@ $(document).ready(function() {
                     <td>${param.params.grid_count}</td>
                     <td>${gridPercent.toFixed(2)}%</td>
                     <td>${(param.metrics.annual_return * 100).toFixed(2)}%</td>
+                    <td>${(param.metrics.total_return * 100).toFixed(2)}%</td>
                     <td>${param.metrics.sharpe_ratio.toFixed(2)}</td>
                     <td>${(param.metrics.max_drawdown * 100).toFixed(2)}%</td>
                     <td>${param.metrics.trade_count}</td>
@@ -483,7 +488,7 @@ $(document).ready(function() {
             contentType: 'application/json',
             data: JSON.stringify({
                 etf_code: etfCode,
-                months: parseInt(months),
+                months: months,
                 grid_count: gridCount,
                 atr_factor: atr_factor,
                 atr: currentATR

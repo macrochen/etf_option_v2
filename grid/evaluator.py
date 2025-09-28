@@ -6,6 +6,7 @@ import pandas as pd
 @dataclass
 class EvaluationResult:
     """回测评估结果"""
+    total_return: float     # 总收益率
     annual_return: float    # 年化收益率
     max_drawdown: float    # 最大回撤
     sharpe_ratio: float    # 夏普比率
@@ -15,6 +16,7 @@ class EvaluationResult:
     
     def __str__(self) -> str:
         return (
+            f"总收益率: {self.total_return:.2%}\n"
             f"年化收益率: {self.annual_return:.2%}\n"
             f"最大回撤: {self.max_drawdown:.2%}\n"
             f"夏普比率: {self.sharpe_ratio:.2f}\n"
@@ -51,6 +53,9 @@ class BacktestEvaluator:
             trade_records: 交易记录列表
             capital: 初始资金
         """
+        # 计算总收益率
+        total_return = self._calculate_total_return(daily_returns)
+        
         # 计算年化收益率
         annual_return = self._calculate_annual_return(daily_returns)
         
@@ -76,6 +81,7 @@ class BacktestEvaluator:
         )
         
         return EvaluationResult(
+            total_return=total_return,
             annual_return=annual_return,
             max_drawdown=max_drawdown,
             sharpe_ratio=sharpe_ratio,
@@ -84,6 +90,15 @@ class BacktestEvaluator:
             total_score=total_score,
         )
     
+    def _calculate_total_return(self, daily_returns: pd.Series) -> float:
+        """计算总收益率"""
+        if daily_returns.empty:
+            return 0.0
+        
+        cumulative_returns = (1 + daily_returns).cumprod()
+        total_return = cumulative_returns.iloc[-1] - 1
+        return total_return
+
     def _calculate_annual_return(self, daily_returns: pd.Series) -> float:
         """计算年化收益率"""
         if daily_returns.empty:

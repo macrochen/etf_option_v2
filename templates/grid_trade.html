@@ -26,10 +26,13 @@
                             正在下载数据，请稍候...
                         </div>
                     </div>
-                    
-                    <div class="col-md-4">
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
                         <label class="form-label">分析周期</label>
                         <div class="btn-group" role="group">
+                            <input type="radio" class="btn-check" name="period-type" id="period-ytd" value="ytd">
+                            <label class="btn btn-outline-primary" for="period-ytd">今年以来</label>
                             
                             <input type="radio" class="btn-check" name="period-type" id="period1" value="3">
                             <label class="btn btn-outline-primary" for="period1">3个月</label>
@@ -93,7 +96,8 @@
                             <th style="width: 8%">组合ID</th>
                             <th style="width: 10%">网格数量</th>
                             <th style="width: 10%">网格间距</th>
-                            <th style="width: 12%">年化收益率</th>
+                            <th style="width: 10%">年化收益率</th>
+                            <th style="width: 10%">总收益率</th>
                             <th style="width: 10%">夏普比率</th>
                             <th style="width: 10%">最大回撤</th>
                             <th style="width: 10%">交易次数</th>

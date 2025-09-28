@@ -124,22 +124,38 @@ class MarketDatabase:
         
         Args:
             etf_code: ETF代码
-            months: 获取几个月的数据
+            months: 获取几个月的数据, 或者 'ytd' 表示今年以来
             
         Returns:
             Dict[str, List]: 历史数据字典
         """
         try:
-            # 确保 months 是整数
-            months = int(months)
-            
-            results = self.db.fetch_all("""
-                SELECT date, open_price, high_price, low_price, close_price, volume
-                FROM grid_trade
-                WHERE etf_code = ? 
-                AND date >= date('now', ?) 
-                ORDER BY date
-            """, (etf_code, f'-{months} months'))
+            from datetime import datetime
+
+            if str(months) == 'ytd':
+                current_year = datetime.now().year
+                start_date = f'{current_year}-01-01'
+                sql = """
+                    SELECT date, open_price, high_price, low_price, close_price, volume
+                    FROM grid_trade
+                    WHERE etf_code = ? 
+                    AND date >= ?
+                    ORDER BY date
+                """
+                params = (etf_code, start_date)
+            else:
+                # 确保 months 是整数
+                months = int(months)
+                sql = """
+                    SELECT date, open_price, high_price, low_price, close_price, volume
+                    FROM grid_trade
+                    WHERE etf_code = ? 
+                    AND date >= date('now', ?) 
+                    ORDER BY date
+                """
+                params = (etf_code, f'-{months} months')
+
+            results = self.db.fetch_all(sql, params)
             
             if not results:
                 return None

@@ -46,7 +46,7 @@ class BacktestEngine:
         """
         # 生成网格
         grids, grid_percent = self.grid_generator.generate_grids(
-            current_price=hist_data['close'][0],
+            current_price=hist_data['close'][0], # 使用收盘价
             atr=atr,
             grid_count=grid_count,
             atr_factor=atr_factor
@@ -61,12 +61,12 @@ class BacktestEngine:
         # 建立底仓
         initial_trade = executor.initialize_base_position(
             timestamp=datetime.strptime(hist_data['dates'][0], '%Y-%m-%d'),
-            current_price=hist_data['close'][0]
+            current_price=hist_data['close'][0] # 使用收盘价
         )
         trades.append(initial_trade)
         
-        # 遍历历史数据
-        for i in range(len(hist_data['dates'])):
+        # 从第二天开始遍历历史数据
+        for i in range(1, len(hist_data['dates'])):
             timestamp = datetime.strptime(hist_data['dates'][i], '%Y-%m-%d')
             price = hist_data['close'][i]
             
