@@ -45,14 +45,21 @@ class GridCalculator:
         # 判断是否适合网格交易
         suitable, reason = self._check_suitability(scores)
         
-        # 获取最新的ATR值
+        # 获取最新的ATR值用于安全评分
         latest_atr = float(df['ATR'].iloc[-1])
-        
+
+        # 获取期初的ATR值用于构建网格，这更符合无未来函数的原则
+        first_valid_atr_index = df['ATR'].first_valid_index()
+        if first_valid_atr_index is not None:
+            atr_for_grid = float(df['ATR'].loc[first_valid_atr_index])
+        else:
+            atr_for_grid = 0 # 如果无法计算ATR，则回退
+
         return {
             'suitable': suitable,
             'reason': reason,
             'scores': scores,
-            'atr': round(latest_atr, 4)  # 添加ATR值，保留4位小数
+            'atr': round(atr_for_grid, 4)  # 返回用于构建网格的期初ATR
         }
 
     def _convert_to_dataframe(self, history_data: Dict[str, Any]) -> pd.DataFrame:

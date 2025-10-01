@@ -221,11 +221,28 @@ def analyze_grid_params():
         history_data = market_db.get_grid_trade_data(etf_code, months)
         if not history_data:
             return jsonify({'error': 'ETF数据不存在'}), 404
-            
-        # 创建参数优化器
-        analyzer = ParameterAnalyzer(initial_capital=initial_capital, fee_rate=fee_rate)
 
-        # 执行参数优化
+        # --- 提前计算基准（标的持有）的收益率 --- #
+        prices = pd.Series(history_data['close'])
+        daily_returns_for_stats = prices.pct_change().fillna(0)
+        
+        evaluator = BacktestEvaluator()
+
+        if history_data and len(history_data['open']) > 0 and history_data['open'][0] is not None and history_data['open'][0] > 0:
+            benchmark_total_return = (history_data['close'][-1] / history_data['open'][0]) - 1
+        else:
+            benchmark_total_return = 0.0
+
+        days = len(daily_returns_for_stats)
+        if days > 0:
+            years = days / 252
+            benchmark_annual_return = (1 + benchmark_total_return) ** (1 / years) - 1 if benchmark_total_return > -1 else -1
+        else:
+            benchmark_annual_return = 0.0
+        # --- 基准收益率计算结束 --- #
+
+        # 创建参数优化器并执行分析
+        analyzer = ParameterAnalyzer(initial_capital=initial_capital, fee_rate=fee_rate)
         results = analyzer.analyze(
             hist_data={
                 'dates': history_data['dates'],
@@ -235,32 +252,13 @@ def analyze_grid_params():
                 'low': history_data['low']
             },
             atr=atr,
+            benchmark_annual_return=benchmark_annual_return # 传递基准收益率
         )
         
         # 获取得分最高的结果
         best_result = max(results, key=lambda x: x.evaluation['total_score'])
 
-        # 计算标的持有收益
-        prices = pd.Series(history_data['close'])
-        daily_returns_for_stats = prices.pct_change().fillna(0) # 用于计算波动率相关的指标
-        
-        evaluator = BacktestEvaluator()  # 添加评估器实例
-
-        # 按照用户的要求，使用期初开盘价和期末收盘价计算总收益率
-        if history_data and len(history_data['open']) > 0 and history_data['open'][0] is not None and history_data['open'][0] > 0:
-            benchmark_total_return = (history_data['close'][-1] / history_data['open'][0]) - 1
-        else:
-            benchmark_total_return = 0.0
-
-        # 基于新的总收益率重新计算年化收益率
-        days = len(daily_returns_for_stats)
-        if days > 0:
-            years = days / 252
-            benchmark_annual_return = (1 + benchmark_total_return) ** (1 / years) - 1 if benchmark_total_return > -1 else -1
-        else:
-            benchmark_annual_return = 0.0
-
-        # 其他指标（如夏普比率、最大回撤）仍基于日收盘价计算
+        # 计算其他基准指标用于返回给前端
         benchmark_max_drawdown = evaluator._calculate_max_drawdown(daily_returns_for_stats)
         benchmark_sharpe_ratio = evaluator._calculate_sharpe_ratio(daily_returns_for_stats)
         benchmark_total_score = evaluator._calculate_score({
@@ -268,7 +266,9 @@ def analyze_grid_params():
             'max_drawdown': benchmark_max_drawdown,
             'sharpe_ratio': benchmark_sharpe_ratio,
             'trade_frequency': 1,
-            'capital_utilization': 1,})
+            'capital_utilization': 1,
+            'relative_return': 1  # 基准与自身的相对表现为1
+        })
         
         # 转换结果为前端所需格式
         response = {
@@ -286,6 +286,7 @@ def analyze_grid_params():
                     'max_drawdown': result.evaluation['max_drawdown'],  # 最大回撤
                     'trade_count': result.evaluation['trade_count'],  # 
                     'capital_utilization': result.evaluation['capital_utilization'],  # 
+                    'relative_return': result.evaluation['relative_return'],      # 相对表现
                     'score': result.evaluation['total_score'],  # 综合得分
                 }
             } for i, result in enumerate(results)],
@@ -305,7 +306,11 @@ def analyze_grid_params():
                     'direction': trade.direction,
                     'price': trade.price,
                     'amount': trade.amount,
-                    'value': trade.price * trade.amount
+                    'value': trade.price * trade.amount,
+                    'current_position': trade.current_position,
+                    'position_value': trade.position_value,
+                    'total_value': trade.total_value,
+                    'cash': trade.cash
                 } for trade in best_result.trades],
                 
                 'grids': [{
@@ -375,8 +380,11 @@ def run_backtest():
                     'direction': trade.direction,
                     'price': trade.price,
                     'amount': trade.amount,
-                    'value': trade.price * trade.amount
-                } for trade in result.trades],
+                    'value': trade.price * trade.amount,
+                    'current_position': trade.current_position,
+                    'position_value': trade.position_value,
+                    'total_value': trade.total_value,
+                    'cash': trade.cash                } for trade in result.trades],
                 
                 'grids': [{
                     'index': i,

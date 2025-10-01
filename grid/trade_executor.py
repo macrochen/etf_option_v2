@@ -13,6 +13,10 @@ class Trade:
     direction: str          # 买入/卖出
     grid_index: int         # 触发网格索引
     grid_count: int = 1     # 跨越网格数量
+    current_position: int = 0   # 交易后持仓
+    position_value: float = 0.0 # 交易后市值
+    total_value: float = 0.0      # 交易后总资产
+    cash: float = 0.0             # 交易后现金
 
 class TradeExecutor:
     """交易执行器"""
@@ -38,6 +42,11 @@ class TradeExecutor:
         # 计算初始持仓量：累加所有已标记持仓的网格的position
         base_amount = sum(grid.position for grid in self.grids if grid.has_position)
         
+        # 更新持仓和资金
+        self.position = base_amount
+        self.cash -= current_price * base_amount * (1 + self.fee_rate)
+        self.last_price = current_price
+
         # 记录底仓买入交易
         trade = Trade(
             timestamp=timestamp,
@@ -45,13 +54,12 @@ class TradeExecutor:
             amount=base_amount,
             direction="buy",
             grid_index=base_grid_index,
-            grid_count=1
+            grid_count=1,
+            current_position=self.position,
+            position_value=self.position * current_price,
+            total_value=self.cash + (self.position * current_price),
+            cash=self.cash
         )
-        
-        # 更新持仓和资金
-        self.position = base_amount
-        self.cash -= current_price * base_amount * (1 + self.fee_rate)
-        self.last_price = current_price
         return trade
         
     def check_and_trade(self, timestamp: datetime, price: float) -> Optional[Trade]:
@@ -97,7 +105,11 @@ class TradeExecutor:
                 amount=total_amount,
                 direction="buy" if current_price < last_price else "sell",
                 grid_index=crossed_grid_index,
-                grid_count=1
+                grid_count=1,
+                current_position=self.position,
+                position_value=self.position * current_price,
+                total_value=self.cash + (self.position * current_price),
+                cash=self.cash
             )
         return None
         

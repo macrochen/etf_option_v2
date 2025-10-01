@@ -14,12 +14,13 @@ class ParameterAnalyzer:
         self.param_generator = ParamGenerator()
         
         
-    def analyze(self, hist_data: Dict[str, List], atr: float, top_n: int = 10) -> List[BacktestResult]:
+    def analyze(self, hist_data: Dict[str, List], atr: float, benchmark_annual_return: float, top_n: int = 10) -> List[BacktestResult]:
         """执行参数分析
         
         Args:
             hist_data: 历史数据
             atr: ATR值
+            benchmark_annual_return: 基准年化收益率
             top_n: 返回最优的前N个结果
             
         Returns:
@@ -34,7 +35,8 @@ class ParameterAnalyzer:
                 hist_data=hist_data,
                 atr=atr,
                 grid_count=params.grid_count,
-                atr_factor=params.atr_factor
+                atr_factor=params.atr_factor,
+                benchmark_annual_return=benchmark_annual_return # 传递基准收益率
             )
             
             # 计算综合评分

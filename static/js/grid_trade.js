@@ -420,6 +420,7 @@ $(document).ready(function() {
                 <td>${(benchmark.max_drawdown * 100).toFixed(2)}%</td>
                 <td>1</td>
                 <td>100%</td>
+                <td>1.00</td>
                 <td>${(benchmark.total_score * 100).toFixed(2)}</td>
                 <td>-</td>
             </tr>
@@ -444,6 +445,7 @@ $(document).ready(function() {
                     <td>${(param.metrics.max_drawdown * 100).toFixed(2)}%</td>
                     <td>${param.metrics.trade_count}</td>
                     <td>${(param.metrics.capital_utilization * 100).toFixed(2)}%</td>
+                    <td>${param.metrics.relative_return.toFixed(2)}</td>
                     <td>${(param.metrics.score * 100).toFixed(2)}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary run-backtest-btn"
@@ -685,14 +687,18 @@ $(document).ready(function() {
         tbody.empty();
         
         trades.forEach(trade => {
-            const tradeValue = (trade.price * trade.amount).toFixed(2);
+            const tradeValue = trade.price * Math.abs(trade.amount);
             tbody.append(`
                 <tr>
                     <td>${trade.timestamp}</td>
                     <td>${trade.direction}</td>
-                    <td>${trade.price.toFixed(3)}</td>
-                    <td>${trade.amount}</td>
-                    <td>${tradeValue}</td>
+                    <td style="text-align: right;">${trade.price.toFixed(3)}</td>
+                    <td style="text-align: right;">${trade.amount.toLocaleString('en-US')}</td>
+                    <td style="text-align: right;">${tradeValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    <td style="text-align: right;">${trade.current_position.toLocaleString('en-US')}</td>
+                    <td style="text-align: right;">${trade.position_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    <td style="text-align: right;">${trade.cash.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    <td style="text-align: right;">${trade.total_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                 </tr>
             `);
         });

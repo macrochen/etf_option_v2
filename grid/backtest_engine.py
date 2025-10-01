@@ -32,7 +32,7 @@ class BacktestEngine:
         self.evaluator = BacktestEvaluator()  # 添加评估器实例
         
     def run_backtest(self, hist_data: Dict[str, List], atr: float,
-                    grid_count: int, atr_factor: float) -> BacktestResult:
+                    grid_count: int, atr_factor: float, benchmark_annual_return: float) -> BacktestResult:
         """运行回测
         
         Args:
@@ -40,6 +40,7 @@ class BacktestEngine:
             atr: ATR值
             grid_count: 网格数量
             atr_factor: ATR系数
+            benchmark_annual_return: 基准年化收益率
             
         Returns:
             BacktestResult: 回测结果
@@ -88,9 +89,11 @@ class BacktestEngine:
                 'direction': trade.direction,
                 'timestamp': trade.timestamp,
                 'amount': trade.amount,
-                'price': trade.price
+                'price': trade.price,
+                'grid_index': trade.grid_index
             } for trade in trades],
             capital=self.initial_capital,
+            benchmark_annual_return=benchmark_annual_return # 传递基准收益率
         )
         
         return BacktestResult(
