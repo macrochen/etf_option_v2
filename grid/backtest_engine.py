@@ -67,15 +67,23 @@ class BacktestEngine:
         )
         trades.append(initial_trade)
         
-        # 从第二天开始遍历历史数据
-        for i in range(1, len(hist_data['dates'])):
-            timestamp = datetime.strptime(hist_data['dates'][i], '%Y-%m-%d')
-            price = hist_data['close'][i]
-            
-            # 检查并执行交易
-            trade = executor.check_and_trade(timestamp, price)
-            if trade:
-                trades.append(trade)
+        try:
+            # 从第二天开始遍历历史数据
+            for i in range(1, len(hist_data['dates'])):
+                timestamp = datetime.strptime(hist_data['dates'][i], '%Y-%m-%d')
+                open_price = hist_data['open'][i]
+                high_price = hist_data['high'][i]
+                low_price = hist_data['low'][i]
+                close_price = hist_data['close'][i]
+                
+                # 检查并执行交易
+                new_trades = executor.check_and_trade(timestamp, open_price, high_price, low_price, close_price)
+                if new_trades:
+                    trades.extend(new_trades)
+        except Exception as e:
+            import traceback
+            logging.error(f"Backtest failed at index {i} date {timestamp}: {str(e)}\n{traceback.format_exc()}")
+            raise e
         
         # 记录每日资产状况
         daily_portfolio = self._calculate_daily_portfolio(hist_data, trades)
@@ -155,13 +163,17 @@ class BacktestEngine:
         # 从第二天开始遍历历史数据
         for i in range(1, len(hist_data['dates'])):
             timestamp = datetime.strptime(hist_data['dates'][i], '%Y-%m-%d')
-            price = hist_data['close'][i]
+            open_price = hist_data['open'][i]
+            high_price = hist_data['high'][i]
+            low_price = hist_data['low'][i]
+            close_price = hist_data['close'][i]
             
             # 检查并执行交易
-            trade = executor.check_and_trade(timestamp, price)
-            if trade:
-                logging.info(f"Trade Triggered: Date={timestamp}, Price={price}, Direction={trade.direction}")
-                trades.append(trade)
+            new_trades = executor.check_and_trade(timestamp, open_price, high_price, low_price, close_price)
+            if new_trades:
+                for trade in new_trades:
+                    logging.info(f"Trade Triggered: Date={timestamp}, Price={trade.price}, Direction={trade.direction}")
+                trades.extend(new_trades)
         
         # 记录每日资产状况
         daily_portfolio = self._calculate_daily_portfolio(hist_data, trades)

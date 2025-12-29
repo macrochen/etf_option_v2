@@ -71,87 +71,91 @@ class TradeExecutor:
         )
         return trade
         
-    def check_and_trade(self, timestamp: datetime, price: float) -> Optional[Trade]:
-        """检查并执行交易"""
-        if self.last_price is None:
-            self.last_price = price
-            return None
-            
-        # 查找并执行网格交易
-        trade = self._execute_grid_trades(timestamp, self.last_price, price)
-        self.last_price = price
-        return trade
-    
-    def _execute_grid_trades(self, timestamp: datetime, last_price: float, current_price: float) -> Optional[Trade]:
-        """执行网格交易
+    def check_and_trade(self, timestamp: datetime, open_price: float, high_price: float, low_price: float, close_price: float) -> List[Trade]:
+        """检查并执行交易 (OHLC版本)
         
-        完全重构的逻辑：
-        1. 废弃累积检查，改为对每个穿越的网格独立判断。
-        2. 增加浮点数容差 (EPSILON)。
+        Returns:
+            List[Trade]: 生成的交易列表（可能包含多笔买卖）
         """
-        EPSILON = 1e-6
-        total_amount = 0
-        crossed_grid_index = None
-        trade_direction = ""
+        if self.last_price is None:
+            self.last_price = close_price
+            return []
+            
+        trades = self._execute_grid_trades_ohlc(timestamp, open_price, high_price, low_price, close_price)
+        self.last_price = close_price
+        return trades
+    
+    def _execute_grid_trades_ohlc(self, timestamp: datetime, open_price: float, high_price: float, low_price: float, close_price: float) -> List[Trade]:
+        """执行网格交易 (OHLC逻辑)"""
+        trades = []
+        
+        # 1. 卖出循环 (High)
+        # 优先执行卖出，释放资金和仓位
+        for i, grid in enumerate(self.grids):
+            if grid.has_position:
+                # 如果是最后一个网格，没有上一档，通常不卖出或者无限持有
+                if i + 1 < len(self.grids):
+                    target_price = self.grids[i+1].price
+                    if high_price >= target_price:
+                        # 确定成交价：如果是跳空高开，则以 Open 价卖出
+                        exec_price = max(open_price, target_price)
+                        
+                        # 执行卖出
+                        grid.has_position = False
+                        amount = grid.position
+                        
+                        self.position -= amount
+                        revenue = amount * exec_price * (1 - self.fee_rate)
+                        self.cash += revenue
+                        
+                        trades.append(Trade(
+                            timestamp=timestamp,
+                            price=exec_price,
+                            amount=-amount, # 卖出为负
+                            direction="sell",
+                            grid_index=self.grids.index(grid),
+                            grid_count=1,
+                            current_position=self.position,
+                            position_value=self.position * close_price, # 使用收盘价计算市值
+                            total_value=self.cash + (self.position * close_price),
+                            cash=self.cash
+                        ))
 
-        # 价格下跌：寻找跌破的网格线 -> 买入
-        if current_price < last_price:
-            for i, grid in enumerate(self.grids):
-                # 穿越判断：上次在上方(> grid.price)，这次在下方(<= grid.price)
-                # 加上 EPSILON 防止在边界反复触发
-                # 这里的逻辑是：跌破 grid.price，应该买入 grid 对应的持仓
-                if last_price > grid.price + EPSILON and current_price <= grid.price + EPSILON:
-                    if not grid.has_position:
+        # 2. 买入循环 (Low)
+        # 遍历所有网格，检查是否触发买入
+        # 按价格从高到低遍历 (reversed)，在资金不足时优先成交价格较高的网格（通常是刚跌破的）
+        for i, grid in reversed(list(enumerate(self.grids))):
+            if not grid.has_position:
+                buy_price = grid.price
+                if low_price <= buy_price:
+                    # 确定成交价：如果是跳空低开，则以 Open 价买入
+                    exec_price = min(open_price, buy_price)
+                    
+                    # 检查资金
+                    cost = grid.position * exec_price * (1 + self.fee_rate)
+                    if self.cash >= cost:
                         # 执行买入
                         grid.has_position = True
-                        buy_amount = grid.position
+                        amount = grid.position
                         
-                        # 更新账户
-                        self.position += buy_amount
-                        cost = buy_amount * current_price * (1 + self.fee_rate)
+                        self.position += amount
                         self.cash -= cost
                         
-                        total_amount += buy_amount
-                        crossed_grid_index = i
-                        trade_direction = "buy"
+                        trades.append(Trade(
+                            timestamp=timestamp,
+                            price=exec_price,
+                            amount=amount,
+                            direction="buy",
+                            grid_index=self.grids.index(grid),
+                            grid_count=1,
+                            current_position=self.position,
+                            position_value=self.position * close_price,
+                            total_value=self.cash + (self.position * close_price),
+                            cash=self.cash
+                        ))
+                    else:
+                        # 资金不足日志可以记录，但为了不刷屏，可以考虑 debug 级别
+                        # logging.debug(...)
+                        pass
 
-        # 价格上涨：寻找涨破的网格线 -> 卖出下方网格的持仓
-        elif current_price > last_price:
-            for i, grid in enumerate(self.grids):
-                # 穿越判断：上次在下方(< grid.price)，这次在上方(>= grid.price)
-                if last_price < grid.price - EPSILON and current_price >= grid.price - EPSILON:
-                    # 涨破了 Grid[i]。
-                    # 在等比网格中，Grid[i] 是 Grid[i-1] 的卖出目标位。
-                    # 所以如果涨破了 Grid[i]，我们应该检查并卖出 Grid[i-1] 的持仓。
-                    
-                    target_sell_idx = i - 1
-                    if target_sell_idx >= 0:
-                        target_grid = self.grids[target_sell_idx]
-                        if target_grid.has_position:
-                            # 执行卖出
-                            target_grid.has_position = False
-                            sell_amount = target_grid.position
-                            
-                            # 更新账户
-                            self.position -= sell_amount
-                            revenue = sell_amount * current_price * (1 - self.fee_rate)
-                            self.cash += revenue
-                            
-                            total_amount -= sell_amount # 卖出为负
-                            crossed_grid_index = i # 记录触发网格（是哪个价格线触发的）
-                            trade_direction = "sell"
-        
-        if total_amount != 0:
-            return Trade(
-                timestamp=timestamp,
-                price=current_price,
-                amount=total_amount,
-                direction=trade_direction,
-                grid_index=crossed_grid_index,
-                grid_count=abs(total_amount) // self.grids[0].position if self.grids else 1, # 估算格数
-                current_position=self.position,
-                position_value=self.position * current_price,
-                total_value=self.cash + (self.position * current_price),
-                cash=self.cash
-            )
-        return None
+        return trades

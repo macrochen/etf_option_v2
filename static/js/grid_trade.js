@@ -865,10 +865,12 @@ $(document).ready(function() {
         
         trades.forEach(trade => {
             const tradeValue = trade.price * Math.abs(trade.amount);
+            const rowClass = trade.direction === 'buy' ? 'table-success' : 'table-danger';
+            
             tbody.append(`
-                <tr>
+                <tr class="${rowClass}">
                     <td>${trade.timestamp}</td>
-                    <td>${trade.direction}</td>
+                    <td>${trade.direction === 'buy' ? '买入' : '卖出'}</td>
                     <td style="text-align: right;">${trade.price.toFixed(3)}</td>
                     <td style="text-align: right;">${trade.amount.toLocaleString('en-US')}</td>
                     <td style="text-align: right;">${tradeValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>

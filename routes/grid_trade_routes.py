@@ -301,6 +301,7 @@ def analyze_grid_params():
             },
             
             'best_backtest': {
+                'evaluation': best_result.evaluation,
                 'trades': [{
                     'timestamp': trade.timestamp.strftime('%Y-%m-%d'),
                     'direction': trade.direction,
@@ -444,27 +445,48 @@ def run_backtest():
         if not history_data:
             return jsonify({'error': 'ETF数据不存在'}), 404
             
+        # 计算基准收益
+        prices = pd.Series(history_data['close'])
+        daily_returns = prices.pct_change().fillna(0)
+        
+        if len(history_data['open']) > 0 and history_data['open'][0] is not None and history_data['open'][0] > 0:
+            benchmark_total_return = (history_data['close'][-1] / history_data['open'][0]) - 1
+        else:
+            benchmark_total_return = 0.0
+
+        days = len(daily_returns)
+        if days > 0:
+            years = days / 252
+            benchmark_annual_return = (1 + benchmark_total_return) ** (1 / years) - 1 if benchmark_total_return > -1 else -1
+        else:
+            benchmark_annual_return = 0.0
+            
+        # 计算基准的其他指标
+        evaluator = BacktestEvaluator()
+        benchmark_max_drawdown = evaluator._calculate_max_drawdown(daily_returns)
+        benchmark_sharpe_ratio = evaluator._calculate_sharpe_ratio(daily_returns)
+            
         backtest_engine = BacktestEngine()
         result = backtest_engine.run_backtest(
             hist_data=history_data,
             grid_count=grid_count,
             atr=atr,
-            atr_factor=atr_factor
+            atr_factor=atr_factor,
+            benchmark_annual_return=benchmark_annual_return
         )
-        
-        # 计算标的持有收益
-        prices = pd.Series(history_data['close'])
-        # 计算每日收益率
-        daily_returns = prices.pct_change().fillna(0)
         
         # 转换结果为前端所需格式
         response = {
-
             'benchmark': {
                 'daily_returns': (daily_returns.cumsum() * 100).tolist(),  # 转换为累积收益率并转为百分比
+                'total_return': benchmark_total_return,
+                'annual_return': benchmark_annual_return,
+                'max_drawdown': benchmark_max_drawdown,
+                'sharpe_ratio': benchmark_sharpe_ratio
             },
             
             'best_backtest': {
+                'evaluation': result.evaluation, # 添加评估结果
                 'trades': [{
                     'timestamp': trade.timestamp.strftime('%Y-%m-%d'),
                     'direction': trade.direction,
