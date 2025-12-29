@@ -175,6 +175,52 @@ class MarketDatabase:
                          f"错误信息: {str(e)}\n堆栈信息:\n{stack_trace}")
             return None
 
+    def get_grid_trade_data_by_date(self, etf_code: str, start_date: str, end_date: str = None) -> Dict[str, List] | None:
+        """根据日期范围获取ETF数据
+        
+        Args:
+            etf_code: ETF代码
+            start_date: 开始日期 (YYYY-MM-DD)
+            end_date: 结束日期 (YYYY-MM-DD)，默认为今天
+            
+        Returns:
+            Dict[str, List]: 历史数据字典
+        """
+        try:
+            from datetime import datetime
+            
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+                
+            sql = """
+                SELECT date, open_price, high_price, low_price, close_price, volume
+                FROM grid_trade
+                WHERE etf_code = ? 
+                AND date >= ? AND date <= ?
+                ORDER BY date
+            """
+            params = (etf_code, start_date, end_date)
+            
+            results = self.db.fetch_all(sql, params)
+            
+            if not results:
+                return None
+                
+            return {
+                'dates': [r[0] for r in results],
+                'open': [float(r[1]) for r in results],
+                'high': [float(r[2]) for r in results],
+                'low': [float(r[3]) for r in results],
+                'close': [float(r[4]) for r in results],
+                'volume': [float(r[5]) for r in results]
+            }
+            
+        except Exception as e:
+            stack_trace = traceback.format_exc()
+            logging.error(f"获取ETF数据失败(按日期): \nETF代码: {etf_code}\n日期范围: {start_date} - {end_date}\n"
+                         f"错误信息: {str(e)}\n堆栈信息:\n{stack_trace}")
+            return None
+
     def get_grid_trade_etf_list(self) -> List[Dict[str, Any]]:
         """获取网格交易ETF列表
         

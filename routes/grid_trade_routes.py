@@ -338,6 +338,96 @@ def analyze_grid_params():
         logging.error(f"执行回测分析时发生错误: \n参数: {data if 'data' in locals() else 'N/A'}\n错误信息: {str(e)}\n堆栈信息:\n{stack_trace}")
         return jsonify({'error': str(e)}), 500
 
+@grid_trade_bp.route('/api/grid_trade/manual_backtest', methods=['POST'])
+def manual_backtest():
+    """执行手动参数回测"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '无效的请求数据'}), 400
+            
+        etf_code = data['etf_code']
+        start_date = data['start_date']
+        grid_percent = float(data['grid_percent'])
+        grid_count = int(data.get('grid_count', 20))
+        initial_capital = float(data.get('initial_capital', 100000.0))
+        
+        # 获取可选参数
+        initial_base_price = float(data['initial_base_price']) if data.get('initial_base_price') else None
+        trade_size = int(data['trade_size']) if data.get('trade_size') else None
+        
+        # 获取历史数据
+        history_data = market_db.get_grid_trade_data_by_date(etf_code, start_date)
+        if not history_data or len(history_data['close']) < 2:
+            return jsonify({'error': '指定日期范围内无数据'}), 404
+            
+        # 计算基准收益
+        prices = pd.Series(history_data['close'])
+        daily_returns = prices.pct_change().fillna(0)
+        
+        total_return = (prices.iloc[-1] - prices.iloc[0]) / prices.iloc[0]
+        days = len(prices)
+        years = days / 252 if days > 0 else 0
+        benchmark_annual_return = (1 + total_return) ** (1 / years) - 1 if years > 0 and total_return > -1 else 0.0
+        
+        # 计算基准的其他指标
+        evaluator = BacktestEvaluator()
+        benchmark_max_drawdown = evaluator._calculate_max_drawdown(daily_returns)
+        benchmark_sharpe_ratio = evaluator._calculate_sharpe_ratio(daily_returns)
+
+        backtest_engine = BacktestEngine(initial_capital=initial_capital)
+        result = backtest_engine.run_manual_backtest(
+            hist_data=history_data,
+            grid_percent=grid_percent,
+            grid_count=grid_count,
+            benchmark_annual_return=benchmark_annual_return,
+            initial_base_price=initial_base_price,
+            trade_size=trade_size
+        )
+        
+        # 构建响应
+        response = {
+            'benchmark': {
+                'daily_returns': (daily_returns.cumsum() * 100).tolist(),
+                'total_return': total_return,
+                'annual_return': benchmark_annual_return,
+                'max_drawdown': benchmark_max_drawdown,
+                'sharpe_ratio': benchmark_sharpe_ratio,
+                'trade_count': 1,
+                'capital_utilization': 1.0
+            },
+            'best_backtest': {
+                'evaluation': result.evaluation,  # 确保包含评估结果
+                'trades': [{
+                    'timestamp': trade.timestamp.strftime('%Y-%m-%d'),
+                    'direction': trade.direction,
+                    'price': trade.price,
+                    'amount': trade.amount,
+                    'value': trade.price * trade.amount,
+                    'current_position': trade.current_position,
+                    'position_value': trade.position_value,
+                    'total_value': trade.total_value,
+                    'cash': trade.cash
+                } for trade in result.trades],
+                'grids': [{
+                    'index': i,
+                    'price': grid.price,
+                    'grid_percent': grid.grid_percent,
+                    'position': grid.position,
+                    'profit': grid.profit
+                } for i, grid in enumerate(result.grids)],
+                'all_dates': result.daily_returns.index.strftime('%Y-%m-%d').tolist(),
+                'all_prices': prices.tolist(),
+                'all_returns': (result.daily_returns.cumsum() * 100).tolist()
+            }
+        }
+        return jsonify(response)
+        
+    except Exception as e:
+        stack_trace = traceback.format_exc()
+        logging.error(f"手动回测失败: {str(e)}\n{stack_trace}")
+        return jsonify({'error': f"回测失败: {str(e)}"}), 500
+
 @grid_trade_bp.route('/api/grid_trade/run_backtest', methods=['POST'])
 def run_backtest():
     """执行指定参数的回测"""

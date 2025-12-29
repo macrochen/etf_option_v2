@@ -108,3 +108,58 @@ class GridGenerator:
             position = grid_capital / grid.price
             # 向下取整到最接近的100的倍数
             grid.position = int(position // 100) * 100
+
+    def generate_grids_by_percent(self, current_price: float, grid_percent: float, 
+                                grid_count: int, trade_size: int = None) -> List[Grid]:
+        """根据百分比生成网格（等比网格）
+        
+        Args:
+            current_price: 当前价格（基准价格）
+            grid_percent: 网格间距百分比（例如 1.0 代表 1%）
+            grid_count: 网格数量
+            trade_size: 每格交易数量，如果为None则根据资金自动计算
+            
+        Returns:
+            List[Grid]: 网格列表
+        """
+        # 计算上下网格数量
+        upper_count = (grid_count - 1) // 2
+        lower_count = grid_count - 1 - upper_count
+        
+        grids = []
+        rate = 1 + grid_percent / 100.0
+        
+        # 生成下方网格 (P / rate^k)
+        for i in range(lower_count):
+            price = current_price / (rate ** (i + 1))
+            grids.insert(0, Grid(
+                price=price,
+                grid_percent=grid_percent
+            ))
+        
+        # 添加当前价格网格
+        grids.append(Grid(
+            price=current_price,
+            grid_percent=grid_percent
+        ))
+        
+        # 生成上方网格 (P * rate^k)
+        for i in range(upper_count):
+            price = current_price * (rate ** (i + 1))
+            grids.append(Grid(
+                price=price,
+                grid_percent=grid_percent
+            ))
+            
+        if trade_size is not None:
+            # 使用固定的每格交易数量
+            for grid in grids:
+                grid.position = trade_size
+        else:
+            # 计算每个网格的交易量
+            self._calculate_grid_positions(grids)
+        
+        # 计算每个网格的预期收益
+        self._calculate_grid_profits(grids)
+        
+        return grids

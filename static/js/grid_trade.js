@@ -276,6 +276,114 @@ $(document).ready(function() {
         
         // 监听回测按钮点击
         $('#start-analyze-btn').on('click', startAnalyze);
+
+        // 初始化 Manual Backtest Modal
+        const manualBacktestModal = new bootstrap.Modal(document.getElementById('manualBacktestModal'));
+
+        // 显示手动回测 Modal
+        $('#manual-backtest-btn').on('click', function() {
+            const etfCode = $('#etf-select').val() || $('#etf-code-input').val();
+            if (!etfCode) {
+                alert('请先选择或输入 ETF 代码');
+                return;
+            }
+            $('#manual-etf-code').val(etfCode);
+            
+            // 尝试从 localStorage 加载上次的设置
+            const savedStartDate = localStorage.getItem('manual_start_date');
+            const savedBasePrice = localStorage.getItem('manual_base_price');
+            const savedTradeSize = localStorage.getItem('manual_trade_size');
+            const savedGridPercent = localStorage.getItem('manual_grid_percent');
+            const savedGridCount = localStorage.getItem('manual_grid_count');
+            const savedInitialCapital = localStorage.getItem('manual_initial_capital');
+
+            if (savedStartDate) {
+                $('#manual-start-date').val(savedStartDate);
+            } else {
+                // 如果没有保存的日期，默认设置为 1 年前
+                const today = new Date();
+                const lastYear = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+                // 格式化为 YYYY-MM-DD
+                const year = lastYear.getFullYear();
+                const month = String(lastYear.getMonth() + 1).padStart(2, '0');
+                const day = String(lastYear.getDate()).padStart(2, '0');
+                $('#manual-start-date').val(`${year}-${month}-${day}`);
+            }
+
+            if (savedBasePrice) $('#manual-base-price').val(savedBasePrice);
+            if (savedTradeSize) $('#manual-trade-size').val(savedTradeSize);
+            if (savedGridPercent) $('#manual-grid-percent').val(savedGridPercent);
+            if (savedGridCount) $('#manual-grid-count').val(savedGridCount);
+            if (savedInitialCapital) $('#manual-initial-capital').val(savedInitialCapital);
+            
+            manualBacktestModal.show();
+        });
+
+        // 执行手动回测
+        $('#run-manual-backtest-btn').on('click', function() {
+            const etfCode = $('#manual-etf-code').val();
+            const startDate = $('#manual-start-date').val();
+            const basePrice = $('#manual-base-price').val();
+            const tradeSize = $('#manual-trade-size').val();
+            const gridPercent = $('#manual-grid-percent').val();
+            const gridCount = $('#manual-grid-count').val();
+            const initialCapital = $('#manual-initial-capital').val();
+            
+            if (!startDate || !gridPercent || !gridCount || !initialCapital) {
+                alert('请填写所有必填字段');
+                return;
+            }
+
+            // 保存设置到 localStorage
+            localStorage.setItem('manual_start_date', startDate);
+            localStorage.setItem('manual_base_price', basePrice);
+            localStorage.setItem('manual_trade_size', tradeSize);
+            localStorage.setItem('manual_grid_percent', gridPercent);
+            localStorage.setItem('manual_grid_count', gridCount);
+            localStorage.setItem('manual_initial_capital', initialCapital);
+
+            // 显示遮罩层
+            $('body').append(`
+                <div class="analysis-overlay">
+                    <div class="loading-content">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <h5 class="mt-3">正在执行回测，请稍候...</h5>
+                    </div>
+                </div>
+            `);
+            
+            manualBacktestModal.hide();
+
+            $.ajax({
+                url: '/api/grid_trade/manual_backtest',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    etf_code: etfCode,
+                    start_date: startDate,
+                    initial_base_price: basePrice,
+                    trade_size: tradeSize,
+                    grid_percent: gridPercent,
+                    grid_count: gridCount,
+                    initial_capital: initialCapital
+                }),
+                success: function(result) {
+                    // 隐藏参数优化结果区域，避免混淆
+                    $('#optimization-result-section').addClass('d-none');
+                    
+                    showBacktestResult(result);
+                    
+                    // 滚动到回测结果区域
+                    document.getElementById('backtest-result-section').scrollIntoView({ behavior: 'smooth' });
+                },
+                error: handleAjaxError,
+                complete: function() {
+                    $('.analysis-overlay').remove();
+                }
+            });
+        });
     }
 
     // 更新网格预览
@@ -512,6 +620,9 @@ $(document).ready(function() {
         // 显示回测结果区域
         $('#backtest-result-section').removeClass('d-none');
         
+        // 更新绩效对比表
+        updatePerformanceComparison(backtest.evaluation, result.benchmark);
+        
         // 更新网格价格列表
         updateGridPriceList(backtest.grids);
         
@@ -523,6 +634,72 @@ $(document).ready(function() {
         
         // 更新交易记录
         updateTradesTable(backtest.trades);
+    }
+
+    // 更新绩效对比表
+    function updatePerformanceComparison(strategy, benchmark) {
+        const tbody = $('#performance-comparison-table tbody');
+        tbody.empty();
+
+        const metrics = [
+            { key: 'total_return', name: '总收益率', format: 'percent' },
+            { key: 'annual_return', name: '年化收益率', format: 'percent' },
+            { key: 'max_drawdown', name: '最大回撤', format: 'percent', reverse: true }, // reverse: 越小越好
+            { key: 'sharpe_ratio', name: '夏普比率', format: 'number' },
+            { key: 'capital_utilization', name: '资金利用率', format: 'percent' },
+            { key: 'trade_count', name: '交易次数', format: 'integer' }
+        ];
+
+        metrics.forEach(metric => {
+            let sVal = strategy[metric.key];
+            let bVal = benchmark[metric.key];
+            
+            // 处理特殊情况
+            if (metric.key === 'trade_count' && bVal === undefined) bVal = 1;
+            if (metric.key === 'capital_utilization' && bVal === undefined) bVal = 1.0;
+
+            let diff = sVal - bVal;
+            let diffClass = '';
+            
+            // 判定好坏颜色
+            if (metric.reverse) {
+                // 对于回撤，数值越小越好。如果 sVal < bVal (diff < 0)，则是好的（绿色）
+                if (diff < 0) diffClass = 'text-success fw-bold';
+                else if (diff > 0) diffClass = 'text-danger fw-bold';
+            } else {
+                // 对于收益，数值越大越好
+                if (diff > 0) diffClass = 'text-success fw-bold';
+                else if (diff < 0) diffClass = 'text-danger fw-bold';
+            }
+            
+            // 格式化数值
+            let sText, bText, dText;
+            if (metric.format === 'percent') {
+                sText = (sVal * 100).toFixed(2) + '%';
+                bText = (bVal * 100).toFixed(2) + '%';
+                dText = (diff * 100).toFixed(2) + '%';
+                if (diff > 0) dText = '+' + dText;
+            } else if (metric.format === 'integer') {
+                sText = parseInt(sVal);
+                bText = parseInt(bVal);
+                dText = parseInt(diff);
+                if (diff > 0) dText = '+' + dText;
+            } else {
+                sText = sVal.toFixed(2);
+                bText = bVal.toFixed(2);
+                dText = diff.toFixed(2);
+                if (diff > 0) dText = '+' + dText;
+            }
+
+            tbody.append(`
+                <tr>
+                    <td>${metric.name}</td>
+                    <td>${sText}</td>
+                    <td>${bText}</td>
+                    <td class="${diffClass}">${dText}</td>
+                </tr>
+            `);
+        });
     }
 
     // 更新网格价格列表

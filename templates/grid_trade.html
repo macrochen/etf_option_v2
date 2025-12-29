@@ -60,6 +60,9 @@
                 <button type="button" class="btn btn-primary" id="start-analyze-btn">
                     分析参数
                 </button>
+                <button type="button" class="btn btn-secondary ms-2" id="manual-backtest-btn">
+                    手动回测
+                </button>
             </form>
         </div>
     </div>
@@ -120,6 +123,30 @@
             <h5 class="mb-0">最优配置回测结果分析</h5>
         </div>
         <div class="card-body">
+            <!-- 策略绩效对比 -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0">策略绩效对比</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-bordered mb-0" id="performance-comparison-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 25%">评估指标</th>
+                                    <th style="width: 25%">网格交易策略</th>
+                                    <th style="width: 25%">Buy & Hold 策略</th>
+                                    <th style="width: 25%">差异 (网格 - 基准)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- JS 动态填充 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- 网格价格列表 -->
             <div class="card mb-3">
                 <div class="card-header">
@@ -192,6 +219,54 @@
         </div>
     </div>
 
+</div>
+
+<!-- Manual Backtest Modal -->
+<div class="modal fade" id="manualBacktestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">手动回测参数</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="manual-backtest-form">
+                    <div class="mb-3">
+                        <label for="manual-etf-code" class="form-label">ETF 代码</label>
+                        <input type="text" class="form-control" id="manual-etf-code" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="manual-start-date" class="form-label">开始日期</label>
+                        <input type="date" class="form-control" id="manual-start-date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="manual-base-price" class="form-label">基准价格 (选填)</label>
+                        <input type="number" class="form-control" id="manual-base-price" step="0.001" placeholder="默认取开始日收盘价">
+                    </div>
+                    <div class="mb-3">
+                        <label for="manual-trade-size" class="form-label">每格交易数量 (选填)</label>
+                        <input type="number" class="form-control" id="manual-trade-size" step="100" placeholder="默认按资金自动计算">
+                    </div>
+                    <div class="mb-3">
+                        <label for="manual-grid-percent" class="form-label">网格间距 (%)</label>
+                        <input type="number" class="form-control" id="manual-grid-percent" step="0.01" value="1.0" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="manual-grid-count" class="form-label">网格数量</label>
+                        <input type="number" class="form-control" id="manual-grid-count" value="20" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="manual-initial-capital" class="form-label">初始资金</label>
+                        <input type="number" class="form-control" id="manual-initial-capital" value="100000" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="run-manual-backtest-btn">开始回测</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 {% endblock %}

@@ -26,25 +26,34 @@ class TradeExecutor:
         self.grids = grids
         self.fee_rate = fee_rate
         self.last_price = None
-        self.last_trade_grid_index = None  # 添加：记录上一次交易的网格索引
-        self.position = 0  # 添加持仓跟踪
+        self.last_trade_grid_index = None
+        self.position = 0
         self.cash = initial_capital
         
     def initialize_base_position(self, timestamp: datetime, current_price: float) -> Trade:
-        """初始化底仓，记录买入交易"""
-        base_grid_index = next(i for i, grid in enumerate(self.grids) 
-                             if grid.price == current_price)
+        """初始化底仓，记录买入交易
         
-        # 初始化时，所有高于当前价格的网格都标记为有持仓（为未来的上涨做准备）
-        for i in range(base_grid_index, len(self.grids)):
-            self.grids[i].has_position = True
+        Args:
+            timestamp: 交易时间
+            current_price: 当前价格
+        """
+        # 找到最近的网格
+        base_grid_index = min(range(len(self.grids)), key=lambda i: abs(self.grids[i].price - current_price))
+        
+        # 初始化时，所有高于当前价格的网格（包含当前格）都标记为有持仓
+        for i, grid in enumerate(self.grids):
+            if grid.price >= current_price:
+                grid.has_position = True
+            else:
+                grid.has_position = False
         
         # 计算初始持仓量：累加所有已标记持仓的网格的position
         base_amount = sum(grid.position for grid in self.grids if grid.has_position)
         
         # 更新持仓和资金
         self.position = base_amount
-        self.cash -= current_price * base_amount * (1 + self.fee_rate)
+        cost = current_price * base_amount * (1 + self.fee_rate)
+        self.cash -= cost
         self.last_price = current_price
 
         # 记录底仓买入交易
@@ -74,81 +83,75 @@ class TradeExecutor:
         return trade
     
     def _execute_grid_trades(self, timestamp: datetime, last_price: float, current_price: float) -> Optional[Trade]:
-        """执行网格交易"""
+        """执行网格交易
+        
+        完全重构的逻辑：
+        1. 废弃累积检查，改为对每个穿越的网格独立判断。
+        2. 增加浮点数容差 (EPSILON)。
+        """
+        EPSILON = 1e-6
         total_amount = 0
         crossed_grid_index = None
-        
-        if current_price < last_price:  # 价格下跌
+        trade_direction = ""
+
+        # 价格下跌：寻找跌破的网格线 -> 买入
+        if current_price < last_price:
             for i, grid in enumerate(self.grids):
-                if last_price > grid.price >= current_price:
-                    # 执行下跌建仓操作
-                    trade_amount = self._execute_downtrend_position(timestamp, i, current_price)
-                    if trade_amount:
-                        total_amount += trade_amount
-                        if crossed_grid_index is None:
-                            crossed_grid_index = i
-        else:  # 价格上涨
+                # 穿越判断：上次在上方(> grid.price)，这次在下方(<= grid.price)
+                # 加上 EPSILON 防止在边界反复触发
+                # 这里的逻辑是：跌破 grid.price，应该买入 grid 对应的持仓
+                if last_price > grid.price + EPSILON and current_price <= grid.price + EPSILON:
+                    if not grid.has_position:
+                        # 执行买入
+                        grid.has_position = True
+                        buy_amount = grid.position
+                        
+                        # 更新账户
+                        self.position += buy_amount
+                        cost = buy_amount * current_price * (1 + self.fee_rate)
+                        self.cash -= cost
+                        
+                        total_amount += buy_amount
+                        crossed_grid_index = i
+                        trade_direction = "buy"
+
+        # 价格上涨：寻找涨破的网格线 -> 卖出下方网格的持仓
+        elif current_price > last_price:
             for i, grid in enumerate(self.grids):
-                if last_price < grid.price <= current_price:
-                    # 执行上涨清仓操作
-                    trade_amount = self._execute_uptrend_position(timestamp, i, current_price)
-                    if trade_amount:
-                        total_amount += trade_amount
-                        if crossed_grid_index is None:
-                            crossed_grid_index = i
+                # 穿越判断：上次在下方(< grid.price)，这次在上方(>= grid.price)
+                if last_price < grid.price - EPSILON and current_price >= grid.price - EPSILON:
+                    # 涨破了 Grid[i]。
+                    # 在等比网格中，Grid[i] 是 Grid[i-1] 的卖出目标位。
+                    # 所以如果涨破了 Grid[i]，我们应该检查并卖出 Grid[i-1] 的持仓。
+                    
+                    target_sell_idx = i - 1
+                    if target_sell_idx >= 0:
+                        target_grid = self.grids[target_sell_idx]
+                        if target_grid.has_position:
+                            # 执行卖出
+                            target_grid.has_position = False
+                            sell_amount = target_grid.position
+                            
+                            # 更新账户
+                            self.position -= sell_amount
+                            revenue = sell_amount * current_price * (1 - self.fee_rate)
+                            self.cash += revenue
+                            
+                            total_amount -= sell_amount # 卖出为负
+                            crossed_grid_index = i # 记录触发网格（是哪个价格线触发的）
+                            trade_direction = "sell"
         
-        # 如果有交易发生，生成交易记录
-        if total_amount != 0 and crossed_grid_index is not None:
+        if total_amount != 0:
             return Trade(
                 timestamp=timestamp,
                 price=current_price,
                 amount=total_amount,
-                direction="buy" if current_price < last_price else "sell",
+                direction=trade_direction,
                 grid_index=crossed_grid_index,
-                grid_count=1,
+                grid_count=abs(total_amount) // self.grids[0].position if self.grids else 1, # 估算格数
                 current_position=self.position,
                 position_value=self.position * current_price,
                 total_value=self.cash + (self.position * current_price),
                 cash=self.cash
             )
-        return None
-        
-    def _execute_downtrend_position(self, timestamp: datetime, current_grid_index: int, price: float) -> Optional[int]:
-        """执行下跌趋势的建仓操作，返回交易数量"""
-        needs_update = False
-        update_amount = 0
-        
-        # 检查当前网格以上的所有网格（包含当前网格）
-        for i in range(current_grid_index, len(self.grids)):
-            if not self.grids[i].has_position:
-                needs_update = True
-                self.grids[i].has_position = True
-                update_amount += self.grids[i].position
-                
-        if needs_update:
-            # 更新持仓和资金
-            self.position += update_amount
-            self.cash -= price * update_amount * (1 + self.fee_rate)
-            # logging.info(f"[{timestamp.strftime('%Y-%m-%d')}] 下跌建仓：在价格{price}处补充上方网格持仓{update_amount}股")
-            return update_amount
-        return None
-            
-    def _execute_uptrend_position(self, timestamp: datetime, current_grid_index: int, price: float) -> Optional[int]:
-        """执行上涨趋势的清仓操作，返回交易数量（负数）"""
-        needs_update = False
-        update_amount = 0
-        
-        # 检查当前网格以下的所有网格（不包含当前网格）
-        for i in range(0, current_grid_index):
-            if self.grids[i].has_position:
-                needs_update = True
-                self.grids[i].has_position = False
-                update_amount += self.grids[i].position
-                
-        if needs_update:
-            # 更新持仓和资金
-            self.position -= update_amount
-            self.cash += price * update_amount * (1 - self.fee_rate)
-            # logging.info(f"[{timestamp.strftime('%Y-%m-%d')}] 上涨清仓：在价格{price}处清除下方网格持仓{update_amount}股")
-            return -update_amount  # 卖出返回负数
         return None

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
+import logging
 from datetime import datetime
 from .grid_generator import GridGenerator, Grid
 from .trade_executor import TradeExecutor, Trade
@@ -108,6 +109,93 @@ class BacktestEngine:
             daily_returns=daily_returns,
             grids=grids,
             evaluation=evaluation_result.__dict__  # 直接使用 dataclass 的 __dict__ 属性
+        )
+
+    def run_manual_backtest(self, hist_data: Dict[str, List], grid_percent: float,
+                          grid_count: int, benchmark_annual_return: float,
+                          initial_base_price: float = None,
+                          trade_size: int = None) -> BacktestResult:
+        """运行手动回测（指定网格百分比）
+        
+        Args:
+            hist_data: 历史数据
+            grid_percent: 网格间距百分比
+            grid_count: 网格数量
+            benchmark_annual_return: 基准年化收益率
+            initial_base_price: 初始基准价格，如果为None则使用开始日期的收盘价
+            trade_size: 每格交易数量，如果为None则自动计算
+            
+        Returns:
+            BacktestResult: 回测结果
+        """
+        # 确定基准价格
+        base_price = initial_base_price if initial_base_price is not None else hist_data['close'][0]
+        
+        # 生成网格
+        grids = self.grid_generator.generate_grids_by_percent(
+            current_price=base_price,
+            grid_percent=grid_percent,
+            grid_count=grid_count,
+            trade_size=trade_size
+        )
+        
+        # 初始化交易执行器
+        executor = TradeExecutor(grids, self.fee_rate, self.initial_capital)
+        
+        # 记录所有交易
+        trades = []
+        
+        # 建立底仓
+        initial_trade = executor.initialize_base_position(
+            timestamp=datetime.strptime(hist_data['dates'][0], '%Y-%m-%d'),
+            current_price=hist_data['close'][0]
+        )
+        trades.append(initial_trade)
+        
+        # 从第二天开始遍历历史数据
+        for i in range(1, len(hist_data['dates'])):
+            timestamp = datetime.strptime(hist_data['dates'][i], '%Y-%m-%d')
+            price = hist_data['close'][i]
+            
+            # 检查并执行交易
+            trade = executor.check_and_trade(timestamp, price)
+            if trade:
+                logging.info(f"Trade Triggered: Date={timestamp}, Price={price}, Direction={trade.direction}")
+                trades.append(trade)
+        
+        # 记录每日资产状况
+        daily_portfolio = self._calculate_daily_portfolio(hist_data, trades)
+        
+        # 计算每日收益率
+        daily_returns = self._calculate_daily_returns(daily_portfolio)
+        
+        # 使用评估器计算评估指标
+        evaluation_result = self.evaluator.calculate_metrics(
+            daily_returns=daily_returns,
+            trade_records=[{
+                'direction': trade.direction,
+                'timestamp': trade.timestamp,
+                'amount': trade.amount,
+                'price': trade.price,
+                'grid_index': trade.grid_index
+            } for trade in trades],
+            capital=self.initial_capital,
+            benchmark_annual_return=benchmark_annual_return
+        )
+        
+        return BacktestResult(
+            params={
+                'grid_count': grid_count,
+                'grid_percent': grid_percent,
+                'initial_capital': self.initial_capital,
+                'fee_rate': self.fee_rate,
+                'initial_base_price': base_price,
+                'trade_size': trade_size
+            },
+            trades=trades,
+            daily_returns=daily_returns,
+            grids=grids,
+            evaluation=evaluation_result.__dict__
         )
     
     def _calculate_daily_portfolio(self, hist_data: Dict[str, List], trades: List[Trade]) -> pd.DataFrame:
