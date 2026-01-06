@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}数据下载中心{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-download me-2"></i>历史交易数据下载</h5>
+                </div>
+                <div class="card-body">
+                    <form id="downloadForm" action="/download_csv" method="POST" target="_blank">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label for="symbol" class="form-label">股票/ETF代码</label>
+                                <input type="text" class="form-control" id="symbol" name="symbol" placeholder="例如: 510050, 00700, AAPL" required>
+                                <div class="form-text text-muted">A股/ETF: 6位代码; 港股: 5位数字; 美股: 字母代码</div>
+                            </div>
+                            
+                            <div class="col-md-3">
+                                <label for="market_type" class="form-label">市场类型</label>
+                                <select class="form-select" id="market_type" name="market_type" required>
+                                    <option value="" selected disabled>请选择市场...</option>
+                                    <option value="china_etf">A股 ETF (如 510050)</option>
+                                    <option value="china_stock">A股 个股 (如 600519)</option>
+                                    <option value="hk_stock">港股 (如 00700)</option>
+                                    <option value="us_stock">美股 (如 AAPL)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="col-md-2">
+                                <label for="start_date" class="form-label">开始日期</label>
+                                <input type="date" class="form-control" id="start_date" name="start_date" required>
+                            </div>
+                            
+                            <div class="col-md-2">
+                                <label for="end_date" class="form-label">结束日期</label>
+                                <input type="date" class="form-control" id="end_date" name="end_date" required>
+                            </div>
+                            
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-file-csv me-2"></i>下载 CSV
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <h5><i class="fas fa-info-circle me-2"></i>说明</h5>
+                <ul class="mb-0">
+                    <li>数据来源为 AKShare (主要基于东方财富接口)。</li>
+                    <li><strong>A股 ETF</strong>: 输入6位数字代码，如 510050, 159915。</li>
+                    <li><strong>A股 个股</strong>: 输入6位数字代码，如 600519, 000001。</li>
+                    <li><strong>港股</strong>: 输入数字代码，通常为5位，如 00700 (腾讯), 09988 (阿里)。系统会自动补齐前导零。</li>
+                    <li><strong>美股</strong>: 输入股票代码，如 AAPL, TSLA, NVDA。</li>
+                    <li>下载的数据包含：日期、开盘、收盘、最高、最低、成交量等信息（前复权）。</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 设置默认日期：开始日期为一年前，结束日期为今天
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date();
+        const lastYear = new Date();
+        lastYear.setFullYear(today.getFullYear() - 1);
+        
+        document.getElementById('end_date').value = today.toISOString().split('T')[0];
+        document.getElementById('start_date').value = lastYear.toISOString().split('T')[0];
+
+        // 自动识别市场类型：如果输入字母，自动切换到美股
+        const symbolInput = document.getElementById('symbol');
+        const marketSelect = document.getElementById('market_type');
+
+        symbolInput.addEventListener('input', function() {
+            const val = this.value.trim();
+            // 如果包含任意字母 (A-Z, a-z)
+            if (/[a-zA-Z]/.test(val)) {
+                marketSelect.value = 'us_stock';
+            }
+        });
+    });
+    
+    // 简单的表单提交处理，处理错误返回
+    // 由于是直接表单提交下载文件，难以直接通过AJAX捕获错误响应体
+    // 这里主要依赖后端直接返回文件下载，如果出错用户会看到浏览器显示错误页面或下载下来的文件包含错误信息
+    // 作为一个改进，可以拦截 submit，用 fetch 检查是否出错，但我暂时保持简单直接提交表单的方式
+</script>
+{% endblock %}

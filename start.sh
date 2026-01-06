@@ -20,7 +20,15 @@ source .venv/bin/activate
 # 启动应用
 echo "Starting app.py on port $PORT..."
 
-# 在后台等待3秒后打开默认浏览器
-(sleep 3 && open "http://127.0.0.1:$PORT") &
+# 在后台等待3秒，确认端口被监听后再打开浏览器
+(
+    sleep 3
+    if lsof -i :$PORT > /dev/null; then
+        echo "Server is running. Opening browser..."
+        open "http://127.0.0.1:$PORT"
+    else
+        echo "Server failed to start or took too long. Browser not opened."
+    fi
+) &
 
 python app.py

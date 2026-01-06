@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+
+{% block title %}威科夫 Copilot - 辅助交易系统{% endblock %}
+
+{% block head %}
+<!-- ECharts -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.0/dist/echarts.min.js"></script>
+<style>
+    .signal-Spring { border-left: 4px solid #28a745; background-color: #f0fff4; }
+    .signal-UT { border-left: 4px solid #dc3545; background-color: #fff0f0; }
+    
+    #mainChart {
+        width: 100%;
+        height: 600px;
+    }
+    
+    .plan-panel {
+        background-color: #f8f9fa;
+        border-top: 2px solid #dee2e6;
+        padding: 20px;
+        margin-top: 20px;
+        display: none; 
+    }
+
+    /* CSS 菱形图例 */
+    .legend-diamond {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        transform: rotate(45deg);
+        margin-right: 6px;
+        margin-bottom: 2px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12 d-flex justify-content-between align-items-center">
+            <h3 class="mb-0"><i class="fas fa-robot me-2"></i>威科夫 Copilot <small class="text-muted fs-6">辅助决策系统</small></h3>
+            <button type="button" class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#glossaryModal">
+                <i class="fas fa-book-open me-1"></i>核心买卖逻辑
+            </button>
+        </div>
+    </div>
+    
+    <!-- 上传控制栏 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <form id="uploadForm" class="row g-3 align-items-center">
+                        <div class="col-auto">
+                            <label for="csvFile" class="col-form-label">导入交易数据:</label>
+                        </div>
+                        <div class="col-auto">
+                            <input class="form-control" type="file" id="csvFile" accept=".csv" required>
+                        </div>
+                        <div class="col-auto">
+                            <button type="submit" class="btn btn-primary" id="analyzeBtn">
+                                <i class="fas fa-search me-1"></i>开始扫描信号
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主图表区域 -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <div class="d-flex flex-column gap-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">K线结构与核心行为 (Spring / SOS / UT / SOW)</h5>
+                            <div class="d-flex gap-3">
+                                <div class="d-flex align-items-center">
+                                    <span style="display:inline-block;width:12px;height:12px;background-color:rgba(40, 167, 69, 0.4);border:1px dashed rgba(40, 167, 69, 0.8);margin-right:4px;"></span>
+                                    <small>吸筹 / 再吸筹确认</small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span style="display:inline-block;width:12px;height:12px;background-color:rgba(220, 53, 69, 0.4);border:1px dashed rgba(220, 53, 69, 0.8);margin-right:4px;"></span>
+                                    <small>派发 / 再派发确认</small>
+                                </div>
+                                <!-- 信号图例 -->
+                                <div class="d-flex align-items-center ms-3">
+                                    <span class="legend-diamond" style="background-color:#28a745;"></span>
+                                    <small class="text-muted">Spring(买点)</small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="legend-diamond" style="background-color:#6f42c1;"></span>
+                                    <small class="text-muted">SOS(突破买)</small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="legend-diamond" style="background-color:#dc3545;"></span>
+                                    <small class="text-muted">UT(离场点)</small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="legend-diamond" style="background-color:#fd7e14;"></span>
+                                    <small class="text-muted">SOW(破位离)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div id="mainChart"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最新实战预案面板 -->
+    <div id="planPanel" class="plan-panel rounded shadow-sm">
+        <div class="row">
+            <div class="col-md-8 border-end">
+                <h4 class="mb-3" id="planTitle"><i class="fas fa-rocket me-2"></i>最新预案</h4>
+                <div id="planContent"></div>
+            </div>
+            <div class="col-md-4 ps-4">
+                <h5 id="stopLossTitle" class="text-danger"><i class="fas fa-shield-alt me-2"></i>风控防线</h5>
+                <div class="mt-3 p-3 bg-white border rounded">
+                    <p class="mb-1 text-muted small" id="stopLossLabel">触发位：</p>
+                    <div id="planStopLoss" class="h3 mb-0 text-danger font-monospace">--</div>
+                    <p class="mt-2 mb-0 text-muted x-small text-wrap" id="stopLossDesc"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 术语指南 Modal -->
+<div class="modal fade" id="glossaryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">威科夫实战逻辑</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6>🟢 Spring (低位买入)</h6>
+                <p class="small">主力“挖坑”洗盘。操作：分批入场。止损：Spring最低点下方。</p>
+                <hr>
+                <h6>🟣 SOS (突破买入)</h6>
+                <p class="small">“跳离跳板”。放量突破阻力位，确认趋势开启。操作：趋势进场/加仓。</p>
+                <hr>
+                <h6>🔴 Upthrust (高位离场)</h6>
+                <p class="small">主力“诱多”出货。操作：获利离场。纠错：如果价格站稳此位上方，需买回跟进趋势（说明是再吸筹）。</p>
+                <hr>
+                <h6>🟠 SOW (破位离场)</h6>
+                <p class="small">趋势反转。放量跌破支撑位。操作：坚决止损/清仓。</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let myChart = echarts.init(document.getElementById('mainChart'));
+    window.addEventListener('resize', () => myChart.resize());
+
+    document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        formData.append('file', document.getElementById('csvFile').files[0]);
+        const btn = document.getElementById('analyzeBtn');
+        btn.disabled = true;
+        btn.innerHTML = '正在扫描信号...';
+
+        try {
+            const res = await fetch('/api/wyckoff/analyze_csv', { method: 'POST', body: formData });
+            const result = await res.json();
+            if (res.ok) {
+                renderChart(result.chart_data);
+                showTradePlan(result.chart_data.latest_plan);
+            } else { alert('错误: ' + result.error); }
+        } catch (error) { console.error(error); } 
+        finally { btn.disabled = false; btn.innerHTML = '开始扫描信号'; }
+    });
+
+    function showTradePlan(plan) {
+        const panel = document.getElementById('planPanel');
+        if (!plan) {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = 'block';
+        
+        const isBullish = plan.type === 'Bullish';
+        const colorClass = isBullish ? 'text-success' : 'text-danger';
+        const badgeClass = isBullish ? 'bg-success' : 'bg-danger';
+        
+        document.getElementById('planTitle').className = `mb-3 ${colorClass}`;
+        document.getElementById('planTitle').innerHTML = isBullish ? 
+            '<i class="fas fa-rocket me-2"></i>最新买入预案' : 
+            '<i class="fas fa-exclamation-triangle me-2"></i>最新离场预案';
+
+        document.getElementById('planContent').innerHTML = `
+            <div class="mb-3">
+                <span class="badge ${badgeClass}">${plan.date}</span>
+                <span class="h5 ms-2">${plan.display_name} (${plan.code})</span>
+            </div>
+            <p class="lead">${plan.logic}</p>
+            <div class="mt-3">
+                <span class="text-muted">建议动作：</span>
+                <strong class="${colorClass}">${plan.action}</strong>
+            </div>
+        `;
+
+        document.getElementById('stopLossLabel').innerText = plan.stop_loss_label + '：';
+        document.getElementById('planStopLoss').innerText = plan.stop_loss.toFixed(2);
+        document.getElementById('stopLossDesc').innerText = isBullish ? 
+            '* 如果跌破此位，说明多头逻辑失败，需坚决止损离场。' : 
+            '* 如果价格反手站稳此位上方，说明破位可能是假动作，应考虑买回。';
+    }
+
+    function renderChart(data) {
+        const markPointData = [];
+        const markLineData = []; 
+        const markAreaData = [];
+
+        // 1. 处理信号点和止损线
+        if (data.signals && data.signals.length > 0) {
+            const latestSig = data.signals[data.signals.length - 1];
+            
+            // 颜色映射
+            const colorMap = {
+                'Spring': '#28a745', // 绿
+                'SOS': '#6f42c1',    // 紫
+                'UT': '#dc3545',     // 红
+                'SOW': '#fd7e14'     // 橙
+            };
+            
+            const color = colorMap[latestSig.code] || '#007bff';
+            
+            markPointData.push({
+                coord: [latestSig.date, latestSig.price],
+                itemStyle: { color: color },
+                symbol: 'diamond', 
+                symbolSize: 15,
+                tooltip: { formatter: `<b>${latestSig.name}</b><br/>${latestSig.logic}` }
+            });
+
+            // 只保留唯一的警戒位红线
+            markLineData.push({
+                yAxis: latestSig.stop_loss,
+                lineStyle: { color: '#ff0000', type: 'dotted', width: 2 },
+                label: { show: true, position: 'end', formatter: '警戒位: {c}', color: '#ff0000' }
+            });
+        }
+
+        // 2. 处理周期箱体
+        if (data.zones && data.zones.length > 0) {
+            data.zones.forEach(zone => {
+                const borderColor = zone.color.replace(/0\.\d+\)$/, '0.6)'); 
+                markAreaData.push([
+                    {
+                        xAxis: zone.start,
+                        yAxis: zone.resistance, 
+                        itemStyle: { 
+                            color: zone.color,
+                            borderWidth: 1,
+                            borderColor: borderColor, 
+                            borderType: 'dashed'
+                        },
+                        label: { show: false }
+                    },
+                    {
+                        xAxis: zone.end,
+                        yAxis: zone.support 
+                    }
+                ]);
+            });
+        }
+
+        myChart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+            legend: { data: ['K线', '成交量'] },
+            grid: [ { left: '3%', right: '3%', height: '70%' }, { left: '3%', right: '3%', top: '82%', height: '12%' } ],
+            xAxis: [ 
+                { type: 'category', data: data.dates, scale: true, axisLine: { onZero: false } },
+                { type: 'category', gridIndex: 1, data: data.dates, axisLabel: { show: false } }
+            ],
+            yAxis: [ { scale: true }, { scale: true, gridIndex: 1, axisLabel: { show: false } } ],
+            dataZoom: [{ type: 'inside', start: 70, end: 100 }, { type: 'slider', start: 70, end: 100 }],
+            series: [
+                {
+                    name: 'K线', type: 'candlestick', data: data.data,
+                    markPoint: { data: markPointData },
+                    markLine: { data: markLineData, symbol: 'none' },
+                    markArea: { data: markAreaData, silent: true }
+                },
+                { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: data.volumes, itemStyle: { color: '#7fbe9e' } }
+            ]
+        }, true);
+    }
+</script>
+{% endblock %}

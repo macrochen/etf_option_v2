@@ -11,6 +11,8 @@ from routes.futu_routes import futu_bp
 from routes.earnings_routes import earnings_bp
 from routes.option_routes import option_bp
 from routes.sim_trade_routes import sim_trade_bp
+from routes.data_download_routes import data_download_bp
+from routes.wyckoff_routes import wyckoff_bp
 import os
 import subprocess
 
@@ -24,6 +26,8 @@ app.register_blueprint(stock_data_bp)
 app.register_blueprint(etf_data_bp)
 app.register_blueprint(grid_trade_bp)
 app.register_blueprint(earnings_bp)  # 注册财报分析蓝图
+app.register_blueprint(data_download_bp)  # 注册数据下载蓝图
+app.register_blueprint(wyckoff_bp) # 注册威科夫分析蓝图
 
 # ETF选项列表
 ETF_OPTIONS = [
