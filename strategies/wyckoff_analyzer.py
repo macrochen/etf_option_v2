@@ -1,17 +1,15 @@
 import pandas as pd
 import numpy as np
 from scipy.signal import argrelextrema
+import logging
 
 class WyckoffAnalyzer:
     def __init__(self):
         pass
 
-    def process_csv(self, file_stream):
-        """处理上传的CSV文件"""
+    def normalize_df(self, df):
+        """标准化 DataFrame：统一列名，处理数据类型"""
         try:
-            # 读取CSV
-            df = pd.read_csv(file_stream)
-            
             # 标准化列名：转小写、去空格
             raw_cols = [str(c).lower().strip() for c in df.columns]
             
@@ -25,53 +23,45 @@ class WyckoffAnalyzer:
                 'volume': 'volume', 'vol': 'volume', '成交量': 'volume', '成交额': 'volume'
             }
             
-            # 核心修复：防止重复列名映射
-            # 遍历映射表，在原始列中寻找第一个匹配项
-            final_mapping = {}
-            for target, _ in col_map.items(): # 注意：这里逻辑稍微变一下
-                pass # 稍后处理
-            
-            # 重新构建列
             new_df_data = {}
-            found_cols = []
-            
-            # 按照我们需要的标准列名去原数据中找
             standard_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
             
             for std in standard_cols:
-                # 在原始列中找哪一个能对应到 std
                 for i, raw_c in enumerate(raw_cols):
                     if raw_c in col_map and col_map[raw_c] == std:
-                        # 找到了对应的列，取出来，并记录已处理
                         new_df_data[std] = df.iloc[:, i]
-                        found_cols.append(std)
-                        break # 只取第一个匹配的，跳过重复的
+                        break
             
-            # 转换为新的 DataFrame
             clean_df = pd.DataFrame(new_df_data)
             
-            # 强制检查必要列
+            # 检查必要列
             required = ['date', 'open', 'high', 'low', 'close']
             missing = [r for r in required if r not in clean_df.columns]
             if missing:
-                return None, f"CSV文件缺少必要列或无法识别列名: {missing}"
+                return None, f"数据缺少必要列或无法识别列名: {missing}"
             
-            # 数据清洗
+            # 转换类型
             clean_df['date'] = pd.to_datetime(clean_df['date'])
             clean_df = clean_df.sort_values('date').reset_index(drop=True)
-            
             for col in ['open', 'high', 'low', 'close']:
                 clean_df[col] = pd.to_numeric(clean_df[col], errors='coerce')
             
-            if 'volume' not in clean_df.columns:
-                clean_df['volume'] = 0
-            else:
+            # 处理成交量（可能缺失）
+            if 'volume' in clean_df.columns:
                 clean_df['volume'] = pd.to_numeric(clean_df['volume'], errors='coerce').fillna(0)
+            else:
+                clean_df['volume'] = 0
                 
             return clean_df.ffill().bfill(), None
         except Exception as e:
-            import traceback
-            logging.error(traceback.format_exc())
+            return None, f"标准化数据失败: {str(e)}"
+
+    def process_csv(self, file_stream):
+        """处理上传的CSV文件"""
+        try:
+            df = pd.read_csv(file_stream)
+            return self.normalize_df(df)
+        except Exception as e:
             return None, f"解析CSV失败: {str(e)}"
 
     def _calculate_indicators(self, df):
@@ -81,10 +71,7 @@ class WyckoffAnalyzer:
         return df
 
     def _detect_live_signals(self, df):
-        """
-        核心升级：基于“过去”识别“当下”。
-        优化横盘过滤器：放宽门槛，捕捉大级别横盘。
-        """
+        """基于“过去”识别“当下”的实时信号探测"""
         signals = []
         n = len(df)
         window = 30 
@@ -92,18 +79,16 @@ class WyckoffAnalyzer:
         for i in range(window, n):
             lookback = df.iloc[i-window:i]
             
-            # 1. 线性相关性检查 - 放宽到 0.75，以免误杀带有一点点倾斜的长横盘
+            # 1. 线性相关性检查 (Pearson r) - 确保是横盘
             prices_c = lookback['close'].values
             times = np.arange(len(prices_c))
             corr = np.corrcoef(times, prices_c)[0, 1]
-            if abs(corr) > 0.75: 
-                continue
+            if abs(corr) > 0.75: continue
             
-            # 2. 价格重心位移检查 - 放宽到 0.6
+            # 2. 价格重心位移检查
             amp = lookback['high'].max() - lookback['low'].min()
             displacement = abs(lookback['close'].iloc[-1] - lookback['close'].iloc[0])
-            if amp > 0 and (displacement / amp) > 0.6:
-                continue
+            if amp > 0 and (displacement / amp) > 0.6: continue
 
             local_sup = np.percentile(lookback['low'], 5)
             local_res = np.percentile(lookback['high'], 95)
@@ -140,6 +125,7 @@ class WyckoffAnalyzer:
                     'trigger_res': float(local_res), 'trigger_sup': float(local_sup)
                 })
 
+        # 信号去重 (10天内同类信号只取最新的)
         deduped = []
         for s in signals:
             if not deduped or s['code'] != deduped[-1]['code'] or (s['index'] - deduped[-1]['index']) > 10:
@@ -156,47 +142,63 @@ class WyckoffAnalyzer:
         res = last_signal['trigger_res']
         sup = last_signal['trigger_sup']
         
-        # 核心修正：先确保有 30 天的基础厚度 (必须和信号探测的 window 一致)
         base_lookback = 30
         start_idx = max(0, idx - base_lookback)
-        
-        # 进一步向左探测：尝试找回更久远的横盘
-        # 从 base_lookback 之前的位置开始往左找
         max_total_lookback = 150
         for lookback_i in range(start_idx - 1, max(0, idx - max_total_lookback), -1):
             c_close = df['close'].iloc[lookback_i]
-            # 允许 2% 的溢出容错
             if sup * 0.98 <= c_close <= res * 1.02:
                 start_idx = lookback_i
             else:
                 break
         
-        # 确保 end_idx 至少比 start_idx 大 (防止垂直线)
         end_idx = idx
-        if end_idx <= start_idx:
-            end_idx = start_idx + 1
+        if end_idx <= start_idx: end_idx = start_idx + 1
         
-        # 简单判断颜色
         p_before = df.iloc[max(0, start_idx-20):start_idx]['close'].mean()
         zone_color = 'rgba(0, 123, 255, 0.12)'
-        if p_before > res: zone_color = 'rgba(40, 167, 69, 0.18)'
-        elif p_before < sup: zone_color = 'rgba(220, 53, 69, 0.18)'
+        prior_trend = "Unknown"
+        if p_before > res: 
+            zone_color = 'rgba(40, 167, 69, 0.18)'
+            prior_trend = "Down"
+        elif p_before < sup: 
+            zone_color = 'rgba(220, 53, 69, 0.18)'
+            prior_trend = "Up"
 
         return [{
             'name': '关键结构', 'start': df.iloc[start_idx]['date'].strftime('%Y-%m-%d'),
             'end': df.iloc[end_idx]['date'].strftime('%Y-%m-%d'),
-            'color': zone_color, 'support': float(sup), 'resistance': float(res)
+            'color': zone_color, 'support': float(sup), 'resistance': float(res),
+            'type': prior_trend
         }]
 
-    def analyze(self, df):
+    def analyze(self, raw_df):
+        """主分析接口，自动处理标准化和诊断"""
+        # 1. 执行标准化
+        df, error = self.normalize_df(raw_df)
+        if error:
+            raise ValueError(error)
+            
         df = self._calculate_indicators(df)
         
-        # 1. 探测信号
+        # 2. 探测信号
         signals = self._detect_live_signals(df)
         
-        # 2. 获取最后一个信号并提取其自带的水平线
+        # 3. 获取最后一个信号并提取其自带的水平线
         last_sig = signals[-1] if signals else None
         zones = self._find_final_zone(df, last_sig)
+        
+        # 4. 动态定性逻辑
+        if zones:
+            latest_zone = zones[0]
+            has_sos = any(s['code'] == 'SOS' for s in signals)
+            has_sow = any(s['code'] == 'SOW' for s in signals)
+            if latest_zone['type'] == 'Up' and has_sos:
+                latest_zone['name'] = "Re-accumulation (再吸筹确认)"
+                latest_zone['color'] = 'rgba(40, 167, 69, 0.25)'
+            elif latest_zone['type'] == 'Down' and has_sow:
+                latest_zone['name'] = "Re-distribution (再派发确认)"
+                latest_zone['color'] = 'rgba(220, 53, 69, 0.25)'
         
         latest_plan = None
         if last_sig:

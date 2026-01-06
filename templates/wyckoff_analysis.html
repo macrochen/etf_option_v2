@@ -45,24 +45,77 @@
         </div>
     </div>
     
-    <!-- 上传控制栏 -->
+    <!-- 控制面板 -->
     <div class="row mb-4">
         <div class="col-12">
-            <div class="card">
-                <div class="card-body">
-                    <form id="uploadForm" class="row g-3 align-items-center">
-                        <div class="col-auto">
-                            <label for="csvFile" class="col-form-label">导入交易数据:</label>
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <ul class="nav nav-tabs card-header-tabs" id="wyckoffTabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" id="search-tab" data-bs-toggle="tab" data-bs-target="#search-panel" type="button">快速搜索分析</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="cache-tab" data-bs-toggle="tab" data-bs-target="#cache-panel" type="button" onclick="loadCacheList()">本地数据仓库</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload-panel" type="button">上传本地文件</button>
+                        </li>
+                    </ul>
+                </div>
+                <div class="card-body tab-content" id="wyckoffTabContent">
+                    <!-- Tab 1: 搜索 -->
+                    <div class="tab-pane fade show active" id="search-panel">
+                        <form id="searchForm" class="row g-3 align-items-center">
+                            <div class="col-auto">
+                                <input type="text" class="form-control" id="searchSymbol" placeholder="代码: 600519 / AAPL" required>
+                            </div>
+                            <div class="col-auto">
+                                <select class="form-select" id="searchMarket">
+                                    <option value="china_stock">A股个股</option>
+                                    <option value="china_etf">A股ETF</option>
+                                    <option value="hk_stock">港股</option>
+                                    <option value="us_stock">美股</option>
+                                </select>
+                            </div>
+                            <div class="col-auto">
+                                <button type="submit" class="btn btn-primary" id="searchBtn">下载并诊断</button>
+                            </div>
+                            <div class="col-auto">
+                                <span class="text-muted small">系统将自动缓存数据，避免重复下载</span>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- Tab 2: 缓存列表 -->
+                    <div class="tab-pane fade" id="cache-panel">
+                        <div class="table-responsive" style="max-height: 200px;">
+                            <table class="table table-sm table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>文件名</th>
+                                        <th>更新时间</th>
+                                        <th>大小</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cacheListBody">
+                                    <tr><td colspan="4" class="text-center">正在加载缓存...</td></tr>
+                                </tbody>
+                            </table>
                         </div>
-                        <div class="col-auto">
-                            <input class="form-control" type="file" id="csvFile" accept=".csv" required>
-                        </div>
-                        <div class="col-auto">
-                            <button type="submit" class="btn btn-primary" id="analyzeBtn">
-                                <i class="fas fa-search me-1"></i>开始扫描信号
-                            </button>
-                        </div>
-                    </form>
+                    </div>
+
+                    <!-- Tab 3: 上传 -->
+                    <div class="tab-pane fade" id="upload-panel">
+                        <form id="uploadForm" class="row g-3 align-items-center">
+                            <div class="col-auto">
+                                <input class="form-control" type="file" id="csvFile" accept=".csv" required>
+                            </div>
+                            <div class="col-auto">
+                                <button type="submit" class="btn btn-secondary" id="analyzeBtn">分析上传文件</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -70,10 +123,12 @@
 
     <!-- 主图表区域 -->
     <div class="row">
+        <!-- 图表区域 - 现在占据全宽 -->
         <div class="col-12">
             <div class="card shadow-sm">
                 <div class="card-header bg-white">
                     <div class="d-flex flex-column gap-2">
+                        <!-- 第一行：结构图例 -->
                         <div class="d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">K线结构与核心行为 (Spring / SOS / UT / SOW)</h5>
                             <div class="d-flex gap-3">
@@ -148,7 +203,7 @@
                 <p class="small">“跳离跳板”。放量突破阻力位，确认趋势开启。操作：趋势进场/加仓。</p>
                 <hr>
                 <h6>🔴 Upthrust (高位离场)</h6>
-                <p class="small">主力“诱多”出货。操作：获利离场。纠错：如果价格站稳此位上方，需买回跟进趋势（说明是再吸筹）。</p>
+                <p class="small">主力“诱多”出货。操作：获利离场。纠错：如果价格站上高点上方，需买回跟进趋势（说明是再吸筹）。</p>
                 <hr>
                 <h6>🟠 SOW (破位离场)</h6>
                 <p class="small">趋势反转。放量跌破支撑位。操作：坚决止损/清仓。</p>
@@ -161,13 +216,108 @@
     let myChart = echarts.init(document.getElementById('mainChart'));
     window.addEventListener('resize', () => myChart.resize());
 
+    // 自动识别美股
+    document.getElementById('searchSymbol').addEventListener('input', function() {
+        if (/[a-zA-Z]/.test(this.value)) {
+            document.getElementById('searchMarket').value = 'us_stock';
+        }
+    });
+
+    // 搜索并分析
+    document.getElementById('searchForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const symbol = document.getElementById('searchSymbol').value.trim();
+        const market = document.getElementById('searchMarket').value;
+        const btn = document.getElementById('searchBtn');
+        btn.disabled = true; btn.innerHTML = '正在下载数据...';
+
+        try {
+            const res = await fetch('/api/wyckoff/download_and_analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ symbol, market_type: market })
+            });
+            const result = await res.json();
+            if (res.ok) {
+                renderChart(result.chart_data);
+                showTradePlan(result.chart_data.latest_plan);
+            } else { alert('搜索失败: ' + result.error); }
+        } catch (error) { console.error(error); }
+        finally { btn.disabled = false; btn.innerHTML = '下载并诊断'; }
+    });
+
+    // 加载缓存列表
+    async function loadCacheList() {
+        try {
+            const res = await fetch('/api/wyckoff/cache_list');
+            const result = await res.json();
+            const body = document.getElementById('cacheListBody');
+            body.innerHTML = '';
+            if (result.files.length === 0) {
+                body.innerHTML = '<tr><td colspan="4" class="text-center">暂无缓存数据</td></tr>';
+                return;
+            }
+            result.files.forEach(f => {
+                body.innerHTML += `
+                    <tr>
+                        <td class="small fw-bold">${f.filename}</td>
+                        <td class="small text-muted">${f.mtime}</td>
+                        <td class="small text-muted">${f.size}</td>
+                        <td>
+                            <div class="btn-group">
+                                <button class="btn btn-outline-primary btn-sm py-0" onclick="analyzeFile('${f.filename}')">加载</button>
+                                <button class="btn btn-outline-danger btn-sm py-0" onclick="deleteFile('${f.filename}')"><i class="fas fa-trash-alt"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+        } catch (error) { console.error(error); }
+    }
+
+    // 删除缓存文件
+    async function deleteFile(filename) {
+        if (!confirm(`确定要删除 ${filename} 吗？`)) return;
+        
+        try {
+            const res = await fetch('/api/wyckoff/delete_cache', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ filename })
+            });
+            const result = await res.json();
+            if (res.ok) {
+                loadCacheList(); // 重新加载列表
+            } else { alert(result.error); }
+        } catch (error) { console.error(error); }
+    }
+
+    // 分析缓存文件
+    async function analyzeFile(filename) {
+        const btn = event.target;
+        btn.disabled = true; btn.innerText = '...';
+        try {
+            const res = await fetch('/api/wyckoff/analyze_cached', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ filename })
+            });
+            const result = await res.json();
+            if (res.ok) {
+                renderChart(result.chart_data);
+                showTradePlan(result.chart_data.latest_plan);
+            } else { alert(result.error); }
+        } catch (error) { console.error(error); }
+        finally { btn.disabled = false; btn.innerText = '加载'; }
+    }
+
+    // 上传分析
     document.getElementById('uploadForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const formData = new FormData();
         formData.append('file', document.getElementById('csvFile').files[0]);
         const btn = document.getElementById('analyzeBtn');
-        btn.disabled = true;
-        btn.innerHTML = '正在扫描信号...';
+        btn.disabled = true; btn.innerHTML = '处理中...';
 
         try {
             const res = await fetch('/api/wyckoff/analyze_csv', { method: 'POST', body: formData });
@@ -177,13 +327,13 @@
                 showTradePlan(result.chart_data.latest_plan);
             } else { alert('错误: ' + result.error); }
         } catch (error) { console.error(error); } 
-        finally { btn.disabled = false; btn.innerHTML = '开始扫描信号'; }
+        finally { btn.disabled = false; btn.innerHTML = '分析上传文件'; }
     });
 
     function showTradePlan(plan) {
         const panel = document.getElementById('planPanel');
-        if (!plan) {
-            panel.style.display = 'none';
+        if (!panel || !plan) {
+            if (panel) panel.style.display = 'none';
             return;
         }
         panel.style.display = 'block';

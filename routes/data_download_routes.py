@@ -74,6 +74,13 @@ def get_symbol_name(symbol, market_type):
             match = df[df['代码'] == symbol]
             if not match.empty:
                 return match['名称'].values[0]
+        elif market_type == 'us_stock':
+            # 美股实时数据获取名称
+            df = ak.stock_us_spot_em()
+            # 美股代码通常是大写，且 match 需要对齐
+            match = df[df['代码'].str.upper() == symbol.upper()]
+            if not match.empty:
+                return match['名称'].values[0]
     except Exception as e:
         logging.warning(f"Could not fetch name for {symbol}: {e}")
     return ""
