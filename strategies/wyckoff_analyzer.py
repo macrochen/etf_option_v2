@@ -156,18 +156,25 @@ class WyckoffAnalyzer:
         res = last_signal['trigger_res']
         sup = last_signal['trigger_sup']
         
-        # 向左探测：只要之前的 K 线还在 [sup, res] 范围内，箱体就一直向左伸长
-        # 最长找 120 天（约半年）
-        start_idx = idx
-        max_lookback = 120
-        for lookback_i in range(idx - 1, max(0, idx - max_lookback), -1):
+        # 核心修正：先确保有 30 天的基础厚度 (必须和信号探测的 window 一致)
+        base_lookback = 30
+        start_idx = max(0, idx - base_lookback)
+        
+        # 进一步向左探测：尝试找回更久远的横盘
+        # 从 base_lookback 之前的位置开始往左找
+        max_total_lookback = 150
+        for lookback_i in range(start_idx - 1, max(0, idx - max_total_lookback), -1):
             c_close = df['close'].iloc[lookback_i]
             # 允许 2% 的溢出容错
             if sup * 0.98 <= c_close <= res * 1.02:
                 start_idx = lookback_i
             else:
-                # 遇到真正的破位了，停止回溯
                 break
+        
+        # 确保 end_idx 至少比 start_idx 大 (防止垂直线)
+        end_idx = idx
+        if end_idx <= start_idx:
+            end_idx = start_idx + 1
         
         # 简单判断颜色
         p_before = df.iloc[max(0, start_idx-20):start_idx]['close'].mean()
@@ -177,7 +184,7 @@ class WyckoffAnalyzer:
 
         return [{
             'name': '关键结构', 'start': df.iloc[start_idx]['date'].strftime('%Y-%m-%d'),
-            'end': df.iloc[idx]['date'].strftime('%Y-%m-%d'),
+            'end': df.iloc[end_idx]['date'].strftime('%Y-%m-%d'),
             'color': zone_color, 'support': float(sup), 'resistance': float(res)
         }]
 
