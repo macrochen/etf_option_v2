@@ -31,6 +31,11 @@
         margin-right: 6px;
         margin-bottom: 2px;
     }
+
+    .file-link:hover {
+        text-decoration: underline !important;
+        color: #0056b3 !important;
+    }
 </style>
 {% endblock %}
 
@@ -130,7 +135,7 @@
                     <div class="d-flex flex-column gap-2">
                         <!-- 第一行：结构图例 -->
                         <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">K线结构与核心行为 (Spring / SOS / UT / SOW)</h5>
+                            <h5 class="mb-0" id="chartTitle">K线结构与核心行为</h5>
                             <div class="d-flex gap-3">
                                 <div class="d-flex align-items-center">
                                     <span style="display:inline-block;width:12px;height:12px;background-color:rgba(40, 167, 69, 0.4);border:1px dashed rgba(40, 167, 69, 0.8);margin-right:4px;"></span>
@@ -216,10 +221,12 @@
     let myChart = echarts.init(document.getElementById('mainChart'));
     window.addEventListener('resize', () => myChart.resize());
 
-    // 自动识别美股
+    // 自动识别美股并强制大写
     document.getElementById('searchSymbol').addEventListener('input', function() {
-        if (/[a-zA-Z]/.test(this.value)) {
+        const val = this.value;
+        if (/[a-zA-Z]/.test(val)) {
             document.getElementById('searchMarket').value = 'us_stock';
+            this.value = val.toUpperCase();
         }
     });
 
@@ -239,6 +246,7 @@
             });
             const result = await res.json();
             if (res.ok) {
+                document.getElementById('chartTitle').innerText = result.chart_data.stock_name;
                 renderChart(result.chart_data);
                 showTradePlan(result.chart_data.latest_plan);
             } else { alert('搜索失败: ' + result.error); }
@@ -260,14 +268,13 @@
             result.files.forEach(f => {
                 body.innerHTML += `
                     <tr>
-                        <td class="small fw-bold">${f.filename}</td>
+                        <td class="small">
+                            <a href="javascript:void(0)" class="fw-bold text-decoration-none file-link" onclick="analyzeFile('${f.filename}')">${f.filename}</a>
+                        </td>
                         <td class="small text-muted">${f.mtime}</td>
                         <td class="small text-muted">${f.size}</td>
                         <td>
-                            <div class="btn-group">
-                                <button class="btn btn-outline-primary btn-sm py-0" onclick="analyzeFile('${f.filename}')">加载</button>
-                                <button class="btn btn-outline-danger btn-sm py-0" onclick="deleteFile('${f.filename}')"><i class="fas fa-trash-alt"></i></button>
-                            </div>
+                            <button class="btn btn-outline-danger btn-sm py-0" onclick="deleteFile('${f.filename}')"><i class="fas fa-trash-alt"></i></button>
                         </td>
                     </tr>
                 `;
@@ -294,8 +301,12 @@
 
     // 分析缓存文件
     async function analyzeFile(filename) {
-        const btn = event.target;
-        btn.disabled = true; btn.innerText = '...';
+        const el = event.currentTarget;
+        const originalText = el.innerText;
+        
+        if (el.tagName === 'BUTTON') el.disabled = true;
+        el.innerText = '加载中...';
+        
         try {
             const res = await fetch('/api/wyckoff/analyze_cached', {
                 method: 'POST',
@@ -304,11 +315,15 @@
             });
             const result = await res.json();
             if (res.ok) {
+                document.getElementById('chartTitle').innerText = result.chart_data.stock_name;
                 renderChart(result.chart_data);
                 showTradePlan(result.chart_data.latest_plan);
             } else { alert(result.error); }
         } catch (error) { console.error(error); }
-        finally { btn.disabled = false; btn.innerText = '加载'; }
+        finally { 
+            if (el.tagName === 'BUTTON') el.disabled = false;
+            el.innerText = originalText;
+        }
     }
 
     // 上传分析
@@ -323,6 +338,7 @@
             const res = await fetch('/api/wyckoff/analyze_csv', { method: 'POST', body: formData });
             const result = await res.json();
             if (res.ok) {
+                document.getElementById('chartTitle').innerText = result.chart_data.stock_name;
                 renderChart(result.chart_data);
                 showTradePlan(result.chart_data.latest_plan);
             } else { alert('错误: ' + result.error); }
@@ -393,12 +409,15 @@
                 tooltip: { formatter: `<b>${latestSig.name}</b><br/>${latestSig.logic}` }
             });
 
-            // 只保留唯一的警戒位红线
-            markLineData.push({
-                yAxis: latestSig.stop_loss,
-                lineStyle: { color: '#ff0000', type: 'dotted', width: 2 },
-                label: { show: true, position: 'end', formatter: '警戒位: {c}', color: '#ff0000' }
-            });
+            // 只有当预案有效（非 Invalidated）时，才显示止损红线
+            // 且必须确保 signals 里的最新信号 与 latest_plan 是对应的
+            if (data.latest_plan && data.latest_plan.code !== 'Invalidated') {
+                markLineData.push({
+                    yAxis: latestSig.stop_loss,
+                    lineStyle: { color: '#ff0000', type: 'dotted', width: 2 },
+                    label: { show: true, position: 'end', formatter: '警戒位: {c}', color: '#ff0000' }
+                });
+            }
         }
 
         // 2. 处理周期箱体
@@ -434,7 +453,10 @@
                 { type: 'category', gridIndex: 1, data: data.dates, axisLabel: { show: false } }
             ],
             yAxis: [ { scale: true }, { scale: true, gridIndex: 1, axisLabel: { show: false } } ],
-            dataZoom: [{ type: 'inside', start: 70, end: 100 }, { type: 'slider', start: 70, end: 100 }],
+            dataZoom: [
+                { type: 'inside', xAxisIndex: [0, 1], start: 70, end: 100 }, 
+                { type: 'slider', xAxisIndex: [0, 1], start: 70, end: 100 }
+            ],
             series: [
                 {
                     name: 'K线', type: 'candlestick', data: data.data,

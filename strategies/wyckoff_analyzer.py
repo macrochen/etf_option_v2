@@ -152,8 +152,8 @@ class WyckoffAnalyzer:
             else:
                 break
         
-        end_idx = idx
-        if end_idx <= start_idx: end_idx = start_idx + 1
+        # 修正：箱体应延续到最新一天，而不是停留在信号发生日
+        end_idx = len(df) - 1
         
         p_before = df.iloc[max(0, start_idx-20):start_idx]['close'].mean()
         zone_color = 'rgba(0, 123, 255, 0.12)'
@@ -184,13 +184,35 @@ class WyckoffAnalyzer:
         # 2. 探测信号
         signals = self._detect_live_signals(df)
         
-        # 3. 获取最后一个信号并提取其自带的水平线
+        # 3. 信号有效性校验与箱体生成
         last_sig = signals[-1] if signals else None
+        latest_plan = None
+        
+        # 检查 UT 信号是否已失效
+        if last_sig and last_sig['code'] == 'UT':
+            current_close = df.iloc[-1]['close']
+            if current_close > last_sig['stop_loss']:
+                # 信号被证伪
+                latest_plan = {
+                    'date': df.iloc[-1]['date'].strftime('%Y-%m-%d'),
+                    'display_name': 'UT 信号失效',
+                    'type': 'Neutral',
+                    'logic': f"之前的 UT 卖点已被最新价格 {current_close:.2f} 突破（高于止损 {last_sig['stop_loss']:.2f}）。当前进入强势突破观察期。",
+                    'stop_loss': 0, 'stop_loss_label': "观察期无特定止损",
+                    'action': "等待新的结构确认", 'code': 'Invalidated'
+                }
+                # 从展示列表中移除该失效信号，避免误导
+                signals.pop()
+        
+        # 无论信号是否刚刚被移除，我们都需要用它（或之前的有效信号）来画箱体
+        # 注意：如果刚才 pop 了，last_sig 变量里存的还是那个被 pop 的对象，正好用来画箱体
         zones = self._find_final_zone(df, last_sig)
         
         # 4. 动态定性逻辑
         if zones:
             latest_zone = zones[0]
+            # 这里用原始 signals 列表（如果 pop 了就不包含 UT 了，这符合逻辑，因为失效的 UT 不应影响结构定性，或者应该影响？）
+            # 如果 UT 失效了，可能意味着 SOS，但目前我们先保留原有的 zones 逻辑
             has_sos = any(s['code'] == 'SOS' for s in signals)
             has_sow = any(s['code'] == 'SOW' for s in signals)
             if latest_zone['type'] == 'Up' and has_sos:
@@ -200,8 +222,8 @@ class WyckoffAnalyzer:
                 latest_zone['name'] = "Re-distribution (再派发确认)"
                 latest_zone['color'] = 'rgba(220, 53, 69, 0.25)'
         
-        latest_plan = None
-        if last_sig:
+        # 如果没有被 invalidate 覆盖，则生成正常的 plan
+        if last_sig and not latest_plan:
             latest_plan = {
                 'date': last_sig['date'], 'display_name': last_sig['name'],
                 'type': last_sig['type'], 'logic': last_sig['desc'],
