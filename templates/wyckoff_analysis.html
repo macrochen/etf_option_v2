@@ -221,21 +221,50 @@
     let myChart = echarts.init(document.getElementById('mainChart'));
     window.addEventListener('resize', () => myChart.resize());
 
-    // 自动识别美股并强制大写
-    document.getElementById('searchSymbol').addEventListener('input', function() {
-        const val = this.value;
+    // 自动识别美股并强制大写 (优化中文输入体验)
+    const searchInput = document.getElementById('searchSymbol');
+    let isComposing = false; // 标记是否正在输入中文(拼音组合过程中)
+
+    searchInput.addEventListener('compositionstart', () => {
+        isComposing = true;
+    });
+
+    searchInput.addEventListener('compositionend', () => {
+        isComposing = false;
+        // 拼音输入结束后，手动触发一次逻辑处理
+        handleInput(searchInput);
+    });
+
+    searchInput.addEventListener('input', function() {
+        if (isComposing) return; // 如果正在拼音输入中，直接跳过，不打断
+        handleInput(this);
+    });
+
+    function handleInput(el) {
+        const val = el.value;
         
-        // 1. 只要有字母，就转大写（优化显示）
-        if (/[a-zA-Z]/.test(val)) {
-            this.value = val.toUpperCase();
+        // 1. 只有当不包含中文时，才尝试转大写
+        // 防止对已经输入的中文进行干扰 (虽然toUpperCase通常不影响中文，但保持逻辑清晰)
+        if (!/[\u4e00-\u9fa5]/.test(val) && /[a-zA-Z]/.test(val)) {
+            // 保存光标位置，防止转换大写后光标跳到最后 (优化体验)
+            const start = el.selectionStart;
+            const end = el.selectionEnd;
+            el.value = val.toUpperCase();
+            el.setSelectionRange(start, end);
         }
 
         // 2. 只有当输入是“纯字母（或点）”且“不含中文”时，才自动切美股
-        // 避免误伤 "峨眉山A", "TCL科技" 等 A 股名称
-        if (/^[a-zA-Z\.]+$/.test(val) && !/[\u4e00-\u9fa5]/.test(val)) {
-            document.getElementById('searchMarket').value = 'us_stock';
+        // 修复：增加长度限制，且如果用户手动改过市场，尽量不打扰（这里暂不记录用户是否手动改过，仅解决拼音干扰问题）
+        // 现在的逻辑是：只有纯字母+点，才切美股。只要有中文，就不切。
+        // 解决了 "typing Chinese -> saw letters -> switched to US" 的问题。
+        if (/^[a-zA-Z\.]+$/.test(el.value) && !/[\u4e00-\u9fa5]/.test(el.value)) {
+            // 只有当前不是美股时才切，避免重复操作
+            const marketSelect = document.getElementById('searchMarket');
+            if (marketSelect.value !== 'us_stock') {
+                marketSelect.value = 'us_stock';
+            }
         }
-    });
+    }
 
     // 搜索并分析
     document.getElementById('searchForm').addEventListener('submit', async function(e) {
