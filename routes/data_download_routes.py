@@ -85,6 +85,32 @@ def get_symbol_name(symbol, market_type):
         logging.warning(f"Could not fetch name for {symbol}: {e}")
     return ""
 
+def find_symbol_by_name(name_query, market_type):
+    """根据中文名称模糊查找股票代码"""
+    try:
+        df = None
+        if market_type == 'china_stock':
+            df = ak.stock_zh_a_spot_em()
+        elif market_type == 'hk_stock':
+            df = ak.stock_hk_spot_em()
+        elif market_type == 'china_etf':
+            df = ak.fund_etf_spot_em()
+        elif market_type == 'us_stock':
+            df = ak.stock_us_spot_em()
+            
+        if df is not None and not df.empty:
+            # 模糊匹配：名称列包含查询词
+            # US stock names might be in English or Chinese depending on the source, usually English/Pinyin in akshare?
+            # Actually stock_us_spot_em has '名称' which is often Chinese.
+            match = df[df['名称'].str.contains(name_query, na=False, case=False)]
+            if not match.empty:
+                # 返回第一个匹配项的代码和名称
+                return match.iloc[0]['代码'], match.iloc[0]['名称']
+                
+    except Exception as e:
+        logging.error(f"Error searching symbol by name {name_query}: {e}")
+    return None, None
+
 def fetch_data(symbol, market_type, start_date, end_date):
     # AKShare expects YYYYMMDD strings for dates
     start_date_ak = start_date.replace('-', '')

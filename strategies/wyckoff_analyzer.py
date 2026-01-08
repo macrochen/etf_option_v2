@@ -68,6 +68,15 @@ class WyckoffAnalyzer:
         df['MA20'] = df['close'].rolling(window=20).mean()
         df['Vol_MA20'] = df['volume'].rolling(window=20).mean()
         df['Rel_Vol'] = df['volume'] / df['Vol_MA20']
+        
+        # 趋势判断逻辑：优先使用 MA200 (牛熊线)，数据不足则用 MA60
+        if len(df) >= 200:
+            df['Trend_MA'] = df['close'].rolling(window=200).mean()
+            df['Trend_Name'] = 'MA200'
+        else:
+            df['Trend_MA'] = df['close'].rolling(window=60).mean()
+            df['Trend_Name'] = 'MA60'
+            
         return df
 
     def _detect_live_signals(self, df):
@@ -221,12 +230,45 @@ class WyckoffAnalyzer:
             elif latest_zone['type'] == 'Down' and has_sow:
                 latest_zone['name'] = "Re-distribution (再派发确认)"
                 latest_zone['color'] = 'rgba(220, 53, 69, 0.25)'
+
+        # --- 趋势判定 ---
+        current_price = df.iloc[-1]['close']
+        current_ma = df.iloc[-1]['Trend_MA']
+        ma_name = df.iloc[-1]['Trend_Name']
+        trend_status = "Neutral"
+        
+        if pd.isna(current_ma):
+            trend_desc = "数据不足，无法判断趋势"
+        elif current_price > current_ma * 1.01:
+            trend_status = "Bullish"
+            trend_desc = f"价格位于 {ma_name} 之上，长期趋势向好"
+        elif current_price < current_ma * 0.99:
+            trend_status = "Bearish"
+            trend_desc = f"价格位于 {ma_name} 之下，长期趋势偏空"
+        else:
+            trend_desc = f"价格在 {ma_name} 附近缠绕，趋势不明朗"
+            
+        trend_info = {
+            'status': trend_status,
+            'desc': trend_desc,
+            'ma_name': ma_name
+        }
         
         # 如果没有被 invalidate 覆盖，则生成正常的 plan
         if last_sig and not latest_plan:
+            # 根据趋势调整建议
+            bias_note = ""
+            if last_sig['type'] == 'Bullish':
+                if trend_status == 'Bullish': bias_note = "【顺势共振】买点处于上升趋势中，胜率较高。"
+                elif trend_status == 'Bearish': bias_note = "【逆势博弈】买点处于下降趋势中，仅看作反弹，需严格止损。"
+            elif last_sig['type'] == 'Bearish':
+                if trend_status == 'Bearish': bias_note = "【顺势共振】卖点处于下降趋势中，可坚定持有。"
+                elif trend_status == 'Bullish': bias_note = "【逆势调整】卖点处于上升趋势中，可能是上涨中继，不宜过分看空。"
+                
             latest_plan = {
                 'date': last_sig['date'], 'display_name': last_sig['name'],
-                'type': last_sig['type'], 'logic': last_sig['desc'],
+                'type': last_sig['type'], 
+                'logic': last_sig['desc'] + "<br><br>" + bias_note, 
                 'stop_loss': last_sig['stop_loss'], 'stop_loss_label': last_sig['stop_loss_label'],
                 'action': last_sig['action'], 'code': last_sig['code']
             }
@@ -235,5 +277,7 @@ class WyckoffAnalyzer:
             'dates': df['date'].dt.strftime('%Y-%m-%d').tolist(),
             'data': df[['open', 'close', 'low', 'high']].astype(float).values.tolist(),
             'volumes': [int(v) for v in df['volume'].tolist()],
+            'trend_line': df['Trend_MA'].fillna('').tolist(),
+            'trend_info': trend_info,
             'signals': signals, 'zones': zones, 'latest_plan': latest_plan
         }, signals

@@ -224,9 +224,16 @@
     // 自动识别美股并强制大写
     document.getElementById('searchSymbol').addEventListener('input', function() {
         const val = this.value;
+        
+        // 1. 只要有字母，就转大写（优化显示）
         if (/[a-zA-Z]/.test(val)) {
-            document.getElementById('searchMarket').value = 'us_stock';
             this.value = val.toUpperCase();
+        }
+
+        // 2. 只有当输入是“纯字母（或点）”且“不含中文”时，才自动切美股
+        // 避免误伤 "峨眉山A", "TCL科技" 等 A 股名称
+        if (/^[a-zA-Z\.]+$/.test(val) && !/[\u4e00-\u9fa5]/.test(val)) {
+            document.getElementById('searchMarket').value = 'us_stock';
         }
     });
 
@@ -444,9 +451,28 @@
             });
         }
 
+        // 3. 更新趋势状态徽章
+        let trendBadge = '';
+        if (data.trend_info) {
+            const t = data.trend_info;
+            if (t.status === 'Bullish') {
+                trendBadge = `<span class="badge bg-danger ms-2"><i class="fas fa-arrow-trend-up me-1"></i>长期多头 (${t.ma_name})</span>`;
+            } else if (t.status === 'Bearish') {
+                trendBadge = `<span class="badge bg-success ms-2"><i class="fas fa-arrow-trend-down me-1"></i>长期空头 (${t.ma_name})</span>`;
+            } else {
+                trendBadge = `<span class="badge bg-secondary ms-2"><i class="fas fa-minus me-1"></i>趋势震荡 (${t.ma_name})</span>`;
+            }
+        }
+        // 只有当不是重新渲染时才追加，简单处理：直接覆盖原标题文本后再加徽章
+        // 这里假设 stock_name 已经有了
+        const baseTitle = data.stock_name || document.getElementById('chartTitle').innerText.split('<')[0];
+        document.getElementById('chartTitle').innerHTML = baseTitle + trendBadge;
+
+        const maName = data.trend_info ? data.trend_info.ma_name : '趋势线';
+
         myChart.setOption({
             tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-            legend: { data: ['K线', '成交量'] },
+            legend: { data: ['K线', maName, '成交量'] },
             grid: [ { left: '3%', right: '3%', height: '70%' }, { left: '3%', right: '3%', top: '82%', height: '12%' } ],
             xAxis: [ 
                 { type: 'category', data: data.dates, scale: true, axisLine: { onZero: false } },
@@ -463,6 +489,11 @@
                     markPoint: { data: markPointData },
                     markLine: { data: markLineData, symbol: 'none' },
                     markArea: { data: markAreaData, silent: true }
+                },
+                {
+                    name: maName, type: 'line', data: data.trend_line,
+                    smooth: true, showSymbol: false,
+                    lineStyle: { width: 2, color: '#6c757d', type: 'solid', opacity: 0.6 }
                 },
                 { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: data.volumes, itemStyle: { color: '#7fbe9e' } }
             ]
