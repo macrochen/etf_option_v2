@@ -244,7 +244,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <div id="distributionChart" style="width: 100%; height: 600px;"></div>
+                    <div id="distributionChart" style="width: 100%; height: 800px;"></div>
                 </div>
             </div>
         </div>
@@ -405,7 +405,11 @@ function showCurrentDistribution_Old(btn) {
                 // 只处理卖期权（市值为负的持仓）
                 if (opt.market_value < 0) {
                     // 获取期权类型 (PUT/CALL)
-                    const type = (opt.put_call || 'UNK').toUpperCase();
+                    // 规范化期权类型 (兼容中英文)
+                    let typeRaw = (opt.put_call || 'UNK').toUpperCase();
+                    let type = typeRaw;
+                    if (typeRaw === '购' || typeRaw === 'CALL') type = 'CALL';
+                    else if (typeRaw === '沽' || typeRaw === 'PUT') type = 'PUT';
                     // 组合键名：标的 + 类型 (如 "BABA PUT", "TSLA CALL")
                     const key = `${underlying} ${type}`;
                     const val = Math.abs(opt.market_value);
@@ -449,7 +453,7 @@ function showCurrentDistribution_Old(btn) {
             tooltip: {
                 trigger: 'item',
                 formatter: function(params) {
-                    return `${params.name}<br/>空头市值(Abs): $${formatNumber(params.value)}<br/>占比: ${params.percent}%`;
+                    return `${params.name}<br/>空头市值: $${formatNumber(params.value)}<br/>占比: ${params.percent}%`;
                 }
             },
             legend: {
@@ -1797,7 +1801,11 @@ function renderOptionRow(option, isGroupItem) {
                 
                 pos.options.forEach(opt => {
                     if (opt.market_value < 0) {
-                        const type = (opt.put_call || 'UNK').toUpperCase();
+                        // 规范化期权类型 (兼容中英文)
+                    let typeRaw = (opt.put_call || 'UNK').toUpperCase();
+                    let type = typeRaw;
+                    if (typeRaw === '购' || typeRaw === 'CALL') type = 'CALL';
+                    else if (typeRaw === '沽' || typeRaw === 'PUT') type = 'PUT';
                         const val = Math.abs(opt.market_value);
                         
                         if (!statsMap.has(underlying)) {
@@ -1822,8 +1830,10 @@ function renderOptionRow(option, isGroupItem) {
         
         const innerData = [];
         const outerData = [];
+        let grandTotal = 0;
         
         sortedStats.forEach(([name, stat]) => {
+            grandTotal += stat.total;
             // 内层数据：标的总值
             innerData.push({ 
                 name: name, 
@@ -1861,49 +1871,50 @@ function renderOptionRow(option, isGroupItem) {
             const option = {
                 title: {
                     text: '卖出期权持仓分布',
-                    subtext: '内层：标的物 | 外层：期权类型 (空头市值 Abs)',
+                    subtext: `总空头市值: $${formatNumber(grandTotal)} | 内层:标的 | 外层:类型`,
                     left: 'center'
                 },
                 tooltip: {
                     trigger: 'item',
                     formatter: function(params) {
-                        return `${params.name}<br/>市值(Abs): ${formatNumber(params.value)}<br/>占比: ${params.percent}%`;
+                        return `${params.name}<br/>市值: ${formatNumber(params.value)}<br/>占比: ${params.percent}%`;
                     }
                 },
                 legend: { show: false },
-                series: [
-                    {
-                        name: '标的分布',
-                        type: 'pie',
-                        selectedMode: 'single',
-                        radius: [0, '35%'],
-                        label: {
-                            position: 'inner',
-                            fontSize: 14,
-                            fontWeight: 'bold',
-                            color: '#fff',
-                            textBorderColor: '#000',
-                            textBorderWidth: 2
-                        },
-                        labelLine: { show: false },
-                        data: innerData
-                    },
-                    {
-                        name: '类型分布',
-                        type: 'pie',
-                        radius: ['45%', '70%'],
-                        label: {
-                            formatter: '{b}: {d}%',
-                            backgroundColor: '#fff',
-                            borderColor: '#ddd',
-                            borderWidth: 1,
-                            borderRadius: 4,
-                            padding: [4, 6]
-                        },
-                        data: outerData
-                    }
-                ]
-            };
+                            series: [
+                                {
+                                    name: '标的分布',
+                                    type: 'pie',
+                                    selectedMode: 'single',
+                                    radius: [0, '35%'],
+                                    center: ['50%', '55%'], // 下移图表以避免标题遮挡
+                                    label: {
+                                        position: 'inner',
+                                        fontSize: 14,
+                                        fontWeight: 'bold',
+                                        color: '#fff',
+                                        textBorderColor: '#000',
+                                        textBorderWidth: 2
+                                    },
+                                    labelLine: { show: false },
+                                    data: innerData
+                                },
+                                {
+                                    name: '类型分布',
+                                    type: 'pie',
+                                    radius: ['45%', '70%'],
+                                    center: ['50%', '55%'], // 下移图表以避免标题遮挡
+                                    label: {
+                                        formatter: '{b}: {d}%',
+                                        backgroundColor: '#fff',
+                                        borderColor: '#ddd',
+                                        borderWidth: 1,
+                                        borderRadius: 4,
+                                        padding: [4, 6]
+                                    },
+                                    data: outerData
+                                }
+                            ]            };
             
             myChart.setOption(option);
             window.addEventListener('resize', () => myChart.resize());
