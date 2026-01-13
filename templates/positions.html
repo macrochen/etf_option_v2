@@ -68,6 +68,17 @@
         flex: 1;        /* 让内容区域自动填充剩余空间 */
         overflow: auto; /* 添加滚动条 */
     }
+    
+    .btn-purple {
+        color: #fff;
+        background-color: #6f42c1;
+        border-color: #6f42c1;
+    }
+    .btn-purple:hover {
+        color: #fff;
+        background-color: #59359a;
+        border-color: #533090;
+    }
 
 
     .table {
@@ -224,6 +235,21 @@
         </div>
     </div>
     
+    <!-- 持仓分布模态框 -->
+    <div class="modal fade" id="distributionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">期权持仓分布 (按标的物)</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="distributionChart" style="width: 100%; height: 600px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 新建交易模态框 -->
     <div class="modal fade" id="newTradeModal" tabindex="-1" aria-labelledby="newTradeModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
@@ -356,6 +382,114 @@
 </div>
 
 <script>
+
+// 显示持仓分布图表 (Old)
+function showCurrentDistribution_Old(btn) {
+    // 找到当前所在的容器
+    const container = btn.closest('.tab-pane').querySelector('div[id$="-positions-container"]');
+    if (!container || !container.positionsData) {
+        alert('无法获取持仓数据');
+        return;
+    }
+    
+    const positions = container.positionsData;
+    const dataMap = new Map();
+    
+    // 处理数据
+    positions.forEach(pos => {
+        // 如果是分组（通常代表一个标的）
+        if (pos.is_group && pos.options && pos.options.length > 0) {
+            const underlying = pos.symbol;
+            
+            pos.options.forEach(opt => {
+                // 只处理卖期权（市值为负的持仓）
+                if (opt.market_value < 0) {
+                    // 获取期权类型 (PUT/CALL)
+                    const type = (opt.put_call || 'UNK').toUpperCase();
+                    // 组合键名：标的 + 类型 (如 "BABA PUT", "TSLA CALL")
+                    const key = `${underlying} ${type}`;
+                    const val = Math.abs(opt.market_value);
+                    
+                    dataMap.set(key, (dataMap.get(key) || 0) + val);
+                }
+            });
+        }
+    });
+    
+    // 转换为 ECharts 需要的格式
+    const chartData = Array.from(dataMap).map(([name, value]) => ({
+        name: name,
+        value: value
+    })).sort((a, b) => b.value - a.value); // 按金额降序
+    
+    if (chartData.length === 0) {
+        alert('当前没有卖出的期权持仓数据');
+        return;
+    }
+
+    // 显示模态框
+    const modalEl = document.getElementById('distributionModal');
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+    
+    // 等待模态框显示后再渲染图表，避免尺寸问题
+    modalEl.addEventListener('shown.bs.modal', function () {
+        const chartDom = document.getElementById('distributionChart');
+        const existingChart = echarts.getInstanceByDom(chartDom);
+        if (existingChart) existingChart.dispose();
+        
+        const myChart = echarts.init(chartDom);
+        
+        const option = {
+            title: {
+                text: '卖出期权持仓分布 (按标的与类型)',
+                subtext: '仅统计市值为负的空头头寸 (区分 Put/Call)',
+                left: 'center'
+            },
+            tooltip: {
+                trigger: 'item',
+                formatter: function(params) {
+                    return `${params.name}<br/>空头市值(Abs): $${formatNumber(params.value)}<br/>占比: ${params.percent}%`;
+                }
+            },
+            legend: {
+                orient: 'vertical',
+                left: 'left',
+                type: 'scroll'
+            },
+            series: [
+                {
+                    name: '持仓分布',
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    avoidLabelOverlap: true,
+                    itemStyle: {
+                        borderRadius: 10,
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    },
+                    label: {
+                        show: true,
+                        formatter: '{b}: {d}%'
+                    },
+                    emphasis: {
+                        label: {
+                            show: true,
+                            fontSize: 20,
+                            fontWeight: 'bold'
+                        }
+                    },
+                    data: chartData
+                }
+            ]
+        };
+        
+        myChart.setOption(option);
+        
+        // 窗口大小改变时重绘
+        window.addEventListener('resize', () => myChart.resize());
+    }, { once: true }); // 仅触发一次
+}
 
 // 打开新建交易模态框
 function openNewTradeModal() {
@@ -1080,6 +1214,9 @@ function renderPositions(container, positions, isFutu = false) {
         return;
     }
 
+    // 保存数据到容器元素上，以便后续使用
+    container.positionsData = positions;
+
     let html = `
     <div class="table-responsive">
         <div class="mb-3">
@@ -1087,6 +1224,9 @@ function renderPositions(container, positions, isFutu = false) {
             <div class="d-flex flex-wrap gap-2 mb-2">
                 <button type="button" class="btn btn-secondary btn-sm" onclick="toggleMasking(this)" title="数据脱敏">
                     <i class="fas fa-eye"></i>
+                </button>
+                <button type="button" class="btn btn-purple btn-sm" onclick="showCurrentDistribution(this)" title="查看期权分布">
+                    <i class="fas fa-chart-pie"></i> 持仓分布
                 </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleAllGroups(this)">
                     <i class="fas fa-chevron-down"></i> 全部折叠/展开
@@ -1608,7 +1748,7 @@ function renderOptionRow(option, isGroupItem) {
         }
     }
 
-// 添加更新股票数据的函数
+    // 添加更新股票数据的函数
     function redownloadStockData(stockCode, marketType, button) {
         // 禁用按钮并添加旋转动画
         button.disabled = true;
@@ -1637,6 +1777,137 @@ function renderOptionRow(option, isGroupItem) {
             button.disabled = false;
             button.querySelector('i').classList.remove('fa-spin');
         });
+    }
+    // 显示持仓分布图表 (Nested Pie Chart)
+    function showCurrentDistribution(btn) {
+        // 找到当前所在的容器
+        const container = btn.closest('.tab-pane').querySelector('div[id$="-positions-container"]');
+        if (!container || !container.positionsData) {
+            alert('无法获取持仓数据');
+            return;
+        }
+        
+        const positions = container.positionsData;
+        const statsMap = new Map(); // Key: Underlying, Value: { total: 0, put: 0, call: 0 }
+        
+        // 1. 聚合数据
+        positions.forEach(pos => {
+            if (pos.is_group && pos.options && pos.options.length > 0) {
+                const underlying = pos.symbol;
+                
+                pos.options.forEach(opt => {
+                    if (opt.market_value < 0) {
+                        const type = (opt.put_call || 'UNK').toUpperCase();
+                        const val = Math.abs(opt.market_value);
+                        
+                        if (!statsMap.has(underlying)) {
+                            statsMap.set(underlying, { total: 0, put: 0, call: 0 });
+                        }
+                        const stat = statsMap.get(underlying);
+                        stat.total += val;
+                        if (type === 'PUT') stat.put += val;
+                        else stat.call += val;
+                    }
+                });
+            }
+        });
+
+        if (statsMap.size === 0) {
+            alert('当前没有卖出的期权持仓数据');
+            return;
+        }
+        
+        // 2. 准备图表数据
+        const sortedStats = Array.from(statsMap.entries()).sort((a, b) => b[1].total - a[1].total);
+        
+        const innerData = [];
+        const outerData = [];
+        
+        sortedStats.forEach(([name, stat]) => {
+            // 内层数据：标的总值
+            innerData.push({ 
+                name: name, 
+                value: stat.total
+            });
+            
+            // 外层数据：按顺序放入 Put 和 Call
+            if (stat.put > 0) {
+                outerData.push({ 
+                    name: `${name} PUT`, 
+                    value: stat.put
+                });
+            }
+            if (stat.call > 0) {
+                outerData.push({ 
+                    name: `${name} CALL`, 
+                    value: stat.call
+                });
+            }
+        });
+
+        // 显示模态框
+        const modalEl = document.getElementById('distributionModal');
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+        
+        // 3. 渲染图表
+        modalEl.addEventListener('shown.bs.modal', function () {
+            const chartDom = document.getElementById('distributionChart');
+            const existingChart = echarts.getInstanceByDom(chartDom);
+            if (existingChart) existingChart.dispose();
+            
+            const myChart = echarts.init(chartDom);
+            
+            const option = {
+                title: {
+                    text: '卖出期权持仓分布',
+                    subtext: '内层：标的物 | 外层：期权类型 (空头市值 Abs)',
+                    left: 'center'
+                },
+                tooltip: {
+                    trigger: 'item',
+                    formatter: function(params) {
+                        return `${params.name}<br/>市值(Abs): ${formatNumber(params.value)}<br/>占比: ${params.percent}%`;
+                    }
+                },
+                legend: { show: false },
+                series: [
+                    {
+                        name: '标的分布',
+                        type: 'pie',
+                        selectedMode: 'single',
+                        radius: [0, '35%'],
+                        label: {
+                            position: 'inner',
+                            fontSize: 14,
+                            fontWeight: 'bold',
+                            color: '#fff',
+                            textBorderColor: '#000',
+                            textBorderWidth: 2
+                        },
+                        labelLine: { show: false },
+                        data: innerData
+                    },
+                    {
+                        name: '类型分布',
+                        type: 'pie',
+                        radius: ['45%', '70%'],
+                        label: {
+                            formatter: '{b}: {d}%',
+                            backgroundColor: '#fff',
+                            borderColor: '#ddd',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                            padding: [4, 6]
+                        },
+                        data: outerData
+                    }
+                ]
+            };
+            
+            myChart.setOption(option);
+            window.addEventListener('resize', () => myChart.resize());
+        }, { once: true });
     }
 
 </script>
