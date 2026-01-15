@@ -5,6 +5,7 @@ DB_DIR = os.path.dirname(os.path.abspath(__file__))
 MARKET_DATA_DB = os.path.join(DB_DIR, 'market_data.db')
 BACKTEST_SCHEMES_DB = os.path.join(DB_DIR, 'backtest_schemes.db')
 US_STOCK_DB = os.path.join(DB_DIR, 'us_stock.db')
+PORTFOLIO_DB = os.path.join(DB_DIR, 'portfolio.db')
 
 # 数据库连接配置
 DB_CONFIG = {
@@ -16,5 +17,8 @@ DB_CONFIG = {
     },
     'us_stock': {
         'path': US_STOCK_DB
+    },
+    'portfolio': {
+        'path': PORTFOLIO_DB
     }
 } 

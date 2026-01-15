@@ -1,5 +1,6 @@
 import logging
 import traceback
+from datetime import datetime
 from typing import List, Dict, Any, Tuple
 from .config import MARKET_DATA_DB  # 假设您有一个配置文件来获取数据库路径
 from .database import Database  # 导入已有的 Database 类
@@ -14,6 +15,21 @@ class MarketDatabase:
         """
         self.db = Database(db_path)
         self.fund_info_manager = FundInfoManager(db_path)
+        self._init_asset_classification_table()
+        
+    def _init_asset_classification_table(self):
+        """初始化资产分类表"""
+        self.db.execute('''
+            CREATE TABLE IF NOT EXISTS asset_classification (
+                asset_code VARCHAR(20),
+                market VARCHAR(10),
+                asset_name VARCHAR(100),
+                category_1 VARCHAR(50),
+                category_2 VARCHAR(50),
+                updated_at TIMESTAMP,
+                PRIMARY KEY (asset_code, market)
+            )
+        ''')
         
     def save_grid_trade_data(self, etf_code: str, data: Dict[str, List[Any]]) -> None:
         """保存ETF数据到网格交易表
@@ -274,4 +290,99 @@ class MarketDatabase:
                 'end_date': row[2]
             }
             for row in results
+        ]
+
+    def update_asset_classification(self, asset_code: str, market: str, 
+                                  category_1: str = None, category_2: str = None, 
+                                  asset_name: str = None) -> bool:
+        """更新资产分类信息
+        
+        Args:
+            asset_code: 资产代码
+            market: 市场类型 (CN, US, HK)
+            category_1: 一级分类 (股票, 债券, 基金等)
+            category_2: 二级分类 (沪深300, 红利, 纯债等)
+            asset_name: 资产名称
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        try:
+            # 检查记录是否存在
+            exists = self.db.fetch_one(
+                'SELECT 1 FROM asset_classification WHERE asset_code = ? AND market = ?',
+                (asset_code, market)
+            )
+            
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            if exists:
+                updates = []
+                params = []
+                if category_1 is not None:
+                    updates.append('category_1 = ?')
+                    params.append(category_1)
+                if category_2 is not None:
+                    updates.append('category_2 = ?')
+                    params.append(category_2)
+                if asset_name is not None:
+                    updates.append('asset_name = ?')
+                    params.append(asset_name)
+                
+                if not updates:
+                    return True
+                    
+                updates.append('updated_at = ?')
+                params.append(now)
+                params.append(asset_code)
+                params.append(market)
+                
+                sql = f'''
+                    UPDATE asset_classification 
+                    SET {', '.join(updates)}
+                    WHERE asset_code = ? AND market = ?
+                '''
+                self.db.execute(sql, tuple(params))
+            else:
+                self.db.execute('''
+                    INSERT INTO asset_classification (asset_code, market, asset_name, category_1, category_2, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (asset_code, market, asset_name, category_1, category_2, now))
+            
+            self.db.commit()
+            return True
+        except Exception as e:
+            logging.error(f"更新资产分类失败: {e}")
+            return False
+
+    def get_asset_classification(self, asset_code: str, market: str) -> Dict[str, Any]:
+        """获取资产分类信息"""
+        row = self.db.fetch_one(
+            'SELECT asset_code, market, asset_name, category_1, category_2 FROM asset_classification WHERE asset_code = ? AND market = ?',
+            (asset_code, market)
+        )
+        if row:
+            return {
+                'asset_code': row[0],
+                'market': row[1],
+                'asset_name': row[2],
+                'category_1': row[3],
+                'category_2': row[4]
+            }
+        return None
+
+    def get_all_asset_classifications(self) -> List[Dict[str, Any]]:
+        """获取所有资产分类信息"""
+        rows = self.db.fetch_all(
+            'SELECT asset_code, market, asset_name, category_1, category_2 FROM asset_classification ORDER BY category_1, category_2'
+        )
+        return [
+            {
+                'asset_code': row[0],
+                'market': row[1],
+                'asset_name': row[2],
+                'category_1': row[3],
+                'category_2': row[4]
+            }
+            for row in rows
         ]

@@ -48,8 +48,11 @@ def download_from_tiingo(stock_code, start_date):
         'Authorization': f'Token {TIINGO_API_KEY}'
     }
     
+    # Tiingo API 要求 ticker 中的点号替换为横杠 (例如 BRK.B -> BRK-B)
+    normalized_code = stock_code.replace('.', '-')
+    
     # Tiingo API endpoint
-    url = f'https://api.tiingo.com/tiingo/daily/{stock_code}/prices'
+    url = f'https://api.tiingo.com/tiingo/daily/{normalized_code}/prices'
     params = {
         'startDate': start_date.strftime('%Y-%m-%d'),
         'endDate': datetime.now().strftime('%Y-%m-%d'),
