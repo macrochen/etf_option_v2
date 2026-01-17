@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify
 from db.portfolio_db import PortfolioDatabase
 from services.price_service import PriceService
+from services.ocr_service import OCRService
 import logging
 
 portfolio_bp = Blueprint('portfolio', __name__)
@@ -10,6 +11,22 @@ db = PortfolioDatabase()
 def index():
     """渲染资产全景页面"""
     return render_template('portfolio.html')
+
+@portfolio_bp.route('/api/portfolio/upload_screenshot', methods=['POST'])
+def upload_screenshot():
+    """处理截图上传与OCR解析"""
+    if 'file' not in request.files:
+        return jsonify({'message': 'No file part', 'status': 'error'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'message': 'No selected file', 'status': 'error'}), 400
+        
+    try:
+        image_bytes = file.read()
+        results = OCRService.parse_screenshot(image_bytes)
+        return jsonify({'status': 'success', 'data': results})
+    except Exception as e:
+        return jsonify({'message': str(e), 'status': 'error'}), 500
 
 @portfolio_bp.route('/api/portfolio/data')
 def get_portfolio_data():
