@@ -5,6 +5,7 @@ from datetime import datetime
 import io
 import logging
 import traceback
+from urllib.parse import quote
 
 data_download_bp = Blueprint('data_download', __name__)
 
@@ -41,11 +42,12 @@ def download_csv():
         csv_data = output.getvalue()
         
         filename = f"{name_prefix}{symbol}_{market_type}_{datetime.now().strftime('%Y%m%d')}.csv"
+        encoded_filename = quote(filename)
         
         return Response(
             csv_data,
             mimetype="text/csv",
-            headers={"Content-disposition": f"attachment; filename={filename}"}
+            headers={"Content-disposition": f"attachment; filename*=UTF-8''{encoded_filename}"}
         )
     except Exception as e:
         stack_trace = traceback.format_exc()
