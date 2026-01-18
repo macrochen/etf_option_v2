@@ -50,6 +50,11 @@ class Indicators:
         return mid, upper, lower
 
     @staticmethod
+    def calculate_ma(df: pd.DataFrame, period: int = 20) -> pd.Series:
+        """计算移动平均线"""
+        return df['close'].rolling(window=period).mean()
+
+    @staticmethod
     def calculate_amplitude_avg(df: pd.DataFrame, window: int = 30) -> float:
         """
         计算过去 N 天的平均振幅

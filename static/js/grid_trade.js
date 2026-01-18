@@ -368,9 +368,45 @@ $(document).ready(function() {
         const bollUpper = curveData.map(d => d.boll_upper);
         const bollMid = curveData.map(d => d.boll_mid);
         const bollLower = curveData.map(d => d.boll_lower);
+        const ma60 = curveData.map(d => d.ma60);
+        
+        // 构造状态色带 (MarkArea)
+        const markAreaPieces = [];
+        let currentMode = null;
+        let startIndex = 0;
+        
+        curveData.forEach((d, i) => {
+            const mode = d.regime; // 'Bull', 'Bear', 'Sideway'
+            if (mode !== currentMode) {
+                if (currentMode === 'Bull' || currentMode === 'Bear') {
+                    markAreaPieces.push([{
+                        xAxis: dates[startIndex],
+                        itemStyle: { color: currentMode === 'Bull' ? 'rgba(0, 255, 0, 0.05)' : 'rgba(255, 0, 0, 0.05)' }
+                    }, {
+                        xAxis: dates[i-1]
+                    }]);
+                }
+                currentMode = mode;
+                startIndex = i;
+            }
+        });
+        // Close last segment
+        if (currentMode === 'Bull' || currentMode === 'Bear') {
+            markAreaPieces.push([{
+                xAxis: dates[startIndex],
+                itemStyle: { color: currentMode === 'Bull' ? 'rgba(0, 255, 0, 0.05)' : 'rgba(255, 0, 0, 0.05)' }
+            }, {
+                xAxis: dates[dates.length - 1]
+            }]);
+        }
         
         // 交易点数据 (需处理日期后缀以便 ECharts 对齐)
-        const cleanDate = (d) => d.split(' ')[0]; // 移除 (底仓)/(网格) 后缀
+        const cleanDate = (d) => {
+            if (!d) return d;
+            // 匹配 yyyy-mm-dd 格式
+            const match = d.match(/^\d{4}-\d{2}-\d{2}/);
+            return match ? match[0] : d;
+        };
         
         const buyPoints = trades.filter(t => t.type === 'BUY').map(t => [cleanDate(t.date), t.price, t.volume]);
         const sellPoints = trades.filter(t => t.type === 'SELL').map(t => [cleanDate(t.date), t.price, t.volume]);
@@ -410,7 +446,7 @@ $(document).ready(function() {
                 axisPointer: { type: 'cross' }
             },
             legend: {
-                data: ['K线', 'MA20', '布林上轨', '布林下轨', '买入', '卖出']
+                data: ['K线', 'MA20', 'MA60', '布林上轨', '布林下轨', '买入', '卖出']
             },
             grid: { left: '3%', right: '5%', bottom: '10%', top: '10%', containLabel: true },
             dataZoom: [
@@ -441,6 +477,10 @@ $(document).ready(function() {
                         symbol: ['none', 'none'],
                         data: markLineData,
                         silent: true // 鼠标悬停不触发
+                    },
+                    markArea: {
+                        data: markAreaPieces,
+                        silent: true
                     }
                 },
                 {
@@ -450,6 +490,14 @@ $(document).ready(function() {
                     smooth: true,
                     symbol: 'none',
                     lineStyle: { width: 1.5, color: '#ff9800', opacity: 0.9 }
+                },
+                {
+                    name: 'MA60',
+                    type: 'line',
+                    data: ma60,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { width: 2, color: '#673ab7', opacity: 0.8 } // 紫色，牛熊分界线
                 },
                 {
                     name: '布林上轨',

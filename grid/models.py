@@ -8,6 +8,11 @@ class StrategyMode(Enum):
     NEUTRAL = "Neutral"        # 标准震荡 (20% <= 估值 <= 70%)
     TREND = "Trend"            # 趋势/防卖飞 (估值 > 70%)
 
+class MarketRegime(Enum):
+    BULL = "Bull"       # 强牛: Price > MA20 > MA60
+    BEAR = "Bear"       # 深熊: Price < MA20 < Ref_MA20
+    SIDEWAY = "Sideway" # 震荡: 其他
+
 @dataclass
 class GridContext:
     """网格交易上下文配置"""

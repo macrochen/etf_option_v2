@@ -167,11 +167,17 @@ def smart_generate():
         strategy_backtest = SmartGridStrategy(context_backtest)
         strategy_result_backtest = strategy_backtest.generate(df_history_for_params, benchmark_df) # 基于过去数据生成网格
         
-        # 计算回测区间的布林带 (为了画图)
+        # 计算回测区间的布林带和均线 (为了画图和状态判定)
         mid, upper, lower = Indicators.calculate_bollinger(df, context_current.bollinger_period, context_current.bollinger_std)
         df['boll_mid'] = mid
         df['boll_upper'] = upper
         df['boll_lower'] = lower
+        
+        # 计算 MA20, MA60 (用于 MarketRegime)
+        df['ma20'] = Indicators.calculate_ma(df, 20)
+        df['ma60'] = Indicators.calculate_ma(df, 60)
+        # 计算 Ref_MA20 (昨天的 MA20)
+        df['ref_ma20'] = df['ma20'].shift(1)
         
         # 重新切片布林带数据以匹配回测区间
         if custom_end_date:
@@ -180,9 +186,8 @@ def smart_generate():
             df_backtest_with_indicators = df[df['date'] >= start_date_str].copy()
         
         simulator = PathSimulator(
-            grid_lines=strategy_result_backtest.grid_lines, # 使用基于历史生成的网格
-            initial_capital=total_capital,
-            base_position_ratio=base_pos_ratio # 使用用户输入的底仓比例
+            context=context_backtest,
+            initial_grid_lines=strategy_result_backtest.grid_lines
         )
         
         bt_result = simulator.run(df_backtest_with_indicators)
@@ -267,6 +272,8 @@ def smart_generate():
                         'open': item.get('open'),
                         'high': item.get('high'),
                         'low': item.get('low'),
+                        'ma60': round(item.get('ma60'), 3) if item.get('ma60') and not pd.isna(item.get('ma60')) else None,
+                        'regime': item.get('regime'),
                         'boll_mid': round(boll_mid[i], 3) if not pd.isna(boll_mid[i]) else None,
                         'boll_upper': round(boll_upper[i], 3) if not pd.isna(boll_upper[i]) else None,
                         'boll_lower': round(boll_lower[i], 3) if not pd.isna(boll_lower[i]) else None
