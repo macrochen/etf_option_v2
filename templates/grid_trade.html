@@ -2,270 +2,266 @@
 
 {% block content %}
 <div class="container">
-    <!-- 分析参数设置区 -->
+    <!-- 1. 配置面板 (Config Panel) -->
     <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0">网格交易分析</h5>
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-gear-fill"></i> SmartGrid 策略配置</h5>
         </div>
         <div class="card-body">
-            <form id="grid-trade-form">
+            <form id="smart-grid-form">
                 <div class="row mb-3">
-                    <div class="col-md-8">
-                        <div class="input-group mb-3">
-                            <select class="form-select" id="etf-select" style="min-width: 200px;">
-                                <option value="">-- 选择ETF --</option>
-                            </select>&nbsp;
-                            <span class="input-group-text">或</span>&nbsp;
-                            <input type="text" class="form-control" id="etf-code-input" 
-                            placeholder="输入ETF代码（如：588080）" 
-                            onkeypress="if(event.keyCode === 13) { event.preventDefault(); document.getElementById('load-etf-btn').click(); }">&nbsp;
-                            <button type="button" class="btn btn-primary" id="load-etf-btn">加载数据</button>
+                    <!-- 标的选择 -->
+                    <div class="col-md-6">
+                        <label class="form-label">标的 (ETF)</label>
+                        <div class="input-group">
+                            <select class="form-select" id="etf-select">
+                                <option value="">-- 请选择或输入 --</option>
+                            </select>
+                            <input type="text" class="form-control" id="etf-code-input" placeholder="代码 (如 510300)">
+                            <button type="button" class="btn btn-outline-secondary" id="load-etf-btn">
+                                <i class="bi bi-cloud-download"></i> 加载数据
+                            </button>
                         </div>
-                        <div id="date-range-info" class="text-muted small mb-2 d-none"></div>
-                        <div id="loading-status" class="alert alert-info d-none">
-                            正在下载数据，请稍候...
-                        </div>
+                        <div id="data-status" class="form-text text-muted"></div>
                     </div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-md-12">
-                        <label class="form-label">分析周期</label>
-                        <div class="btn-group" role="group">
-                            <input type="radio" class="btn-check" name="period-type" id="period-ytd" value="ytd">
-                            <label class="btn btn-outline-primary" for="period-ytd">今年以来</label>
-                            
-                            <input type="radio" class="btn-check" name="period-type" id="period1" value="3">
-                            <label class="btn btn-outline-primary" for="period1">3个月</label>
-                            
-                            <input type="radio" class="btn-check" name="period-type" id="period2" value="6">
-                            <label class="btn btn-outline-primary" for="period2">6个月</label>
-
-                            <input type="radio" class="btn-check" name="period-type" id="period3" value="12" checked>
-                            <label class="btn btn-outline-primary" for="period3">1年</label>
-                            
-                            <input type="radio" class="btn-check" name="period-type" id="period4" value="24">
-                            <label class="btn btn-outline-primary" for="period4">2年</label>
-                            
-                            <input type="radio" class="btn-check" name="period-type" id="period5" value="36">
-                            <label class="btn btn-outline-primary" for="period5">3年</label>
-                            
-                            <input type="radio" class="btn-check" name="period-type" id="period6" value="60">
-                            <label class="btn btn-outline-primary" for="period6">5年</label>
-                        </div>
+                    
+                    <!-- 资金设置 -->
+                    <div class="col-md-3">
+                        <label class="form-label">投入总金额 (元)</label>
+                        <input type="number" class="form-control" id="total-capital" value="100000" step="1000">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">底仓比例 (0-1.0)</label>
+                        <input type="number" class="form-control" id="base-pos-ratio" value="0.0" step="0.1" min="0" max="1">
                     </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary">分析标的</button>
+                <!-- 基本面参数 (人工录入) -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">当前 PE 百分位 (0-100)</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="pe-percentile" value="50" min="0" max="100">
+                            <span class="input-group-text">%</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">当前 PB 百分位 (0-100)</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="pb-percentile" value="50" min="0" max="100">
+                            <span class="input-group-text">%</span>
+                        </div>
+                    </div>
+                </div>
 
-                <button type="button" class="btn btn-primary" id="start-analyze-btn">
-                    分析参数
-                </button>
-                <button type="button" class="btn btn-secondary ms-2" id="manual-backtest-btn">
-                    手动回测
-                </button>
+                <!-- 高级设置 (折叠) -->
+                <div class="accordion mb-3" id="advancedSettings">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdv">
+                                高级设置
+                            </button>
+                        </h2>
+                        <div id="collapseAdv" class="accordion-collapse collapse" data-bs-parent="#advancedSettings">
+                            <div class="accordion-body">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <label class="form-label">ATR 周期</label>
+                                        <input type="number" class="form-control" id="atr-period" value="14" disabled>
+                                        <div class="form-text">目前固定为 14</div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">强制策略模式</label>
+                                        <select class="form-select" id="force-mode">
+                                            <option value="">自动判定 (推荐)</option>
+                                            <option value="Accumulate">潜伏积累 (Accumulate)</option>
+                                            <option value="Neutral">标准震荡 (Neutral)</option>
+                                            <option value="Trend">趋势跟随 (Trend)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg" id="generate-btn">
+                        <i class="bi bi-cpu"></i> 生成策略并回测
+                    </button>
+                </div>
             </form>
         </div>
     </div>
 
-    <!-- 分析结果展示区 -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0">分析结果</h5>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-8">
-                    <div id="analysis-result"></div>
-                </div>
-                <div class="col-md-4">
-                    <div id="score-chart" style="height: 300px;"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
-    <!-- 参数优化结果展示区 -->
-    <div class="card mb-4 d-none" id="optimization-result-section">
-        <div class="card-header">
-            <h5 class="mb-0">参数配置回测效果对比（TOP N）</h5>
-        </div>
-        <div class="card-body">
-            <!-- 参数组合表格 -->
-            <div class="table-responsive mb-4">
-                <table class="table table-hover" id="params-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 5%">组合ID</th>
-                            <th style="width: 7%">网格数量</th>
-                            <th style="width: 7%">网格间距</th>
-                            <th style="width: 10%">年化收益率</th>
-                            <th style="width: 10%">总收益率</th>
-                            <th style="width: 7%">夏普比率</th>
-                            <th style="width: 10%">最大回撤</th>
-                            <th style="width: 7%">交易次数</th>
-                            <th style="width: 10%">资金利用率</th>
-                            <th style="width: 7%">相对表现</th>
-                            <th style="width: 7%">综合得分</th>
-                            <th style="width: 13%">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-
-        </div>
-    </div>
-
-    <!-- 回测结果展示区 -->
-    <div class="card mb-4 d-none" id="backtest-result-section">
-        <div class="card-header">
-            <h5 class="mb-0">最优配置回测结果分析</h5>
-        </div>
-        <div class="card-body">
-            <!-- 策略绩效对比 -->
-            <div class="card mb-3">
-                <div class="card-header bg-light">
-                    <h6 class="mb-0">策略绩效对比</h6>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-bordered mb-0" id="performance-comparison-table">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 25%">评估指标</th>
-                                    <th style="width: 25%">网格交易策略</th>
-                                    <th style="width: 25%">Buy & Hold 策略</th>
-                                    <th style="width: 25%">差异 (网格 - 基准)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- JS 动态填充 -->
-                            </tbody>
-                        </table>
+    <!-- 2. 结果展示面板 (Result Dashboard) -->
+    <div id="result-section" class="d-none">
+        
+        <!-- 波动率评分卡片 -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card border-info">
+                    <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 text-info">波动率评分 (Grid Score)</h5>
+                        <span class="badge bg-info text-dark" id="score-badge">- / 100</span>
                     </div>
-                </div>
-            </div>
-
-            <!-- 网格价格列表 -->
-            <div class="card mb-3">
-                <div class="card-header">
-                    <h6 class="mb-0">网格价格分布</h6>
-                </div>
-                <div class="card-body">
-                    <div class="row" id="grid-price-list">
-                        <!-- 网格价格将通过JavaScript动态填充 -->
-                    </div>
-                </div>
-            </div>
-            <!-- 价格走势图 -->
-            <div class="card">
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h6 class="mb-0">
-                            <h6 class="mb-0">网格交易走势</h6>
-                            <div class="float-end">
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" id="show-grid-lines" checked>
-                                    <label class="form-check-label" for="show-grid-lines">网格线</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" id="show-trade-points" checked>
-                                    <label class="form-check-label" for="show-trade-points">交易点</label>
-                                </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-md-4 border-end">
+                                <small class="text-muted">综合得分</small>
+                                <h2 class="fw-bold text-info" id="res-score-total">-</h2>
                             </div>
-                        </h6>
-                    </div>
-                    <div class="card-body">
-                        <div id="grid-trading-chart" style="height: 500px;"></div>
-                    </div>
-                    <div class="card-body">
-                        <div class="row" id="grid-price-list">
-                            <!-- 网格价格将通过JavaScript动态填充 -->
+                            <div class="col-md-4 border-end">
+                                <small class="text-muted">Beta 系数 (弹性)</small>
+                                <h4 class="fw-bold" id="res-score-beta">-</h4>
+                                <small class="text-muted" id="res-beta-desc">基准: 沪深300</small>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted">30日平均振幅</small>
+                                <h4 class="fw-bold" id="res-score-amp">-</h4>
+                            </div>
+                        </div>
+                        <div class="progress mt-3" style="height: 10px;">
+                            <div class="progress-bar bg-info" id="score-progress" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="small text-muted mt-2 text-center">
+                            <i class="bi bi-lightbulb"></i> 得分 > 60 适合网格交易 (高弹性+高振幅)
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- 收益曲线图 -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h6 class="mb-0">收益率对比</h6>
-                </div>
-                <div class="card-body">
-                    <div id="returns-chart" style="height: 400px;"></div>
+        <!-- 策略核心卡片 (可折叠) -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card border-primary">
+                    <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 text-primary">策略建议方案</h5>
+                        <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#strategyCollapse" aria-expanded="false">
+                            <i class="bi bi-chevron-down"></i> 展开/收起详情
+                        </button>
+                    </div>
+                    <div class="collapse" id="strategyCollapse">
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-md-3 border-end">
+                                    <small class="text-muted">推荐模式</small>
+                                    <h3 class="fw-bold text-primary" id="res-mode">-</h3>
+                                </div>
+                                <div class="col-md-3 border-end">
+                                    <small class="text-muted">价格区间</small>
+                                    <h4 class="fw-bold" id="res-range">-</h4>
+                                </div>
+                                <div class="col-md-3 border-end">
+                                    <small class="text-muted">网格步长</small>
+                                    <h4 class="fw-bold" id="res-step">-</h4>
+                                </div>
+                                <div class="col-md-3">
+                                    <small class="text-muted">单格资金/股数</small>
+                                    <h4 class="fw-bold" id="res-per-grid">-</h4>
+                                </div>
+                            </div>
+                            <div class="alert alert-light mt-3 mb-0 border" id="res-desc">
+                                <i class="bi bi-info-circle"></i> 策略说明...
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
+        </div>
 
-            <!-- 交易记录表格 -->
-            <div class="table-responsive mb-4">
-                <table class="table table-hover table-sm" id="trades-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 15%">交易时间</th>
-                            <th style="width: 8%">交易方向</th>
-                            <th style="width: 10%; text-align: right;">成交价格</th>
-                            <th style="width: 11%; text-align: right;">成交数量</th>
-                            <th style="width: 12%; text-align: right;">成交金额</th>
-                            <th style="width: 11%; text-align: right;">持仓数量</th>
-                            <th style="width: 12%; text-align: right;">持有市值</th>
-                            <th style="width: 12%; text-align: right;">持有现金</th>
-                            <th style="width: 19%; text-align: right;">资产总值</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
+        <!-- 回测结果卡片 -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">历史回测验证 (最近1年)</h5>
+                        <span class="badge bg-secondary" id="res-backtest-score">Score: -</span>
+                    </div>
+                    <div class="card-body">
+                        <!-- 绩效仪表盘 (整合版) -->
+                        <div class="table-responsive mb-4">
+                            <table class="table table-bordered table-hover align-middle text-center mb-0" id="performance-dashboard">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 25%">评估指标</th>
+                                        <th style="width: 25%">SmartGrid 策略</th>
+                                        <th style="width: 25%">基准 (Buy & Hold)</th>
+                                        <th style="width: 25%">差异评价</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- JS 动态填充 -->
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- 曲线图 (可折叠) -->
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                                <h6 class="text-muted mb-0">策略收益曲线</h6>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#equityCollapse" aria-expanded="false">
+                                    <i class="bi bi-chevron-down"></i> 展开/收起曲线
+                                </button>
+                            </div>
+                            <div class="collapse" id="equityCollapse">
+                                <div class="card card-body border-0 p-0">
+                                    <div id="equity-chart" style="height: 400px; width: 100%;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-2">
+                            <h6 class="text-muted border-bottom pb-2">价格走势与网格区间</h6>
+                            <div id="price-chart" style="height: 800px; width: 100%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 交易记录 -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">成交记录明细</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-sm table-hover mb-0" id="trade-history-table">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th>日期</th>
+                                        <th>方向</th>
+                                        <th>成交均价</th>
+                                        <th>数量</th>
+                                        <th>成交金额</th>
+                                        <th>持仓数量</th>
+                                        <th>持仓市值</th>
+                                        <th>剩余现金</th>
+                                        <th>总资产</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- JS 填充 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
-
 </div>
 
-<!-- Manual Backtest Modal -->
-<div class="modal fade" id="manualBacktestModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">手动回测参数</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="manual-backtest-form">
-                    <div class="mb-3">
-                        <label for="manual-etf-code" class="form-label">ETF 代码</label>
-                        <input type="text" class="form-control" id="manual-etf-code" readonly>
-                    </div>
-                    <div class="mb-3">
-                        <label for="manual-start-date" class="form-label">开始日期</label>
-                        <input type="date" class="form-control" id="manual-start-date" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="manual-base-price" class="form-label">基准价格 (选填)</label>
-                        <input type="number" class="form-control" id="manual-base-price" step="0.001" placeholder="默认取开始日收盘价">
-                    </div>
-                    <div class="mb-3">
-                        <label for="manual-trade-size" class="form-label">每格交易数量 (选填)</label>
-                        <input type="number" class="form-control" id="manual-trade-size" step="100" placeholder="默认按资金自动计算">
-                    </div>
-                    <div class="mb-3">
-                        <label for="manual-grid-percent" class="form-label">网格间距 (%)</label>
-                        <input type="number" class="form-control" id="manual-grid-percent" step="0.01" value="1.0" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="manual-grid-count" class="form-label">网格数量</label>
-                        <input type="number" class="form-control" id="manual-grid-count" value="20" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="manual-initial-capital" class="form-label">初始资金</label>
-                        <input type="number" class="form-control" id="manual-initial-capital" value="100000" required>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" id="run-manual-backtest-btn">开始回测</button>
-            </div>
-        </div>
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="d-none" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center;">
+    <div class="text-center">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="mt-3">正在智能生成策略...</h5>
+        <p class="text-muted">计算波动率 / 判定模式 / 路径模拟回测</p>
     </div>
 </div>
 
