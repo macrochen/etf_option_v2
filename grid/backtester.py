@@ -3,35 +3,43 @@ import numpy as np
 from typing import List, Dict
 from .models import GridLine, BacktestResult, TradeRecord
 
-import logging
-
 class VirtualAccount:
-    def __init__(self, initial_cash: float, initial_positions: Dict[int, int] = None):
+    def __init__(self, initial_cash: float, initial_positions: Dict[int, int] = None, locked_position: int = 0):
         self.initial_cash = initial_cash
         self.cash = initial_cash
-        self.positions = initial_positions or {} # {grid_index: volume}
+        
+        # T+1 库存管理
+        # positions 存储的是 "总可用持仓" (Available) - 用于网格交易
+        self.positions = initial_positions or {} 
+        self.frozen_positions = {} 
+        
+        # 锁定底仓 (长期持有，不参与网格卖出)
+        self.locked_position = locked_position
         
         self.total_cost = 0.0 
         self.realized_profit = 0.0 
         self.trade_records = []
         
-    def get_total_volume(self):
-        return sum(self.positions.values())
+    def settle(self):
+        """盘前结算：将冻结持仓转为可用持仓"""
+        for idx, vol in self.frozen_positions.items():
+            current = self.positions.get(idx, 0)
+            self.positions[idx] = current + vol
+        self.frozen_positions.clear()
 
     def buy(self, date, price, volume, grid_index):
         cost = price * volume
         if self.cash < cost:
-            # logging.debug(f"Buy failed: No cash. Req: {cost}, Avail: {self.cash}")
             return False 
             
         self.cash -= cost
         self.total_cost += cost
         
-        # 增加持仓
-        current_vol = self.positions.get(grid_index, 0)
-        self.positions[grid_index] = current_vol + volume
+        # 增加冻结持仓 (T+1)
+        current_frozen = self.frozen_positions.get(grid_index, 0)
+        self.frozen_positions[grid_index] = current_frozen + volume
         
-        # 记录快照
+        # 记录快照 (持仓量 = 可用 + 冻结 + 锁定)
         total_vol = self.get_total_volume()
         pos_val = total_vol * price
         
@@ -49,17 +57,16 @@ class VirtualAccount:
         return True
 
     def sell(self, date, price, volume, grid_index):
-        # 检查该格子是否有持仓
+        # 检查可用持仓 (不包含冻结，也不包含锁定底仓)
         current_vol = self.positions.get(grid_index, 0)
         if current_vol < volume:
-            # logging.debug(f"Sell failed: No pos at idx {grid_index}. Req: {volume}, Has: {current_vol}")
             return False 
             
         revenue = price * volume
         self.cash += revenue
         self.total_cost -= revenue 
         
-        # 扣减持仓
+        # 扣减可用持仓
         self.positions[grid_index] = current_vol - volume
         
         # 记录快照
@@ -79,8 +86,14 @@ class VirtualAccount:
         ))
         return True
         
+    def get_total_volume(self):
+        """获取总持仓 (可用 + 冻结 + 锁定)"""
+        avail = sum(self.positions.values())
+        frozen = sum(self.frozen_positions.values())
+        return avail + frozen + self.locked_position
+        
     def get_equity(self, current_price):
-        market_value = sum(vol for vol in self.positions.values()) * current_price
+        market_value = self.get_total_volume() * current_price
         return self.cash + market_value
 
 class PathSimulator:
@@ -95,244 +108,259 @@ class PathSimulator:
         self.buy_vols = [g.buy_vol for g in self.grid_lines]
         self.sell_vols = [g.sell_vol for g in self.grid_lines]
         
-        # 网格状态追踪: {grid_index: bool} True=持有, False=空仓
-        # 用于防止在同一价格反复买入 (Over-Accumulation)
-        self.grid_states = {}
+        # 网格状态机: List of dicts [{'buy': bool, 'sell': bool}]
+        # buy: 当前网格是否允许买入 (Empty)
+        # sell: 当前网格是否允许触发卖出 (即下方网格 i-1 是否有持仓)
+        self.grid_states = []
+        self.missed_trades = 0
         
     def _init_account(self, start_price):
         """初始化账户，建立底仓"""
-        # 找到当前价格在网格中的位置
+        
+        # 1. 锁定底仓计算 (Passive Hold)
+        # 如果用户指定了底仓比例，这部分资金用于买入"永久持有"的底仓
+        locked_vol = 0
+        locked_cost = 0
+        grid_capital = self.initial_capital # 剩余用于网格交易的资金
+        
+        if self.base_pos_ratio is not None and self.base_pos_ratio > 0:
+            locked_capital = self.initial_capital * self.base_pos_ratio
+            locked_vol = int(locked_capital / start_price / 100) * 100
+            locked_cost = locked_vol * start_price
+            grid_capital -= locked_cost
+            
+        # 2. 网格初始持仓计算 (Active Grid Inventory)
+        # 根据当前价格在网格中的位置，自动计算需要持有的"待卖出"筹码
+        # 逻辑：价格越高，需要的初始持仓越少(已卖出)；价格越低，需要的持仓越多(已买入)
+        # 假设：价格在 start_idx，则下方 0...start_idx-1 的格子应该是"已买入"状态
+        # 因此我们需要持有这些格子对应的 sell_vols，以便价格上涨时卖出
+        
         start_idx = int(np.searchsorted(self.prices, start_price))
         
-        # 自动计算底仓逻辑：
-        # 如果是回测，为了模拟"中途入场"的真实状态，底仓比例应该与当前价格位置挂钩。
-        # 例如：价格在网格中位，应持有 50% 仓位。
-        # 逻辑：应持有数量 = 低于当前价格的网格数量 * 单格数量
-        # (这响应了用户的需求："应该买入当前价格到网格下限的网格数量")
+        # 计算网格部分需要的初始持仓
+        # 逻辑：填充 start_idx 及其上方的格子? 不，参考之前的逻辑
+        # 我们需要持有 positions[i] 来响应 i+1 的卖出。
+        # 如果价格在 P_k。
+        # 价格涨到 P_k+1 -> 卖出 positions[k]。
+        # 价格涨到 P_k+2 -> 卖出 positions[k+1]。
+        # 所以我们需要持有 positions[k], positions[k+1]... 
+        # 即从 start_idx 开始向上的格子。
         
-        # 优先使用传入的比例，如果为 None 则自动计算
-        if self.base_pos_ratio is None:
-            # 自动模式：假设下方每个格子都已买入
-            # 注意：sell_vols 对应的是 grid[i]。我们假设持有 i 的 stock 是为了在 i+1 卖出?
-            # 简单起见，假设下方每个格子都贡献一份标准 sell_vol
-            # standard_vol = np.median(self.sell_vols) if self.sell_vols else 0
-            # base_vol = start_idx * standard_vol
-            
-            # 更精确：累加下方所有格子的买入量？
-            # 或者是：为了能在 start_idx...N 卖出，我们需要填充这些格子
-            # 实际上，"中性网格"要求：价格在 K，持有 0..K 的对应的筹码?
-            # 不，是持有 K..N 的筹码 (waiting to sell)。
-            # 数量 = (N - start_idx) * vol ? 
-            # 这是一个对冲：
-            # 价格低 -> 持仓多。 价格高 -> 持仓少。
-            # start_idx 小 (价格低) -> range(start_idx, N) 长 -> 持仓多。
-            # start_idx 大 (价格高) -> range(start_idx, N) 短 -> 持仓少。
-            # 这正是 range(start_idx, len) 的逻辑！
-            
-            # 所以，关键是 base_vol 的总额。
-            # 如果我们想填满 start_idx 到 Top 的所有格子：
-            base_vol = sum(self.sell_vols[i] for i in range(start_idx, len(self.grid_lines)))
-            
-            # 检查资金是否足够
-            req_cash = base_vol * start_price
-            if req_cash > self.initial_capital:
-                # 资金不足，按比例缩减
-                ratio = self.initial_capital / req_cash
-                base_vol = int(base_vol * ratio)
-        else:
-            # 固定比例模式
-            base_cash = self.initial_capital * self.base_pos_ratio
-            base_vol = int(base_cash / start_price / 100) * 100
+        active_vol_needed = sum(self.sell_vols[i] for i in range(start_idx, len(self.grid_lines)))
+        active_cost = active_vol_needed * start_price
         
+        # 检查剩余资金是否足够支付网格初始持仓
+        # 如果不够，按比例缩减 (优先保证网格完整性 vs 资金限制?)
+        # 这里按比例缩减 active_vol
         positions = {}
-        remaining_vol = base_vol
+        remaining_active_vol = active_vol_needed
         
-        # 向上分配底仓 (使用 index 作为 key)
-        # 逻辑：将底仓分配给当前价格之上的网格，以便随价格上涨逐笔卖出
+        if active_cost > grid_capital:
+            ratio = grid_capital / active_cost if active_cost > 0 else 0
+            remaining_active_vol = int(remaining_active_vol * ratio)
+            
+        total_initial_cost = locked_cost + (remaining_active_vol * start_price)
+        initial_cash = self.initial_capital - total_initial_cost
+        
+        # 初始化状态机
+        self.grid_states = [{'buy': True, 'sell': False} for _ in range(len(self.grid_lines) + 1)] 
+        
+        # 分配网格持仓并更新状态
         for i in range(start_idx, len(self.grid_lines)):
-            if remaining_vol <= 0:
+            if remaining_active_vol <= 0:
                 break
             vol_needed = self.sell_vols[i]
-            if remaining_vol >= vol_needed:
+            
+            # 分配逻辑
+            alloc_vol = min(remaining_active_vol, vol_needed)
+            
+            if alloc_vol >= vol_needed:
                 positions[i] = vol_needed
-                self.grid_states[i] = True # 标记为持有
-                remaining_vol -= vol_needed
+                self.grid_states[i]['buy'] = False # 已满
+                self.grid_states[i+1]['sell'] = True # 挂卖
             else:
-                positions[i] = remaining_vol
-                self.grid_states[i] = True # 标记为持有
-                remaining_vol = 0
+                # 资金不足只买了部分，也算持有
+                positions[i] = alloc_vol
+                self.grid_states[i]['buy'] = False
+                self.grid_states[i+1]['sell'] = True
                 
-        # 剩余资金
-        actual_cost = (base_vol - remaining_vol) * start_price
-        initial_cash = self.initial_capital - actual_cost
+            remaining_active_vol -= alloc_vol
+            
+        # 创建账户
+        # 修正 T+1 逻辑：初始网格持仓视为"当日买入"，应进入冻结状态，Day 1 不可卖出
+        self.account = VirtualAccount(initial_cash, {}, locked_position=locked_vol) # positions(Available) 为空
+        self.account.frozen_positions = positions # 将计算出的网格持仓放入冻结池
+        self.account.total_cost = total_initial_cost
         
-        self.account = VirtualAccount(initial_cash, positions)
-        self.account.total_cost = actual_cost
+        # 记录初始交易 - 拆分为两笔以便用户区分
         
-        # 记录初始建仓交易
-        if actual_cost > 0:
-            total_vol = base_vol - remaining_vol
-            pos_val = total_vol * start_price
+        # 1. 锁定底仓记录
+        current_pos_acc = 0
+        current_val_acc = 0
+        
+        if locked_vol > 0:
+            current_pos_acc += locked_vol
+            val = locked_vol * start_price
+            current_val_acc += val
             
             self.account.trade_records.append(TradeRecord(
-                date="初始建仓", # 或者使用具体日期
-                type='BUY',
-                price=start_price,
-                volume=total_vol,
-                amount=actual_cost,
-                current_position=total_vol,
-                position_value=pos_val,
-                cash=initial_cash,
-                total_value=initial_cash + pos_val
+                date="初始建仓(底仓)", 
+                type='BUY', 
+                price=start_price, 
+                volume=locked_vol, 
+                amount=val,
+                current_position=current_pos_acc, 
+                position_value=current_val_acc, 
+                cash=self.initial_capital - val, 
+                total_value=self.initial_capital 
+            ))
+            
+        # 2. 网格活跃持仓记录
+        active_vol = sum(positions.values())
+        if active_vol > 0:
+            current_pos_acc += active_vol
+            val = active_vol * start_price
+            current_val_acc += val
+            
+            self.account.trade_records.append(TradeRecord(
+                date="初始建仓(网格)", 
+                type='BUY', 
+                price=start_price, 
+                volume=active_vol, 
+                amount=val,
+                current_position=current_pos_acc, 
+                position_value=current_val_acc, 
+                cash=initial_cash, 
+                total_value=initial_cash + current_val_acc
             ))
 
     def run(self, df: pd.DataFrame) -> BacktestResult:
         if df.empty:
             return None
             
-        # 1. 初始化
         first_open = df.iloc[0]['open']
         self._init_account(first_open)
         
         # 更新初始建仓日期为回测开始日期
         if self.account.trade_records:
-            self.account.trade_records[0].date = str(df.iloc[0]['date'])
+            start_date_str = str(df.iloc[0]['date'])
+            for rec in self.account.trade_records:
+                if "初始建仓" in rec.date:
+                    suffix = rec.date.replace("初始建仓", "")
+                    rec.date = f"{start_date_str}{suffix}"
         
         equity_curve = []
+        is_first_day = True
         
-        # 2. 遍历 K 线
         for idx, row in df.iterrows():
             date = row['date']
-            open_p = row['open']
             high_p = row['high']
             low_p = row['low']
             close_p = row['close']
+            open_p = row['open']
             
-            # 构造路径
-            path = []
-            if close_p > open_p: # 阳线
-                path = [(open_p, low_p), (low_p, high_p), (high_p, close_p)]
-            else: # 阴线
-                path = [(open_p, high_p), (high_p, low_p), (low_p, close_p)]
+            # Step 1: 盘前结算 (T+1 解冻)
+            # 第一天跳过结算，确保初始冻结持仓不会立刻解冻
+            if not is_first_day:
+                self.account.settle()
+            is_first_day = False
+            
+            # Step 2: 卖出判定 (High Priority)
+            sell_candidates = [i for i, state in enumerate(self.grid_states) 
+                             if state['sell'] and i < len(self.prices) and high_p >= self.prices[i]]
+            
+            sell_candidates.sort()
+            
+            for i in sell_candidates:
+                grid_p = self.prices[i]
+                vol = self.sell_vols[i]
                 
-            # 模拟路径
-            for p_start, p_end in path:
-                if p_start == p_end:
-                    continue
-                    
-                direction = 1 if p_end > p_start else -1
+                if vol > 0:
+                    if self.account.sell(date, grid_p, vol, i-1):
+                        self.grid_states[i]['sell'] = False
+                        self.grid_states[i-1]['buy'] = True
+                        
+                        buy_price = self.prices[i-1]
+                        step_profit = grid_p - buy_price
+                        self.account.realized_profit += step_profit * vol
+                    else:
+                        self.missed_trades += 1
+            
+            # Step 3: 买入判定 (Low Priority)
+            buy_candidates = [i for i, state in enumerate(self.grid_states) 
+                            if state['buy'] and i < len(self.prices) and low_p <= self.prices[i]]
+            
+            buy_candidates.sort(reverse=True)
+            
+            for i in buy_candidates:
+                grid_p = self.prices[i]
+                vol = self.buy_vols[i]
                 
-                # 找出涉及的网格索引范围
-                p_min, p_max = min(p_start, p_end), max(p_start, p_end)
-                idx_start = int(np.searchsorted(self.prices, p_min, side='left'))
-                idx_end = int(np.searchsorted(self.prices, p_max, side='right'))
-                
-                # 根据方向遍历索引
-                if direction == 1: # 向上 (可能触发卖出)
-                    # 从下往上遍历
-                    for i in range(idx_start, idx_end):
-                        # 如果 i=0 (最底一格)，下方没有格子，无法卖出前序持仓
-                        if i == 0:
-                            continue
-                            
-                        grid_p = self.prices[i]
-                        # 宽松判断: 只要 High >= grid_p 就算成交
-                        if p_end >= grid_p:
-                            # 核心逻辑：检查上一格(i-1)是否有持仓
-                            if self.grid_states.get(i-1, False):
-                                vol = self.sell_vols[i]
-                                if vol > 0:
-                                    # 执行卖出
-                                    if self.account.sell(date, grid_p, vol, i-1):
-                                        # 标记上一格为空仓
-                                        self.grid_states[i-1] = False
-                                        
-                                        buy_price = self.prices[i-1]
-                                        step_profit = grid_p - buy_price
-                                        self.account.realized_profit += step_profit * vol
-                                    
-                else: # 向下 (可能触发买入)
-                    # 从上往下遍历
-                    for i in range(idx_end - 1, idx_start - 1, -1):
-                        grid_p = self.prices[i]
-                        # 只要穿过就买入
-                        if grid_p < p_start and grid_p >= p_end:
-                             # 核心逻辑：检查当前格(i)是否已持有
-                             if not self.grid_states.get(i, False):
-                                 vol = self.buy_vols[i]
-                                 if vol > 0:
-                                     if self.account.buy(date, grid_p, vol, i):
-                                         # 标记当前格为持有
-                                         self.grid_states[i] = True
-                                 
-            # 每日结算
+                if vol > 0:
+                    if self.account.buy(date, grid_p, vol, i):
+                        self.grid_states[i]['buy'] = False
+                        self.grid_states[i+1]['sell'] = True
+                    else:
+                        self.missed_trades += 1
+            
+            # Step 4: 收盘状态更新
             equity = self.account.get_equity(close_p)
             equity_curve.append({
                 'date': str(date),
                 'equity': equity,
+                'cash': self.account.cash, # 记录现金以便计算利用率
                 'price': close_p,
                 'open': open_p,
                 'high': high_p,
                 'low': low_p
             })
             
-        # 3. 统计结果
+        # 统计结果
         final_equity = equity_curve[-1]['equity']
         total_return = (final_equity - self.initial_capital) / self.initial_capital * 100
-        
-        # 计算年化
         days = len(df)
         annualized_return = total_return / (days / 252) if days > 0 else 0
         
-        # 破网率 (收盘价超出范围的天数)
+        # 交易统计
+        all_trades = self.account.trade_records
+        buy_count = sum(1 for t in all_trades if t.type == 'BUY')
+        sell_count = sum(1 for t in all_trades if t.type == 'SELL')
+        trade_count = len(all_trades)
+        
+        # 资金利用率 = 平均持仓市值 / 平均总资产
+        # 持仓市值 = Equity - Cash
+        avg_pos_value = np.mean([e['equity'] - e['cash'] for e in equity_curve])
+        avg_equity = np.mean([e['equity'] for e in equity_curve])
+        capital_utilization = (avg_pos_value / avg_equity * 100) if avg_equity > 0 else 0.0
+        
         break_count = df[ (df['close'] > self.prices[-1]) | (df['close'] < self.prices[0]) ].shape[0]
         break_rate = break_count / days * 100
         
-        # 最大回撤
         equities = [e['equity'] for e in equity_curve]
         max_eq = np.maximum.accumulate(equities)
         drawdowns = (max_eq - equities) / max_eq
         max_dd = drawdowns.max() * 100
         
-        # 浮动盈亏 = 总权益 - 初始本金 - 已实现利润
-        # (这种定义有点怪，通常 Float PnL = Market Value - Cost Basis)
-        # 这里按 PRD: 底仓及未卖出网格的市值波动
-        # 简单算: Final Equity - Initial Capital - Grid Profit
         float_pnl = final_equity - self.initial_capital - self.account.realized_profit
 
-        # --- 计算夏普比率 ---
-        # 策略日收益率序列
         equity_series = pd.Series(equities)
         daily_returns = equity_series.pct_change().dropna()
-        if daily_returns.std() != 0:
-            sharpe_ratio = (daily_returns.mean() * 252) / (daily_returns.std() * np.sqrt(252))
-        else:
-            sharpe_ratio = 0.0
+        sharpe_ratio = (daily_returns.mean() * 252) / (daily_returns.std() * np.sqrt(252)) if daily_returns.std() != 0 else 0.0
 
-        # --- 计算基准 (Buy & Hold) 指标 ---
-        # 假设初始资金全部买入标的
         first_price = df.iloc[0]['close']
         last_price = df.iloc[-1]['close']
-        
         benchmark_total_return = (last_price - first_price) / first_price * 100
         benchmark_annualized_return = benchmark_total_return / (days / 252) if days > 0 else 0
         
-        # 基准最大回撤
         prices = df['close'].values
         max_prices = np.maximum.accumulate(prices)
         benchmark_drawdowns = (max_prices - prices) / max_prices
         benchmark_max_drawdown = benchmark_drawdowns.max() * 100
         
-        # 基准夏普比率
         price_series = df['close']
         benchmark_daily_returns = price_series.pct_change().dropna()
-        if benchmark_daily_returns.std() != 0:
-            benchmark_sharpe_ratio = (benchmark_daily_returns.mean() * 252) / (benchmark_daily_returns.std() * np.sqrt(252))
-        else:
-            benchmark_sharpe_ratio = 0.0
+        benchmark_sharpe_ratio = (benchmark_daily_returns.mean() * 252) / (benchmark_daily_returns.std() * np.sqrt(252)) if benchmark_daily_returns.std() != 0 else 0.0
         
-        # 将基准净值加入 daily_equity (用于绘图)
-        # 归一化基准曲线：使其起始值等于策略初始权益
         initial_equity = self.initial_capital
         for i, item in enumerate(equity_curve):
             item['benchmark_equity'] = (item['price'] / first_price) * initial_equity
@@ -342,12 +370,16 @@ class PathSimulator:
             annualized_return=round(annualized_return, 2),
             grid_profit=round(self.account.realized_profit, 2),
             float_pnl=round(float_pnl, 2),
-            trade_count=len(self.account.trade_records),
-            daily_trade_count=round(len(self.account.trade_records) / days, 2),
-            win_rate=0, # 不计算
+            trade_count=trade_count,
+            buy_count=buy_count,
+            sell_count=sell_count,
+            daily_trade_count=round(trade_count / days, 2),
+            capital_utilization=round(capital_utilization, 2),
+            win_rate=0,
             max_drawdown=round(max_dd, 2),
             break_rate=round(break_rate, 2),
             sharpe_ratio=round(sharpe_ratio, 2),
+            missed_trades=self.missed_trades,
             trades=self.account.trade_records,
             daily_equity=equity_curve,
             benchmark_total_return=round(benchmark_total_return, 2),

@@ -32,7 +32,55 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">底仓比例 (0-1.0)</label>
-                        <input type="number" class="form-control" id="base-pos-ratio" value="0.0" step="0.1" min="0" max="1">
+                        <input type="number" class="form-control" id="base-pos-ratio" value="0.0" step="0.1" min="0" max="1" placeholder="长持不卖">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">预留现金 (0-1.0)</label>
+                        <input type="number" class="form-control" id="cash-reserve-ratio" value="0.0" step="0.1" min="0" max="1" placeholder="防破网加仓">
+                    </div>
+                </div>
+
+                <!-- 回测时间设置 -->
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <div class="card bg-light border-0">
+                            <div class="card-body py-2">
+                                <div class="row align-items-center">
+                                    <div class="col-md-4 border-end">
+                                        <label class="form-label small mb-0 text-muted">数据可用范围</label>
+                                        <div class="fw-bold" id="data-range-display">请先选择标的</div>
+                                    </div>
+                                    <div class="col-md-8">
+                                        <label class="form-label small mb-0 text-muted">回测时间段</label>
+                                        <div class="input-group input-group-sm mt-1">
+                                            <span class="input-group-text">开始</span>
+                                            <input type="date" class="form-control" id="custom-start-date">
+                                            <span class="input-group-text">结束</span>
+                                            <input type="date" class="form-control" id="custom-end-date">
+                                        </div>
+                                        <div class="mt-2">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <small class="text-muted">以结束日为基准:</small>
+                                                <div class="btn-group btn-group-sm" role="group">
+                                                    <button type="button" class="btn btn-outline-secondary quick-date-btn" data-mode="backward" data-years="1">近1年</button>
+                                                    <button type="button" class="btn btn-outline-secondary quick-date-btn" data-mode="backward" data-years="3">近3年</button>
+                                                    <button type="button" class="btn btn-outline-secondary quick-date-btn" data-mode="backward" data-years="5">近5年</button>
+                                                    <button type="button" class="btn btn-outline-secondary quick-date-btn" data-mode="backward" data-years="ytd">今年以来</button>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <small class="text-muted">以开始日为基准:</small>
+                                                <div class="btn-group btn-group-sm" role="group">
+                                                    <button type="button" class="btn btn-outline-secondary quick-date-btn" data-mode="forward" data-years="1">往后1年</button>
+                                                    <button type="button" class="btn btn-outline-secondary quick-date-btn" data-mode="forward" data-years="3">往后3年</button>
+                                                    <button type="button" class="btn btn-outline-secondary quick-date-btn" data-mode="forward" data-years="5">往后5年</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -145,20 +193,24 @@
                     <div class="collapse" id="strategyCollapse">
                         <div class="card-body">
                             <div class="row text-center">
-                                <div class="col-md-3 border-end">
+                                <div class="col border-end">
                                     <small class="text-muted">推荐模式</small>
                                     <h3 class="fw-bold text-primary" id="res-mode">-</h3>
                                 </div>
-                                <div class="col-md-3 border-end">
+                                <div class="col border-end">
                                     <small class="text-muted">价格区间</small>
                                     <h4 class="fw-bold" id="res-range">-</h4>
                                 </div>
-                                <div class="col-md-3 border-end">
+                                <div class="col border-end">
+                                    <small class="text-muted">网格数量</small>
+                                    <h4 class="fw-bold" id="res-count">-</h4>
+                                </div>
+                                <div class="col border-end">
                                     <small class="text-muted">网格步长</small>
                                     <h4 class="fw-bold" id="res-step">-</h4>
                                 </div>
-                                <div class="col-md-3">
-                                    <small class="text-muted">单格资金/股数</small>
+                                <div class="col">
+                                    <small class="text-muted">单格配置</small>
                                     <h4 class="fw-bold" id="res-per-grid">-</h4>
                                 </div>
                             </div>
@@ -197,6 +249,38 @@
                             </table>
                         </div>
                         
+                        <!-- 回测参数详情 (新增) -->
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                                <h6 class="text-muted mb-0">回测参数详情 (基于回测开始日生成)</h6>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#btParamsCollapse" aria-expanded="false">
+                                    <i class="bi bi-chevron-down"></i> 展开/收起
+                                </button>
+                            </div>
+                            <div class="collapse" id="btParamsCollapse">
+                                <div class="card card-body bg-light border-0">
+                                    <div class="row text-center">
+                                        <div class="col-md-3 border-end">
+                                            <small class="text-muted">回测区间</small>
+                                            <h5 class="fw-bold" id="bt-param-range">-</h5>
+                                        </div>
+                                        <div class="col-md-3 border-end">
+                                            <small class="text-muted">网格数量</small>
+                                            <h5 class="fw-bold" id="bt-param-count">-</h5>
+                                        </div>
+                                        <div class="col-md-3 border-end">
+                                            <small class="text-muted">网格步长</small>
+                                            <h5 class="fw-bold" id="bt-param-step">-</h5>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <small class="text-muted">单格配置</small>
+                                            <h5 class="fw-bold" id="bt-param-per-grid">-</h5>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 曲线图 (可折叠) -->
                         <div class="mb-4">
                             <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">

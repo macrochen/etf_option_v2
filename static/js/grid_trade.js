@@ -11,10 +11,14 @@ $(document).ready(function() {
             $select.empty().append('<option value="">-- 请选择或输入 --</option>');
             data.forEach(etf => {
                 const selected = (selectedCode === etf.code) ? 'selected' : '';
-                $select.append(`<option value="${etf.code}" ${selected}>${etf.code} - ${etf.name}</option>`);
+                // 确保 etf 对象包含 start_date 和 end_date
+                $select.append(`<option value="${etf.code}" ${selected} data-start="${etf.start_date}" data-end="${etf.end_date}">${etf.code} - ${etf.name}</option>`);
             });
             // 如果传入了代码，确保 input 也同步
-            if (selectedCode) $('#etf-code-input').val(selectedCode);
+            if (selectedCode) {
+                $('#etf-code-input').val(selectedCode);
+                updateDateRangeDisplay(); // 更新显示
+            }
         });
     }
 
@@ -22,6 +26,107 @@ $(document).ready(function() {
     $('#etf-select').on('change', function() {
         const val = $(this).val();
         if(val) $('#etf-code-input').val(val);
+        updateDateRangeDisplay();
+    });
+    
+    function updateDateRangeDisplay() {
+        const $opt = $('#etf-select option:selected');
+        const start = $opt.data('start');
+        const end = $opt.data('end');
+        if (start && end) {
+            $('#data-range-display').text(`${start} ~ ${end}`).addClass('text-success');
+            // 设置输入框的 min/max 属性
+            $('#custom-start-date').attr('min', start).attr('max', end);
+            $('#custom-end-date').attr('min', start).attr('max', end);
+            
+            // 默认设置结束时间为数据结束时间
+            if (!$('#custom-end-date').val()) {
+                $('#custom-end-date').val(end);
+            }
+        } else {
+            $('#data-range-display').text('请先选择标的').removeClass('text-success');
+        }
+    }
+    
+    // 日期输入验证 (静默修正)
+    $('#custom-start-date, #custom-end-date').on('change', function() {
+        const $opt = $('#etf-select option:selected');
+        const minDate = $opt.data('start');
+        const maxDate = $opt.data('end');
+        
+        if (!minDate || !maxDate) return;
+        
+        const val = $(this).val();
+        if (!val) return;
+
+        if (val < minDate) {
+            $(this).val(minDate);
+        } else if (val > maxDate) {
+            $(this).val(maxDate);
+        }
+    });
+    
+    // 快捷日期选择
+    $('.quick-date-btn').on('click', function() {
+        const years = $(this).data('years');
+        const mode = $(this).data('mode');
+        const fmt = d => d.toISOString().split('T')[0];
+        
+        // 获取当前数据的边界
+        const $opt = $('#etf-select option:selected');
+        const minDataDate = $opt.data('start');
+        const maxDataDate = $opt.data('end');
+        
+        if (mode === 'backward') {
+            // 以结束日为基准，向前推 Start
+            let endDateStr = $('#custom-end-date').val();
+            if (!endDateStr) endDateStr = maxDataDate;
+            if (!endDateStr) endDateStr = new Date().toISOString().split('T')[0];
+            
+            $('#custom-end-date').val(endDateStr);
+            
+            const endDate = new Date(endDateStr);
+            let startDate = new Date(endDate);
+            
+            if (years === 'ytd') {
+                startDate = new Date(endDate.getFullYear(), 0, 1);
+            } else {
+                const y = parseInt(years);
+                startDate.setFullYear(endDate.getFullYear() - y);
+            }
+            
+            // 边界检查
+            let startDateStr = fmt(startDate);
+            if (minDataDate && startDateStr < minDataDate) {
+                startDateStr = minDataDate;
+            }
+            $('#custom-start-date').val(startDateStr).change(); // 触发 change 以便执行可能存在的其他逻辑
+            
+        } else {
+            // 以开始日为基准，向后推 End
+            let startDateStr = $('#custom-start-date').val();
+            if (!startDateStr) startDateStr = minDataDate;
+            if (!startDateStr) {
+                alert('请先指定开始日期');
+                return;
+            }
+            
+            $('#custom-start-date').val(startDateStr);
+            
+            const startDate = new Date(startDateStr);
+            let endDate = new Date(startDate);
+            
+            const y = parseInt(years);
+            endDate.setFullYear(startDate.getFullYear() + y);
+            
+            // 边界检查
+            let endDateStr = fmt(endDate);
+            if (maxDataDate && endDateStr > maxDataDate) {
+                endDateStr = maxDataDate;
+            }
+            
+            $('#custom-end-date').val(endDateStr).change();
+        }
     });
 
     // 4. 加载数据按钮
@@ -64,9 +169,12 @@ $(document).ready(function() {
             symbol: $('#etf-code-input').val().trim(),
             total_capital: parseFloat($('#total-capital').val()),
             base_position_ratio: parseFloat($('#base-pos-ratio').val()),
+            cash_reserve_ratio: parseFloat($('#cash-reserve-ratio').val()) || 0.0,
             pe_percentile: parseFloat($('#pe-percentile').val()),
             pb_percentile: parseFloat($('#pb-percentile').val()),
-            force_mode: $('#force-mode').val() || null
+            force_mode: $('#force-mode').val() || null,
+            custom_start_date: $('#custom-start-date').val(),
+            custom_end_date: $('#custom-end-date').val()
         };
 
         if (!formData.symbol) {
@@ -143,11 +251,18 @@ $(document).ready(function() {
         // 区间
         $('#res-range').html(`${strat.price_range[0].toFixed(3)} ~ ${strat.price_range[1].toFixed(3)}`);
         
+        // 网格数
+        $('#res-count').text(strat.grid_count + ' 格');
+
         // 步长
         $('#res-step').html(`${strat.step.percent}% <small class="text-muted">(${strat.step.price})</small>`);
         
-        // 单格
-        $('#res-per-grid').html(`¥${strat.per_grid.cash} <small class="text-muted">(${strat.per_grid.volume}股)</small>`);
+        // 单格 (仅展示数量)
+        const pg = strat.per_grid;
+        const volHtml = pg.buy_vol === pg.sell_vol ? 
+            `${pg.buy_vol} 股` : 
+            `<span class="text-success">B:${pg.buy_vol}</span> / <span class="text-purple">S:${pg.sell_vol}</span>`;
+        $('#res-per-grid').html(volHtml);
         
         // 说明
         $('#res-desc').html(`<i class="bi bi-info-circle"></i> ${strat.description}`);
@@ -160,11 +275,15 @@ $(document).ready(function() {
         const metrics = [
             { id: 'total_return', name: '总收益率', unit: '%', benchmark: 'benchmark_total_return', reverse: false },
             { id: 'annualized_return', name: '年化收益', unit: '%', benchmark: 'benchmark_annualized_return', reverse: false },
-            { id: 'max_drawdown', name: '最大回撤', unit: '%', benchmark: 'benchmark_max_drawdown', reverse: true }, // reverse: 数值越小越好
+            { id: 'max_drawdown', name: '最大回撤', unit: '%', benchmark: 'benchmark_max_drawdown', reverse: true },
             { id: 'sharpe_ratio', name: '夏普比率', unit: '', benchmark: 'benchmark_sharpe_ratio', reverse: false },
-            { id: 'grid_profit', name: '网格利润 (已实现)', unit: '', prefix: '¥', benchmark: null }, // 特有指标
-            { id: 'trade_count', name: '交易次数', unit: '', benchmark: null },
-            { id: 'break_rate', name: '破网率', unit: '%', benchmark: null }
+            { id: 'grid_profit', name: '网格利润 (已实现)', unit: '', prefix: '¥', benchmark: null },
+            { id: 'trade_count', name: '交易次数', unit: '', benchmark: null, isInt: true },
+            { id: 'buy_count', name: '买入次数', unit: '', benchmark: null, isInt: true },
+            { id: 'sell_count', name: '卖出次数', unit: '', benchmark: null, isInt: true },
+            { id: 'capital_utilization', name: '资金利用率', unit: '%', benchmark: null },
+            { id: 'break_rate', name: '破网率', unit: '%', benchmark: null },
+            { id: 'missed_trades', name: '无效触网 (Missed)', unit: '次', benchmark: null, isInt: true }
         ];
         
         metrics.forEach(m => {
@@ -172,13 +291,13 @@ $(document).ready(function() {
             let bVal = m.benchmark ? bt[m.benchmark] : null;
             
             // 格式化数值
-            const fmt = (val, unit, prefix='') => {
+            const fmt = (val, unit, prefix='', isInt=false) => {
                 if (val === null || val === undefined) return '-';
-                return prefix + val.toFixed(2) + unit;
+                return prefix + (isInt ? Math.round(val) : val.toFixed(2)) + unit;
             };
             
-            let sText = fmt(sVal, m.unit, m.prefix);
-            let bText = bVal !== null ? fmt(bVal, m.unit, m.prefix) : '<span class="text-muted">-</span>';
+            let sText = fmt(sVal, m.unit, m.prefix, m.isInt);
+            let bText = bVal !== null ? fmt(bVal, m.unit, m.prefix, m.isInt) : '<span class="text-muted">-</span>';
             
             // 计算差异与评价
             let diffHtml = '<span class="text-muted">-</span>';
@@ -205,6 +324,20 @@ $(document).ready(function() {
                 </tr>
             `);
         });
+
+        // --- 填充回测参数详情 ---
+        if (data.backtest.parameters) {
+            const p = data.backtest.parameters;
+            const bpg = p.per_grid;
+            const bVolHtml = bpg.buy_vol === bpg.sell_vol ? 
+                `${bpg.buy_vol}股` : 
+                `<span class="text-success">B:${bpg.buy_vol}</span> / <span class="text-purple" style="color:#aa00ff">S:${bpg.sell_vol}</span>`;
+            
+            $('#bt-param-range').html(`${p.price_range[0].toFixed(3)} ~ ${p.price_range[1].toFixed(3)}`);
+            $('#bt-param-count').text(p.grid_count + ' 格');
+            $('#bt-param-step').html(`${p.step.percent}% <small class="text-muted">(${p.step.price})</small>`);
+            $('#bt-param-per-grid').html(bVolHtml);
+        }
 
         // --- 绘制权益曲线 ---
         const equityChart = renderEquityChart(data.backtest.curve);
@@ -236,9 +369,11 @@ $(document).ready(function() {
         const bollMid = curveData.map(d => d.boll_mid);
         const bollLower = curveData.map(d => d.boll_lower);
         
-        // 交易点数据
-        const buyPoints = trades.filter(t => t.type === 'BUY').map(t => [t.date, t.price, t.volume]);
-        const sellPoints = trades.filter(t => t.type === 'SELL').map(t => [t.date, t.price, t.volume]);
+        // 交易点数据 (需处理日期后缀以便 ECharts 对齐)
+        const cleanDate = (d) => d.split(' ')[0]; // 移除 (底仓)/(网格) 后缀
+        
+        const buyPoints = trades.filter(t => t.type === 'BUY').map(t => [cleanDate(t.date), t.price, t.volume]);
+        const sellPoints = trades.filter(t => t.type === 'SELL').map(t => [cleanDate(t.date), t.price, t.volume]);
         
         // 构造网格线 MarkLine 数据
         const markLineData = gridLines.map(line => {

@@ -15,10 +15,11 @@ class GridContext:
     current_price: float
     total_capital: float
     base_position_ratio: float  # 底仓比例 (0.0 - 1.0)
-    
     # 基本面参数 (人工录入)
     pe_percentile: float        # 0-100
     pb_percentile: float        # 0-100
+    
+    cash_reserve_ratio: float = 0.0 # 预留现金比例 (0.0 - 1.0)
     
     # 高级配置
     atr_period: int = 14
@@ -98,6 +99,10 @@ class BacktestResult:
     trades: List[TradeRecord]
     daily_equity: List[Dict]    # 每日权益曲线 [{'date':.., 'equity':.., 'benchmark':..}]
     
+    capital_utilization: float = 0.0 # 资金利用率
+    buy_count: int = 0          # 买入次数
+    sell_count: int = 0         # 卖出次数
+    missed_trades: int = 0      # 无效触网次数
     sharpe_ratio: float = 0.0   # 夏普比率
     
     # 基准 (Buy & Hold) 指标

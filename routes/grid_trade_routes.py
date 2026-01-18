@@ -82,6 +82,7 @@ def smart_generate():
         symbol = data.get('symbol')
         total_capital = float(data.get('total_capital', 100000))
         base_pos_ratio = float(data.get('base_position_ratio', 0.0))
+        cash_res_ratio = float(data.get('cash_reserve_ratio', 0.0))
         pe_percentile = float(data.get('pe_percentile', 50.0))
         pb_percentile = float(data.get('pb_percentile', 50.0))
         
@@ -107,6 +108,7 @@ def smart_generate():
             current_price=current_price,
             total_capital=total_capital,
             base_position_ratio=base_pos_ratio,
+            cash_reserve_ratio=cash_res_ratio,
             pe_percentile=pe_percentile,
             pb_percentile=pb_percentile,
             force_mode=force_mode
@@ -119,18 +121,32 @@ def smart_generate():
         # 逻辑分离：为了让回测有意义，我们需要模拟"如果在一年前开始跑这个策略，效果如何"
         # 因此，回测用的网格参数（区间、步长）应该基于"一年前的价格和波动率"生成，而不是今天的。
         
-        backtest_days = 365
-        start_date_dt = datetime.now() - timedelta(days=backtest_days)
-        start_date_str = start_date_dt.strftime('%Y-%m-%d')
+        custom_start_date = data.get('custom_start_date')
+        custom_end_date = data.get('custom_end_date')
         
+        if custom_start_date:
+            start_date_str = custom_start_date
+        else:
+            backtest_days = 365
+            start_date_dt = datetime.now() - timedelta(days=backtest_days)
+            start_date_str = start_date_dt.strftime('%Y-%m-%d')
+            
         # 切分数据
         # 历史用于生成参数 (Pre-Start)
         df_history_for_params = df[df['date'] < start_date_str]
+        
         # 未来用于回测 (Post-Start)
-        df_backtest = df[df['date'] >= start_date_str].copy()
+        if custom_end_date:
+            df_backtest = df[(df['date'] >= start_date_str) & (df['date'] <= custom_end_date)].copy()
+            # 同时切分用于计算指标的 DF (注意：indicators 需要历史数据，所以这里切分的是用于 PathSimulator 的数据)
+            # 但下面的 df_backtest_with_indicators 是全量 df 的切片
+            df_backtest_with_indicators = df[(df['date'] >= start_date_str) & (df['date'] <= custom_end_date)].copy()
+        else:
+            df_backtest = df[df['date'] >= start_date_str].copy()
+            df_backtest_with_indicators = df[df['date'] >= start_date_str].copy()
         
         if df_history_for_params.empty or df_backtest.empty:
-             return jsonify({'error': '数据不足，无法进行回测分离计算'}), 400
+             return jsonify({'error': '数据不足或日期范围无效，无法进行回测分离计算'}), 400
              
         # 获取回测起点的价格 (使用回测第一天的 Open 或前一天的 Close)
         backtest_start_price = df_backtest.iloc[0]['open']
@@ -142,6 +158,7 @@ def smart_generate():
             current_price=backtest_start_price,
             total_capital=total_capital,
             base_position_ratio=base_pos_ratio,
+            cash_reserve_ratio=cash_res_ratio,
             pe_percentile=pe_percentile, # 假设估值逻辑一致
             pb_percentile=pb_percentile,
             force_mode=strategy_result_current.mode # 强制使用与当前一致的策略模式
@@ -157,12 +174,15 @@ def smart_generate():
         df['boll_lower'] = lower
         
         # 重新切片布林带数据以匹配回测区间
-        df_backtest_with_indicators = df[df['date'] >= start_date_str].copy()
+        if custom_end_date:
+            df_backtest_with_indicators = df[(df['date'] >= start_date_str) & (df['date'] <= custom_end_date)].copy()
+        else:
+            df_backtest_with_indicators = df[df['date'] >= start_date_str].copy()
         
         simulator = PathSimulator(
             grid_lines=strategy_result_backtest.grid_lines, # 使用基于历史生成的网格
             initial_capital=total_capital,
-            base_position_ratio=None # 开启自动底仓计算模式，根据价格位置自动建仓
+            base_position_ratio=base_pos_ratio # 使用用户输入的底仓比例
         )
         
         bt_result = simulator.run(df_backtest_with_indicators)
@@ -187,7 +207,9 @@ def smart_generate():
                 'grid_count': strategy_result_current.grid_count,
                 'per_grid': {
                     'cash': round(strategy_result_current.cash_per_grid, 2),
-                    'volume': strategy_result_current.vol_per_grid
+                    'volume': strategy_result_current.vol_per_grid,
+                    'buy_vol': strategy_result_current.grid_lines[0].buy_vol,
+                    'sell_vol': strategy_result_current.grid_lines[0].sell_vol
                 },
                 'description': strategy_result_current.description,
                 'scores': {
@@ -204,6 +226,20 @@ def smart_generate():
                 ]
             },
             'backtest': { # 基于一年前参数跑出来的结果
+                'parameters': { # 新增：回测时使用的参数快照
+                    'price_range': [strategy_result_backtest.price_min, strategy_result_backtest.price_max],
+                    'step': {
+                        'price': strategy_result_backtest.step_price,
+                        'percent': strategy_result_backtest.step_percent
+                    },
+                    'grid_count': strategy_result_backtest.grid_count,
+                    'per_grid': {
+                        'cash': round(strategy_result_backtest.cash_per_grid, 2),
+                        'volume': strategy_result_backtest.vol_per_grid,
+                        'buy_vol': strategy_result_backtest.grid_lines[0].buy_vol,
+                        'sell_vol': strategy_result_backtest.grid_lines[0].sell_vol
+                    }
+                },
                 'summary': {
                     'total_return': bt_result.total_return,
                     'annualized_return': bt_result.annualized_return,
@@ -212,7 +248,11 @@ def smart_generate():
                     'max_drawdown': bt_result.max_drawdown,
                     'sharpe_ratio': bt_result.sharpe_ratio,
                     'trade_count': bt_result.trade_count,
+                    'buy_count': bt_result.buy_count,
+                    'sell_count': bt_result.sell_count,
                     'break_rate': bt_result.break_rate,
+                    'missed_trades': bt_result.missed_trades,
+                    'capital_utilization': bt_result.capital_utilization,
                     'benchmark_total_return': bt_result.benchmark_total_return,
                     'benchmark_annualized_return': bt_result.benchmark_annualized_return,
                     'benchmark_max_drawdown': bt_result.benchmark_max_drawdown,
