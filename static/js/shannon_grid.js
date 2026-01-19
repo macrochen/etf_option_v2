@@ -544,7 +544,7 @@ $(document).ready(function() {
                             position: 'top',
                             formatter: function (params) {
                                 if (params.seriesType === 'scatter') {
-                                    return `当前设置<br/>Gap: ${currentGap}%<br/>Density: ${currentDensity}%`;
+                                    return `当前设置<br/>网格密度: ${currentDensity}%<br/>止盈间距: ${currentGap}%`;
                                 }
                                 const xIndex = params.data[0];
                                 const yIndex = params.data[1];
@@ -610,12 +610,35 @@ $(document).ready(function() {
                     },
                     z: 10 // 确保在最上层
                 }
-            ]
-        };            heatmapChart.setOption(option);
-            heatmapChart.resize(); // 显式 resize
-        }, 100);
-    }
-
+                        ]
+                    };
+                    heatmapChart.setOption(option);
+                    heatmapChart.resize(); // 显式 resize
+                    
+                    // 监听点击事件：回填参数
+                    heatmapChart.off('click'); // 防止重复绑定
+                    heatmapChart.on('click', function (params) {
+                        if (params.seriesType === 'heatmap') {
+                            const xIndex = params.data[0];
+                            const yIndex = params.data[1];
+                            const gapStr = res.x_axis[xIndex].replace('%', '');
+                            const denStr = res.y_axis[yIndex].replace('%', '');
+                            
+                                            $('#sell-gap').val(gapStr);
+                                            $('#grid-density').val(denStr);
+                                            
+                                            // 视觉反馈：闪烁输入框
+                                            $('#sell-gap, #grid-density').addClass('bg-warning bg-opacity-25');
+                                            setTimeout(() => {
+                                                $('#sell-gap, #grid-density').removeClass('bg-warning bg-opacity-25');
+                                            }, 500);
+                                            
+                                            // 立即重绘热力图，更新五角星位置
+                                            renderHeatmap();
+                                        }
+                                    });
+                                }, 100);
+                            }
     function formatTs(ts) {
         // ts: YYYYMMDDHHMM
         if (ts.length < 12) return ts;
