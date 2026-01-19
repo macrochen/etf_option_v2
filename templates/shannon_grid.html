@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- 1. 参数配置面板 (Config Panel) -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-cpu-fill"></i> 香农网格 (Grid-X) 控制台</h5>
+            <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#configPanel" aria-expanded="true">
+                <i class="bi bi-chevron-up"></i> 收起/展开
+            </button>
+        </div>
+        <div class="collapse show" id="configPanel">
+            <div class="card-body">
+                <form id="shannon-form">
+                    <div class="row">
+                        <!-- 标的与时间 -->
+                        <div class="col-md-4 border-end">
+                            <h6 class="text-muted mb-3">标的与时间</h6>
+                            <div class="mb-3">
+                                <label class="form-label">ETF 标的</label>
+                                <div class="input-group">
+                                    <select class="form-select" id="etf-select">
+                                        <option value="">-- 请选择或输入 --</option>
+                                    </select>
+                                    <input type="text" class="form-control" id="symbol" value="510300" placeholder="代码">
+                                    <button type="button" class="btn btn-outline-secondary" id="load-data-btn" title="下载/更新分钟数据">
+                                        <i class="bi bi-cloud-download"></i>
+                                    </button>
+                                </div>
+                                <div id="data-status" class="form-text text-muted small"></div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">回测时间</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="date" class="form-control" id="start-date" value="2023-01-01">
+                                    <span class="input-group-text">至</span>
+                                    <input type="date" class="form-control" id="end-date">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 资金与网格 -->
+                        <div class="col-md-4 border-end">
+                            <h6 class="text-muted mb-3">资金与网格参数</h6>
+                            <div class="row g-2">
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small">初始本金</label>
+                                    <input type="number" class="form-control form-control-sm" id="initial-capital" value="100000">
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="信仰底仓 (Core Holding)：打死不卖的压舱石，享受长期国运。建议 20%-30%。">信仰仓占比 (%) <i class="bi bi-info-circle small text-muted"></i></label>
+                                    <input type="number" class="form-control form-control-sm" id="faith-ratio" value="20" step="5" min="0" max="100">
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="网格底仓 (Grid Inventory)：预置的初始货架，用于在上涨中分批卖出。建议 30%。">网格底仓占比 (%) <i class="bi bi-info-circle small text-muted"></i></label>
+                                    <input type="number" class="form-control form-control-sm" id="grid-ratio" value="30" step="5" min="0" max="100">
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="单格买入金额：每次网格触发买入时投入的固定资金。">单格买入金额 (元)</label>
+                                    <input type="number" class="form-control form-control-sm" id="pos-per-grid" value="5000">
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="网格密度 (Grid Density)：决定网格线的密集程度。例如 1.5% 表示每跌 1.5% 买入一次。">网格密度 (%) <i class="bi bi-info-circle small text-muted"></i></label>
+                                    <input type="number" class="form-control form-control-sm" id="grid-density" value="1.5" step="0.1">
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="止盈间距 (Sell Gap)：买入后，上涨多少比例卖出。例如 2.0% 表示买入后涨 2.0% 止盈。">止盈间距 (%) <i class="bi bi-info-circle small text-muted"></i></label>
+                                    <input type="number" class="form-control form-control-sm" id="sell-gap" value="2.0" step="0.1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 边界控制 -->
+                        <div class="col-md-4">
+                            <h6 class="text-muted mb-3">边界控制 (有效战场)</h6>
+                            <div class="mb-2">
+                                <label class="form-label small text-success" data-bs-toggle="tooltip" title="区间上限 (Upper Limit)：当价格突破此值时，清空网格仓位（保留底仓），防止卖飞后回补。">区间上限 (清仓位) <i class="bi bi-info-circle small text-muted"></i></label>
+                                <input type="number" class="form-control form-control-sm" id="upper-limit" value="999.0" step="0.001">
+                                <div class="form-text small">突破清仓网格 (留底仓)</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small text-danger" data-bs-toggle="tooltip" title="区间下限 (Lower Limit)：当价格跌破此值时，停止买入（装死），防止接飞刀。">区间下限 (止损位) <i class="bi bi-info-circle small text-muted"></i></label>
+                                <input type="number" class="form-control form-control-sm" id="lower-limit" value="0.0" step="0.001">
+                                <div class="form-text small">跌破停止买入 (装死)</div>
+                            </div>
+                            
+                            <div class="d-flex gap-2 mt-3">
+                                <button type="submit" class="btn btn-primary flex-grow-1" id="btn-run">
+                                    <i class="bi bi-play-fill"></i> 运行回测
+                                </button>
+                                <button type="button" class="btn btn-outline-success flex-grow-1" id="btn-heatmap">
+                                    <i class="bi bi-grid-3x3"></i> 生成热力图
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 结果展示区 -->
+    <div id="result-section" class="d-none">
+        
+        <!-- 核心指标与热力图 (两列布局) -->
+        <div class="row mb-4">
+            <!-- 左侧：核心指标 -->
+            <div class="col-md-5">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">策略绩效评估 (vs 买入持有)</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center mb-4">
+                            <div class="col-4 border-end">
+                                <small class="text-muted">最大回撤 (风险)</small>
+                                <h3 class="fw-bold text-danger" id="metric-drawdown">-</h3>
+                                <small class="text-muted d-block" id="bench-drawdown">基准: -</small>
+                            </div>
+                            <div class="col-4 border-end">
+                                <small class="text-muted">夏普比率 (效能)</small>
+                                <h3 class="fw-bold text-info" id="metric-sharpe">-</h3>
+                                <small class="text-muted d-block" id="bench-sharpe">基准: -</small>
+                            </div>
+                            <div class="col-4">
+                                <small class="text-muted">总收益率</small>
+                                <h3 class="fw-bold text-primary" id="metric-return">-</h3>
+                                <small class="text-muted d-block" id="bench-return">基准: -</small>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-borderless">
+                                <tbody>
+                                    <tr>
+                                        <td class="text-muted">年化收益率 (CAGR)</td>
+                                        <td class="text-end fw-bold" id="metric-cagr">-%</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">
+                                            套牢时长 (Underwater) 
+                                            <i class="bi bi-info-circle small" data-bs-toggle="tooltip" title="最长连续未创新高的时间。如果该值很大（如 > 500天），说明策略在熊市中可能长期浮亏，需要极强的心理承受力。"></i>
+                                        </td>
+                                        <td class="text-end" id="metric-underwater">- 天</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">
+                                            资金利用率 (Avg) 
+                                            <i class="bi bi-info-circle small" data-bs-toggle="tooltip" title="平均每日持仓市值占总资产的比例。过低(<30%)说明资金闲置浪费；过高(>90%)说明缺乏防守现金。"></i>
+                                        </td>
+                                        <td class="text-end" id="metric-utilization">-%</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">
+                                            最大占用 / 最低现金 
+                                            <i class="bi bi-info-circle small" data-bs-toggle="tooltip" title="压力测试指标：显示回测中最危险时刻的仓位占比和剩余现金。如果最大占用接近100%或最低现金不足以买入一格，说明参数设置风险极高。"></i>
+                                        </td>
+                                        <td class="text-end">
+                                            <span class="fw-bold" id="metric-max-util">-%</span>
+                                            <span id="util-warning"></span>
+                                            <small class="text-muted d-block" id="metric-min-cash">¥ -</small>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">累计交易次数</td>
+                                        <td class="text-end fw-bold" id="metric-trades">-</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- 收益曲线 (小图) -->
+                        <div id="equity-chart" style="height: 200px; width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：热力图 -->
+            <div class="col-md-7">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">参数鲁棒性分析 (Heatmap)</h6>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <input type="radio" class="btn-check" name="hm-metric" id="hm-sharpe" value="value" checked>
+                            <label class="btn btn-outline-secondary" for="hm-sharpe" title="夏普比率 (波动性价比)">Sharpe</label>
+
+                            <input type="radio" class="btn-check" name="hm-metric" id="hm-calmar" value="calmar">
+                            <label class="btn btn-outline-secondary" for="hm-calmar" title="卡玛比率 (回撤性价比)">Calmar</label>
+
+                            <input type="radio" class="btn-check" name="hm-metric" id="hm-ret" value="ret">
+                            <label class="btn btn-outline-secondary" for="hm-ret" title="总收益率">Return</label>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="heatmap-chart" style="height: 380px; width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 价格走势复盘 (K线 + 交易点) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">价格走势复盘 (日线视图)</h6>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#priceChartPanel">
+                    <i class="bi bi-chevron-up"></i>
+                </button>
+            </div>
+            <div class="collapse show" id="priceChartPanel">
+                <div class="card-body">
+                    <div id="price-chart" style="height: 800px; width: 100%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 交易明细列表 -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h6 class="mb-0">交易记录明细</h6>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-sm table-hover mb-0 text-center" id="trades-table">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>时间 (分钟)</th>
+                                <th>方向</th>
+                                <th>成交价格</th>
+                                <th>数量</th>
+                                <th>持仓数量</th>
+                                <th>剩余现金</th>
+                                <th>账户总额</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- JS Fill -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="d-none" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center;">
+    <div class="text-center">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="mt-3" id="loading-text">正在计算...</h5>
+        <p class="text-muted">Grid-X 香农引擎加速中</p>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/shannon_grid.js') }}"></script>
+{% endblock %}

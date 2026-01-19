@@ -54,3 +54,4 @@ config/
 config/app_config.json
 
 temp/
+data/

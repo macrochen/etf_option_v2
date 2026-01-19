@@ -14,6 +14,7 @@ from routes.sim_trade_routes import sim_trade_bp
 from routes.data_download_routes import data_download_bp
 from routes.wyckoff_routes import wyckoff_bp
 from routes.portfolio_routes import portfolio_bp
+from routes.shannon_routes import shannon_bp
 import os
 import subprocess
 
@@ -26,6 +27,7 @@ app.register_blueprint(volatility_bp)
 app.register_blueprint(stock_data_bp)
 app.register_blueprint(etf_data_bp)
 app.register_blueprint(grid_trade_bp)
+app.register_blueprint(shannon_bp)
 app.register_blueprint(earnings_bp)  # 注册财报分析蓝图
 app.register_blueprint(data_download_bp)  # 注册数据下载蓝图
 app.register_blueprint(wyckoff_bp) # 注册威科夫分析蓝图
