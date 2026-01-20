@@ -100,8 +100,41 @@
         </div>
     </div>
 
+    <!-- 1.5 香农评分卡片 (体检报告) -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <h6 class="mb-0" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#scoreCardBody">
+                <i class="bi bi-activity"></i> 标的适格性体检 (Shannon Score)
+                <i class="bi bi-chevron-down small text-muted ms-1"></i>
+            </h6>
+            <div>
+                <button class="btn btn-sm btn-link text-muted me-2" data-bs-toggle="modal" data-bs-target="#scoreHelpModal" title="算法说明">
+                    <i class="bi bi-question-circle"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-primary" id="btn-check-score">
+                    <i class="bi bi-heart-pulse"></i> 开始检测
+                </button>
+            </div>
+        </div>
+        <div class="collapse" id="scoreCardBody">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-4 text-center border-end">
+                        <h1 class="display-4 fw-bold mb-0" id="total-score">-</h1>
+                        <p class="text-muted mb-2">总分 / 100</p>
+                        <span class="badge bg-secondary" id="score-badge">待检测</span>
+                        <h5 id="score-verdict" class="text-muted mt-2">-</h5>
+                    </div>
+                    <div class="col-md-8">
+                        <div id="radar-chart" style="height: 250px; width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 2. 结果展示区 -->
-    <div id="result-section" class="d-none">
+    <div id="shannon-result-section" class="d-none">
         
         <!-- 核心指标与热力图 (两列布局) -->
         <div class="row mb-4">
@@ -113,17 +146,22 @@
                     </div>
                     <div class="card-body">
                         <div class="row text-center mb-4">
-                            <div class="col-4 border-end">
-                                <small class="text-muted">最大回撤 (风险)</small>
-                                <h3 class="fw-bold text-danger" id="metric-drawdown">-</h3>
-                                <small class="text-muted d-block" id="bench-drawdown">基准: -</small>
+                            <div class="col-3 border-end">
+                                <small class="text-muted">卡玛比率 (抗跌)</small>
+                                <h3 class="fw-bold text-success" id="metric-calmar">-</h3>
+                                <small class="text-muted d-block" id="bench-calmar">基准: -</small>
                             </div>
-                            <div class="col-4 border-end">
+                            <div class="col-3 border-end">
                                 <small class="text-muted">夏普比率 (效能)</small>
                                 <h3 class="fw-bold text-info" id="metric-sharpe">-</h3>
                                 <small class="text-muted d-block" id="bench-sharpe">基准: -</small>
                             </div>
-                            <div class="col-4">
+                            <div class="col-3 border-end">
+                                <small class="text-muted">最大回撤</small>
+                                <h3 class="fw-bold text-danger" id="metric-drawdown">-</h3>
+                                <small class="text-muted d-block" id="bench-drawdown">基准: -</small>
+                            </div>
+                            <div class="col-3">
                                 <small class="text-muted">总收益率</small>
                                 <h3 class="fw-bold text-primary" id="metric-return">-</h3>
                                 <small class="text-muted d-block" id="bench-return">基准: -</small>
@@ -180,11 +218,11 @@
                     <div class="card-header bg-light d-flex justify-content-between align-items-center">
                         <h6 class="mb-0">参数鲁棒性分析 (Heatmap)</h6>
                         <div class="btn-group btn-group-sm" role="group">
-                            <input type="radio" class="btn-check" name="hm-metric" id="hm-sharpe" value="value" checked>
-                            <label class="btn btn-outline-secondary" for="hm-sharpe" title="夏普比率 (波动性价比)">Sharpe</label>
-
-                            <input type="radio" class="btn-check" name="hm-metric" id="hm-calmar" value="calmar">
+                            <input type="radio" class="btn-check" name="hm-metric" id="hm-calmar" value="calmar" checked>
                             <label class="btn btn-outline-secondary" for="hm-calmar" title="卡玛比率 (回撤性价比)">Calmar</label>
+
+                            <input type="radio" class="btn-check" name="hm-metric" id="hm-sharpe" value="value">
+                            <label class="btn btn-outline-secondary" for="hm-sharpe" title="夏普比率 (波动性价比)">Sharpe</label>
 
                             <input type="radio" class="btn-check" name="hm-metric" id="hm-ret" value="ret">
                             <label class="btn btn-outline-secondary" for="hm-ret" title="总收益率">Return</label>
@@ -240,6 +278,86 @@
         </div>
 
     </div>
+
+
+</div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="d-none" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center;">
+    <div class="text-center">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="mt-3" id="loading-text">正在计算...</h5>
+        <p class="text-muted">Grid-X 香农引擎加速中</p>
+    </div>
+</div>
+
+<!-- 评分算法说明模态框 -->
+<div class="modal fade" id="scoreHelpModal" tabindex="-1" aria-labelledby="scoreHelpModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="scoreHelpModalLabel"><i class="bi bi-journal-text"></i> 香农网格适格性评分算法说明</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>传统的波动率指标（如振幅、Beta）往往会误导网格交易者，让我们在“看起来波动很大”但其实是“单边下跌”的标的上亏损。香农评分引入了<b>多尺度时间窗口</b>，从三个维度立体评估标的。</p>
+        
+        <hr>
+        
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card h-100 border-primary">
+                    <div class="card-header bg-primary text-white">1. 长期基因 (40%)</div>
+                    <div class="card-body">
+                        <h6 class="card-title">测“体质” (3年)</h6>
+                        <p class="card-text small">
+                            <b>核心指标：</b>MA20 缠绕频率。<br>
+                            <b>逻辑：</b>统计过去3年价格穿过<b>月线(MA20)</b>的次数。MA20是震荡中枢，频繁缠绕说明标的具有极强的<b>中频震荡属性</b>，适合网格反复收割。
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 border-success">
+                    <div class="card-header bg-success text-white">2. 中期安全 (30%)</div>
+                    <div class="card-body">
+                        <h6 class="card-title">测“位置” (4-5年)</h6>
+                        <p class="card-text small">
+                            <b>核心指标：</b>长周期价格分位数。<br>
+                            <b>逻辑：</b>将视野拉长至过去 <b>4-5 年</b>（覆盖完整牛熊）。相比仅看 1 年，这能有效识别出处于“历史山脚下”但“近期有涨幅”的优质标的。
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 border-warning">
+                    <div class="card-header bg-warning text-dark">3. 短期热度 (30%)</div>
+                    <div class="card-body">
+                        <h6 class="card-title">测“状态” (3个月)</h6>
+                        <p class="card-text small">
+                            <b>核心指标：</b>真实波幅 (ATR) 中位数。<br>
+                            <b>逻辑：</b>计算包含<b>跳空缺口</b>在内的真实波幅，并取<b>中位数</b>以剔除极端噪音。反映了该标的在日常交易中“常态化”的获利空间。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <hr>
+        
+        <h5><i class="bi bi-lightbulb"></i> 决策建议</h5>
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item"><span class="badge bg-success">75 - 100 分</span> <b>强力推荐</b>：基因好、位置低、热度高。完美标的，建议重仓。</li>
+            <li class="list-group-item"><span class="badge bg-primary">60 - 74 分</span> <b>适格</b>：基本面没问题，可能位置稍高或热度稍低，可正常开网格。</li>
+            <li class="list-group-item"><span class="badge bg-warning text-dark">40 - 59 分</span> <b>谨慎</b>：通常是因为位置太高（风险大）或长期基因不行（趋势性太强）。建议轻仓或观望。</li>
+            <li class="list-group-item"><span class="badge bg-danger">0 - 39 分</span> <b>放弃</b>：极度危险或极度低效（死鱼）。不要浪费时间。</li>
+        </ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Loading Overlay -->

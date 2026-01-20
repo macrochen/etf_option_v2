@@ -40,10 +40,46 @@ $(document).ready(function() {
             }
             
             // 初始触发一次价格获取 (如果有默认值)
-            if ($('#symbol').val() && $('#start-date').val()) {
-                fetchPriceInfo($('#symbol').val(), $('#start-date').val());
+            if ($('#symbol').val()) {
+                autoFillDateRange();
+                const sym = $('#symbol').val();
+                if ($('#start-date').val()) {
+                    fetchPriceInfo(sym, $('#start-date').val());
+                }
+                // fetchShannonScore(sym); // 移除自动检测
             }
         });
+    }
+
+    function autoFillDateRange() {
+        const $opt = $('#etf-select option:selected');
+        const startFull = $opt.data('start');
+        const endFull = $opt.data('end');
+        
+        if (startFull && endFull) {
+            const start = startFull.split(' ')[0];
+            const end = endFull.split(' ')[0];
+            
+            // 显示数据范围
+            $('#data-status').text(`本地数据可用范围: ${start} ~ ${end}`).addClass('text-success').removeClass('text-danger text-muted');
+
+            $('#start-date').attr('min', start).attr('max', end);
+            $('#end-date').attr('min', start).attr('max', end);
+            
+            if (!$('#start-date').val()) $('#start-date').val(start);
+            if (!$('#end-date').val()) $('#end-date').val(end);
+            
+            if ($('#start-date').val() < start) $('#start-date').val(start);
+            if ($('#end-date').val() > end) $('#end-date').val(end);
+        } else {
+             // 如果没数据或没选中
+             const val = $('#etf-select').val();
+             if (val) {
+                 $('#data-status').text('该标的暂无本地数据，请点击右侧下载按钮').addClass('text-muted').removeClass('text-success text-danger');
+             } else {
+                 $('#data-status').text('').removeClass();
+             }
+        }
     }
 
     function fetchPriceInfo(symbol, date) {
@@ -66,10 +102,125 @@ $(document).ready(function() {
         const val = $(this).val();
         if(val) {
             $('#symbol').val(val);
+            autoFillDateRange();
             const date = $('#start-date').val();
             if (date) fetchPriceInfo(val, date);
+            // 自动触发移除，改为手动
+            // fetchShannonScore(val);
         }
     });
+    
+    // 新增：监听输入框手动输入，实时联动下拉框
+    $('#symbol').on('input', function() {
+        const code = $(this).val().trim();
+        const $select = $('#etf-select');
+        const $matchedOpt = $select.find(`option[value="${code}"]`);
+        
+        if ($matchedOpt.length > 0) {
+            $select.val(code);
+            autoFillDateRange();
+            
+            const date = $('#start-date').val();
+            if (date) fetchPriceInfo(code, date);
+        }
+    });
+    
+    // 手动输入代码失去焦点时
+    $('#symbol').on('blur', function() {
+        // 保持原逻辑为空，或者移除该事件监听
+    });
+
+    // 监听检测按钮
+    $('#btn-check-score').on('click', function() {
+        const symbol = $('#symbol').val();
+        if (!symbol) {
+            alert('请先输入或选择 ETF 代码');
+            return;
+        }
+        fetchShannonScore(symbol);
+    });
+
+    function fetchShannonScore(symbol) {
+        // 确保面板展开
+        const $panel = $('#scoreCardBody');
+        if (!$panel.hasClass('show')) {
+            new bootstrap.Collapse($panel[0], { show: true });
+        }
+
+        // 重置 UI
+        const $btn = $('#btn-check-score');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 检测中...');
+        
+        $('#total-score').text('-').removeClass().addClass('display-4 fw-bold mb-0');
+        $('#score-verdict').text('计算中...').removeClass().addClass('text-muted mt-2');
+        $('#score-badge').text('检测中...').removeClass().addClass('badge bg-secondary');
+        
+        $.get(`/api/shannon/score?symbol=${symbol}`, function(res) {
+            // 更新分数
+            const score = res.total_score;
+            const colorClass = 'text-' + res.color;
+            const badgeClass = 'bg-' + res.color;
+            
+            $('#total-score').text(score).removeClass().addClass(`display-4 fw-bold mb-0 ${colorClass}`);
+            $('#score-verdict').text(res.verdict).removeClass().addClass(colorClass + ' mt-2');
+            $('#score-badge').text(res.verdict.split(' ')[0]).removeClass().addClass(`badge ${badgeClass}`);
+            
+            // 渲染雷达图
+            renderRadarChart(res);
+        })
+        .fail(function() {
+            $('#score-verdict').text('数据不足或无数据');
+            $('#score-badge').text('失败').removeClass().addClass('badge bg-danger');
+        })
+        .always(function() {
+            $btn.prop('disabled', false).html('<i class="bi bi-heart-pulse"></i> 重新检测');
+        });
+    }
+    
+    function renderRadarChart(res) {
+        const dom = document.getElementById('radar-chart');
+        let myChart = echarts.getInstanceByDom(dom);
+        if (myChart) myChart.dispose();
+        myChart = echarts.init(dom);
+        
+        const option = {
+            tooltip: {
+                trigger: 'item'
+            },
+            radar: {
+                indicator: [
+                    { name: '长期基因\n(震荡体质)', max: 100 },
+                    { name: '中期安全\n(估值位置)', max: 100 },
+                    { name: '短期热度\n(成交机会)', max: 100 }
+                ],
+                center: ['50%', '50%'],
+                radius: '65%',
+                splitNumber: 4,
+                axisName: { color: '#666' }
+            },
+            series: [{
+                name: '香农评分维度',
+                type: 'radar',
+                data: [{
+                    value: [
+                        res.details.long_term_gene,
+                        res.details.mid_term_safety,
+                        res.details.short_term_heat
+                    ],
+                    name: '维度得分'
+                }],
+                areaStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: 'rgba(13, 110, 253, 0.5)' },
+                        { offset: 1, color: 'rgba(13, 110, 253, 0.1)' }
+                    ])
+                },
+                itemStyle: { color: '#0d6efd' },
+                lineStyle: { width: 2 }
+            }]
+        };
+        myChart.setOption(option);
+    }
 
     // 加载数据按钮
     $('#load-data-btn').on('click', function() {
@@ -94,6 +245,10 @@ $(document).ready(function() {
                 if (res.success) {
                     const info = res.info;
                     $status.text(`下载成功! 本地数据: ${info.start} ~ ${info.end} (共 ${info.count} 条)`).addClass('text-success').removeClass('text-muted');
+                    
+                    // 刷新 ETF 列表并选中当前代码
+                    loadEtfList(code);
+                    
                     // 自动设置时间范围
                     if (info.start && info.end) {
                         $('#start-date').val(info.start.split(' ')[0]);
@@ -150,7 +305,7 @@ $(document).ready(function() {
                 renderBacktestResults(res);
                 $('#metrics-card').removeClass('d-none');
                 // Dashboard 布局，自动滚动到结果区
-                document.getElementById('result-section').scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('shannon-result-section').scrollIntoView({ behavior: 'smooth' });
             },
             error: function(xhr) {
                 console.error("Backtest failed. Status:", xhr.status);
@@ -193,7 +348,7 @@ $(document).ready(function() {
                 currentHeatmapData = res;
                 
                 // 显示结果区域容器
-                $('#result-section').removeClass('d-none');
+                $('#shannon-result-section').removeClass('d-none');
                 
                 // 直接渲染热力图
                 renderHeatmap();
@@ -213,12 +368,21 @@ $(document).ready(function() {
         });
     });
 
+    // 监听指标切换
+    $('input[name="hm-metric"]').on('change', function() {
+        if (currentHeatmapData) {
+            renderHeatmap();
+        }
+    });
+
     function renderBacktestResults(res) {
         // 显示结果区
-        $('#result-section').removeClass('d-none');
+        $('#shannon-result-section').removeClass('d-none');
         
         // 1. 更新核心指标
         const m = res.metrics;
+        console.log("Backtest Metrics:", m); // Debug: Check if fields exist
+        
         $('#metric-return').text(m.total_return + '%');
         $('#metric-return').removeClass().addClass('fw-bold ' + (m.total_return >= 0 ? 'text-danger' : 'text-success')); 
         $('#bench-return').text(`基准: ${m.bench_return}%`);
@@ -226,12 +390,33 @@ $(document).ready(function() {
         $('#metric-drawdown').text(m.max_drawdown + '%');
         // 回撤优化展示
         let ddBadge = '';
-        if (m.dd_reduction > 0) {
-            ddBadge = `<span class="badge bg-success ms-1" title="比买入持有少跌 ${m.dd_reduction}%"><i class="bi bi-shield-check"></i> 风险降 ${m.dd_reduction}%</span>`;
-        } else {
-            ddBadge = `<span class="badge bg-danger ms-1">风险增 ${Math.abs(m.dd_reduction)}%</span>`;
+        let ddRed = parseFloat(m.dd_reduction);
+        if (!isNaN(ddRed)) {
+            if (ddRed > 0) {
+                ddBadge = `<span class="badge bg-success ms-1" title="比买入持有少跌 ${ddRed}%"><i class="bi bi-shield-check"></i> 降 ${ddRed}%</span>`;
+            } else {
+                ddBadge = `<span class="badge bg-danger ms-1">增 ${Math.abs(ddRed)}%</span>`;
+            }
         }
         $('#bench-drawdown').html(`基准: ${m.bench_max_drawdown}% ${ddBadge}`);
+        
+        // 卡玛比率展示
+        $('#metric-calmar').text(m.calmar_ratio);
+        let calmarBadge = '';
+        let calImp = parseFloat(m.calmar_imp);
+        if (!isNaN(calImp) && calImp > 0) {
+            calmarBadge = `<span class="badge bg-success ms-1" title="回撤性价比提升 ${calImp}%">↑ ${calImp}%</span>`;
+        }
+        $('#bench-calmar').html(`基准: ${m.bench_calmar} ${calmarBadge}`);
+
+        $('#metric-sharpe').text(m.sharpe_ratio);
+        // 夏普提升展示
+        let sharpeBadge = '';
+        let shImp = parseFloat(m.sharpe_imp);
+        if (!isNaN(shImp) && shImp > 0) {
+            sharpeBadge = `<span class="badge bg-info text-dark ms-1" title="波动性价比提升 ${shImp}%">↑ ${shImp}%</span>`;
+        }
+        $('#bench-sharpe').html(`基准: ${m.bench_sharpe} ${sharpeBadge}`);
         
         $('#metric-cagr').text(m.annualized_return + '%');
         $('#metric-cagr').removeClass().addClass('text-end fw-bold ' + (m.annualized_return >= 0 ? 'text-danger' : 'text-success'));
@@ -251,14 +436,6 @@ $(document).ready(function() {
             $('#metric-max-util').removeClass('text-danger');
             $('#util-warning').empty();
         }
-        
-        $('#metric-sharpe').text(m.sharpe_ratio);
-        // 夏普提升展示
-        let sharpeBadge = '';
-        if (m.sharpe_imp > 0) {
-            sharpeBadge = `<span class="badge bg-info text-dark ms-1" title="性价比提升 ${m.sharpe_imp}%"><i class="bi bi-graph-up"></i> 效能升 ${m.sharpe_imp}%</span>`;
-        }
-        $('#bench-sharpe').html(`基准: ${m.bench_sharpe} ${sharpeBadge}`);
         
         $('#metric-trades').text(m.trade_count);
 
@@ -501,144 +678,146 @@ $(document).ready(function() {
             if (minVal === Infinity) { minVal = 0; maxVal = 1; }
             if (minVal === maxVal) { maxVal += 0.1; minVal -= 0.1; }
 
-                    // 寻找当前参数的位置 (You Are Here)
-                    const currentDensity = parseFloat($('#grid-density').val());
-                    const currentGap = parseFloat($('#sell-gap').val());
-                    
-                    let currentXIndex = -1;
-                    let currentYIndex = -1;
-                    
-                    // 简单的最近邻查找
-                    // x_axis: ["0.5%", "1.0%", ...]
-                    let minDiffX = Infinity;
-                    res.x_axis.forEach((label, idx) => {
-                        const val = parseFloat(label);
-                        const diff = Math.abs(val - currentGap);
-                        if (diff < minDiffX) {
-                            minDiffX = diff;
-                            currentXIndex = idx;
-                        }
-                    });
-                    
-                    let minDiffY = Infinity;
-                    res.y_axis.forEach((label, idx) => {
-                        const val = parseFloat(label);
-                        const diff = Math.abs(val - currentDensity);
-                        if (diff < minDiffY) {
-                            minDiffY = diff;
-                            currentYIndex = idx;
-                        }
-                    });
-                    
-                    const markData = [];
-                    // 只有当误差在合理范围内才显示标记 (比如 0.25 之内)
-                    if (currentXIndex !== -1 && currentYIndex !== -1 && minDiffX < 0.25 && minDiffY < 0.25) {
-                        // 获取该点的值用于 label
-                        // 需要遍历 points 找对应的值? 或者直接不显示值，只显示标记
-                        markData.push([currentXIndex, currentYIndex]);
-                    }
+            // 寻找当前参数的位置 (You Are Here)
+            const currentDensity = parseFloat($('#grid-density').val());
+            const currentGap = parseFloat($('#sell-gap').val());
             
-                    const option = {
-                        title: { text: `参数热力图 (${metricName})`, left: 'center' },
-                        tooltip: { 
-                            position: 'top',
-                            formatter: function (params) {
-                                if (params.seriesType === 'scatter') {
-                                    return `当前设置<br/>网格密度: ${currentDensity}%<br/>止盈间距: ${currentGap}%`;
-                                }
-                                const xIndex = params.data[0];
-                                const yIndex = params.data[1];
-                                const val = params.data[2];
-                                const xLabel = res.x_axis[xIndex]; // Sell Gap
-                                const yLabel = res.y_axis[yIndex]; // Grid Density
-                                return `
-                                    <div><b>参数组合详情</b></div>
-                                    <div>网格密度: ${yLabel}</div>
-                                    <div>止盈间距: ${xLabel}</div>
-                                    <div>${metricName}: <b>${val}</b></div>
-                                `;
-                            }
-                        },
-                        grid: { height: '70%', top: '15%' },
-                        xAxis: {
-                            type: 'category',
-                            data: res.x_axis,
-                            splitArea: { show: true },
-                            name: 'Sell Gap'
-                        },
-                        yAxis: {
-                            type: 'category',
-                            data: res.y_axis,
-                            splitArea: { show: true },
-                            name: 'Grid Density'
-                        },
-                                    visualMap: {
-                                        min: minVal,
-                                        max: maxVal,
-                                        calculable: true,
-                                        orient: 'horizontal',
-                                        left: 'center',
-                                        bottom: '5%',
-                                        precision: 2,
-                                        seriesIndex: [0], // 关键：只控制热力图，不控制散点图
-                                        inRange: {
-                                            color: ['#ff4d4f', '#fadb14', '#52c41a']
-                                        }
-                                    },            series: [
-                {
-                    name: metricName,
-                    type: 'heatmap',
-                    data: points,
-                    label: { show: true, formatter: (p) => p.data[2] },
-                    emphasis: {
-                        itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' }
+            let currentXIndex = -1;
+            let currentYIndex = -1;
+            
+            // 简单的最近邻查找
+            // x_axis: ["0.5%", "1.0%", ...]
+            let minDiffX = Infinity;
+            res.x_axis.forEach((label, idx) => {
+                const val = parseFloat(label);
+                const diff = Math.abs(val - currentGap);
+                if (diff < minDiffX) {
+                    minDiffX = diff;
+                    currentXIndex = idx;
+                }
+            });
+            
+            let minDiffY = Infinity;
+            res.y_axis.forEach((label, idx) => {
+                const val = parseFloat(label);
+                const diff = Math.abs(val - currentDensity);
+                if (diff < minDiffY) {
+                    minDiffY = diff;
+                    currentYIndex = idx;
+                }
+            });
+            
+            const markData = [];
+            // 只有当误差在合理范围内才显示标记 (比如 0.25 之内)
+            if (currentXIndex !== -1 && currentYIndex !== -1 && minDiffX < 0.25 && minDiffY < 0.25) {
+                // 获取该点的值用于 label
+                // 需要遍历 points 找对应的值? 或者直接不显示值，只显示标记
+                markData.push([currentXIndex, currentYIndex]);
+            }
+    
+            const option = {
+                title: { text: `参数热力图 (${metricName})`, left: 'center' },
+                tooltip: { 
+                    position: 'top',
+                    formatter: function (params) {
+                        if (params.seriesType === 'scatter') {
+                            return `当前设置<br/>网格密度: ${currentDensity}%<br/>止盈间距: ${currentGap}%`;
+                        }
+                        const xIndex = params.data[0];
+                        const yIndex = params.data[1];
+                        const val = params.data[2];
+                        const xLabel = res.x_axis[xIndex]; // Sell Gap
+                        const yLabel = res.y_axis[yIndex]; // Grid Density
+                        return `
+                            <div><b>参数组合详情</b></div>
+                            <div>网格密度: ${yLabel}</div>
+                            <div>止盈间距: ${xLabel}</div>
+                            <div>${metricName}: <b>${val}</b></div>
+                        `;
                     }
                 },
-                {
-                    name: '当前参数',
-                    type: 'scatter',
-                    data: (currentXIndex !== -1 && currentYIndex !== -1 && minDiffX < 0.25 && minDiffY < 0.25) ? [[currentXIndex, currentYIndex]] : [],
-                    symbol: 'circle',
-                    symbolSize: 20,
-                    itemStyle: {
-                        color: '#2f54eb', // 深蓝色
-                        shadowBlur: 5,
-                        shadowColor: 'rgba(0, 0, 0, 0.5)'
+                grid: { height: '70%', top: '15%' },
+                xAxis: {
+                    type: 'category',
+                    data: res.x_axis,
+                    splitArea: { show: true },
+                    name: 'Sell Gap'
+                },
+                yAxis: {
+                    type: 'category',
+                    data: res.y_axis,
+                    splitArea: { show: true },
+                    name: 'Grid Density'
+                },
+                visualMap: {
+                    min: minVal,
+                    max: maxVal,
+                    calculable: true,
+                    orient: 'horizontal',
+                    left: 'center',
+                    bottom: '5%',
+                    precision: 2,
+                    seriesIndex: [0], // 关键：只控制热力图，不控制散点图
+                    inRange: {
+                        color: ['#ff4d4f', '#fadb14', '#52c41a']
+                    }
+                },
+                series: [
+                    {
+                        name: metricName,
+                        type: 'heatmap',
+                        data: points,
+                        label: { show: true, formatter: (p) => p.data[2] },
+                        emphasis: {
+                            itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' }
+                        }
                     },
-                    label: {
-                        show: false
-                    },
-                    z: 10 // 确保在最上层
-                }
-                        ]
-                    };
-                    heatmapChart.setOption(option);
-                    heatmapChart.resize(); // 显式 resize
+                    {
+                        name: '当前参数',
+                        type: 'scatter',
+                        data: (currentXIndex !== -1 && currentYIndex !== -1 && minDiffX < 0.25 && minDiffY < 0.25) ? [[currentXIndex, currentYIndex]] : [],
+                        symbol: 'star',
+                        symbolSize: 20,
+                        itemStyle: {
+                            color: '#2f54eb', // 深蓝色
+                            shadowBlur: 5,
+                            shadowColor: 'rgba(0, 0, 0, 0.5)'
+                        },
+                        label: {
+                            show: false
+                        },
+                        z: 10 // 确保在最上层
+                    }
+                ]
+            };
+            heatmapChart.setOption(option);
+            heatmapChart.resize(); // 显式 resize
+            
+            // 监听点击事件：回填参数
+            heatmapChart.off('click'); // 防止重复绑定
+            heatmapChart.on('click', function (params) {
+                if (params.seriesType === 'heatmap') {
+                    const xIndex = params.data[0];
+                    const yIndex = params.data[1];
+                    const gapStr = res.x_axis[xIndex].replace('%', '');
+                    const denStr = res.y_axis[yIndex].replace('%', '');
                     
-                    // 监听点击事件：回填参数
-                    heatmapChart.off('click'); // 防止重复绑定
-                    heatmapChart.on('click', function (params) {
-                        if (params.seriesType === 'heatmap') {
-                            const xIndex = params.data[0];
-                            const yIndex = params.data[1];
-                            const gapStr = res.x_axis[xIndex].replace('%', '');
-                            const denStr = res.y_axis[yIndex].replace('%', '');
-                            
-                                            $('#sell-gap').val(gapStr);
-                                            $('#grid-density').val(denStr);
-                                            
-                                            // 视觉反馈：闪烁输入框
-                                            $('#sell-gap, #grid-density').addClass('bg-warning bg-opacity-25');
-                                            setTimeout(() => {
-                                                $('#sell-gap, #grid-density').removeClass('bg-warning bg-opacity-25');
-                                            }, 500);
-                                            
-                                            // 立即重绘热力图，更新五角星位置
-                                            renderHeatmap();
-                                        }
-                                    });
-                                }, 100);
-                            }
+                    $('#sell-gap').val(gapStr);
+                    $('#grid-density').val(denStr);
+                    
+                    // 视觉反馈：闪烁输入框
+                    $('#sell-gap, #grid-density').addClass('bg-warning bg-opacity-25');
+                    setTimeout(() => {
+                        $('#sell-gap, #grid-density').removeClass('bg-warning bg-opacity-25');
+                    }, 500);
+                    
+                    // 立即重绘热力图，更新五角星位置
+                    renderHeatmap();
+                }
+            });
+        }, 100);
+    }
+
     function formatTs(ts) {
         // ts: YYYYMMDDHHMM
         if (ts.length < 12) return ts;

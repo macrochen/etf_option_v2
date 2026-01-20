@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from grid.min_data_loader import MinDataLoader
 from grid.data_loader import GridDataLoader
 from grid.shannon_engine import ShannonEngine
+from services.shannon_scorer import ShannonGridScorer
 import logging
 
 shannon_bp = Blueprint('shannon', __name__)
@@ -28,6 +29,41 @@ def clean_nan(obj):
         except (ValueError, TypeError):
             return obj
     return obj
+
+@shannon_bp.route('/api/shannon/score', methods=['GET'])
+def get_shannon_score():
+    """获取香农网格适格性评分"""
+    try:
+        symbol = request.args.get('symbol')
+        if not symbol:
+            return jsonify({'error': 'Missing symbol'}), 400
+            
+        # 加载全量日线数据
+        df_daily = daily_loader.load_daily_data(symbol)
+        
+        if df_daily.empty:
+            # 尝试从分钟库聚合日线作为兜底
+            df_min = min_loader.load_data(symbol)
+            if not df_min.empty:
+                # 简单聚合
+                df_min['dt'] = pd.to_datetime(df_min['timestamp'])
+                df_min['date'] = df_min['dt'].dt.date
+                df_daily = df_min.groupby('date').agg({
+                    'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'
+                }).reset_index()
+                # 转换 date 列为 datetime 以便 scorer 排序
+                df_daily['date'] = pd.to_datetime(df_daily['date'])
+            else:
+                return jsonify({'error': 'No data found for scoring'}), 404
+        
+        scorer = ShannonGridScorer(df_daily)
+        result = scorer.calculate_score()
+        
+        return jsonify(clean_nan(result))
+        
+    except Exception as e:
+        logging.error(f"Shannon Score Error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 def _get_engine(symbol, start_date, end_date):
     """
@@ -268,23 +304,33 @@ def run_backtest():
                 bench_sharpe = 0.0
                 
             # 心理按摩指标
-            # 1. 回撤优化率 (降低了多少比例的风险)
+            # 1. 回撤优化率
             if bench_max_dd > 0.001: 
                 dd_reduction = (bench_max_dd - max_drawdown) / bench_max_dd * 100
             else:
                 dd_reduction = 0.0
             
-            if np.isnan(dd_reduction) or np.isinf(dd_reduction):
-                dd_reduction = 0.0
-                
-            # 2. 夏普提升率 (性价比提升了多少)
+            # 2. 卡玛比率 (年化收益 / 最大回撤)
+            calmar_ratio = annualized_return / max_drawdown if max_drawdown > 0.1 else annualized_return / 0.1
+            bench_annual = ((initial * (daily_df.iloc[-1]['close'] / base_close) / initial) ** (252 / days_trading) - 1) * 100 if days_trading > 10 else bench_return
+            bench_calmar = bench_annual / bench_max_dd if bench_max_dd > 0.1 else bench_annual / 0.1
+            
+            # 3. 夏普提升率
             if abs(bench_sharpe) > 0.01:
                 sharpe_imp = (sharpe_ratio - bench_sharpe) / abs(bench_sharpe) * 100
             else:
                 sharpe_imp = 0.0
                 
-            if np.isnan(sharpe_imp) or np.isinf(sharpe_imp):
-                sharpe_imp = 0.0
+            # 4. 卡玛提升率
+            if abs(bench_calmar) > 0.01:
+                calmar_imp = (calmar_ratio - bench_calmar) / abs(bench_calmar) * 100
+            else:
+                calmar_imp = 0.0
+
+            # 清洗 NaN
+            for v in [dd_reduction, sharpe_imp, calmar_imp, calmar_ratio, bench_calmar]:
+                if np.isnan(v) or np.isinf(v):
+                    v = 0.0
 
         except Exception as e:
             logging.error(f"Error constructing daily curve: {e}", exc_info=True)
@@ -307,6 +353,9 @@ def run_backtest():
                 'sharpe_ratio': round(sharpe_ratio, 2),
                 'bench_sharpe': round(bench_sharpe, 2),
                 'sharpe_imp': round(sharpe_imp, 1),
+                'calmar_ratio': round(calmar_ratio, 2),
+                'bench_calmar': round(bench_calmar, 2),
+                'calmar_imp': round(calmar_imp, 1),
                 'dd_reduction': round(dd_reduction, 1)
             },
             'daily_curve': daily_curve,

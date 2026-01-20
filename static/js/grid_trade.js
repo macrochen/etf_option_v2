@@ -25,21 +25,43 @@ $(document).ready(function() {
     // 3. 监听 ETF 选择变化
     $('#etf-select').on('change', function() {
         const val = $(this).val();
-        if(val) $('#etf-code-input').val(val);
-        updateDateRangeDisplay();
+        if(val) {
+            $('#etf-code-input').val(val);
+            updateDateRangeDisplay();
+        }
+    });
+
+    // 新增：监听输入框手动输入，实时联动下拉框
+    $('#etf-code-input').on('input', function() {
+        const code = $(this).val().trim();
+        const $select = $('#etf-select');
+        const $matchedOpt = $select.find(`option[value="${code}"]`);
+        
+        if ($matchedOpt.length > 0) {
+            $select.val(code);
+            updateDateRangeDisplay();
+        } else {
+            // 如果没匹配到，清除时间范围显示
+            $('#data-range-display').text('代码未加载').removeClass('text-success');
+        }
     });
     
     function updateDateRangeDisplay() {
         const $opt = $('#etf-select option:selected');
         const start = $opt.data('start');
         const end = $opt.data('end');
+        
         if (start && end) {
             $('#data-range-display').text(`${start} ~ ${end}`).addClass('text-success');
+            
             // 设置输入框的 min/max 属性
             $('#custom-start-date').attr('min', start).attr('max', end);
             $('#custom-end-date').attr('min', start).attr('max', end);
             
-            // 默认设置结束时间为数据结束时间
+            // 自动填充日期（如果当前为空）
+            if (!$('#custom-start-date').val()) {
+                $('#custom-start-date').val(start);
+            }
             if (!$('#custom-end-date').val()) {
                 $('#custom-end-date').val(end);
             }

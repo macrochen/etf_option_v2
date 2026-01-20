@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, jsonify, request
 from db.market_db import MarketDatabase
 from grid.models import GridContext, StrategyMode
 from grid.data_loader import GridDataLoader
+from grid.min_data_loader import MinDataLoader
 from grid.strategy import SmartGridStrategy
 from grid.backtester import PathSimulator
 from grid.indicators import Indicators
@@ -23,8 +24,9 @@ def index():
 
 @grid_trade_bp.route('/api/grid_trade/etf_list', methods=['GET'])
 def get_etf_list():
-    """获取已有的ETF列表"""
-    etf_list = market_db.get_grid_trade_etf_list()
+    """获取已有的ETF列表 (基于分钟线数据库)"""
+    loader = MinDataLoader()
+    etf_list = loader.get_etf_list()
     return jsonify(etf_list)
 
 @grid_trade_bp.route('/api/grid_trade/load_etf', methods=['POST'])

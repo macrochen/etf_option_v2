@@ -2,6 +2,7 @@ import sqlite3
 import pandas as pd
 import akshare as ak
 import os
+import glob
 from datetime import datetime
 
 class MinDataLoader:
@@ -53,11 +54,148 @@ class MinDataLoader:
         conn.close()
         return df
 
+    def get_etf_list(self) -> list:
+        """
+        获取已有分钟线数据的 ETF 列表。
+        逻辑：
+        1. 从 etf_min_1m 表提取所有 symbol 及其起止时间。
+        2. 关联 fund_info 表获取名称。
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            
+            # 关联 market_data.db 获取基金名称
+            info_db_path = 'db/market_data.db'
+            if os.path.exists(info_db_path):
+                conn.execute(f"ATTACH DATABASE '{info_db_path}' AS info_db")
+                query = """
+                    SELECT 
+                        t1.symbol, 
+                        COALESCE(t2.fund_name, t1.symbol) as name,
+                        MIN(t1.timestamp) as start_date,
+                        MAX(t1.timestamp) as end_date
+                    FROM etf_min_1m t1
+                    LEFT JOIN info_db.fund_info t2 ON t1.symbol = t2.fund_code
+                    GROUP BY t1.symbol
+                    ORDER BY t1.symbol
+                """
+            else:
+                query = """
+                    SELECT 
+                        symbol, 
+                        symbol as name,
+                        MIN(timestamp) as start_date,
+                        MAX(timestamp) as end_date
+                    FROM etf_min_1m
+                    GROUP BY symbol
+                    ORDER BY symbol
+                """
+            
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            conn.close()
+            
+            data = []
+            for r in rows:
+                # 仅保留日期部分
+                start = r[2].split(' ')[0] if r[2] else ''
+                end = r[3].split(' ')[0] if r[3] else ''
+                
+                data.append({
+                    'code': r[0],
+                    'name': r[1],
+                    'start_date': start,
+                    'end_date': end
+                })
+                
+            return data
+            
+        except Exception as e:
+            print(f"Error getting ETF list: {e}")
+            return []
+
+    def import_from_local_parquet(self, symbol: str, parquet_dir='data/etf_1min') -> bool:
+        """
+        优先从本地 Parquet 文件增量导入数据。
+        参考 scripts/import_parquet_data.py 的处理逻辑 (含复权和格式转换)。
+        """
+        try:
+            # 查找文件
+            pattern = os.path.join(parquet_dir, f"*{symbol}*.parquet")
+            files = glob.glob(pattern)
+            
+            if not files:
+                return False
+                
+            file_path = files[0]
+            df = pd.read_parquet(file_path)
+            
+            if df.empty:
+                return False
+
+            # Parquet 可能使用 MultiIndex (trade_date, trade_time)
+            df = df.reset_index()
+
+            # 1. 前复权处理 (Forward Adjust)
+            if 'adj_factor' in df.columns:
+                latest_adj = df['adj_factor'].iloc[-1]
+                if latest_adj != 0:
+                    mult = df['adj_factor'] / latest_adj
+                    px_cols = ['open', 'high', 'low', 'close']
+                    df[px_cols] = df[px_cols].mul(mult, axis=0).round(3)
+            
+            # 2. 格式转换 trade_time -> timestamp
+            if 'trade_time' in df.columns:
+                df['timestamp'] = df['trade_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                print(f"Missing 'trade_time' column in {file_path}")
+                return False
+
+            df['symbol'] = symbol
+            
+            # 映射 volume 字段 (parquet 中通常是 vol)
+            if 'vol' in df.columns:
+                df['volume'] = df['vol']
+            
+            # 检查必要列
+            required_cols = ['symbol', 'timestamp', 'open', 'high', 'low', 'close', 'volume', 'amount']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                print(f"Missing columns in {file_path}: {missing_cols}")
+                return False
+                
+            data_to_insert = df[required_cols].values.tolist()
+            
+            conn = sqlite3.connect(self.db_path)
+            conn.executemany('''
+                INSERT OR REPLACE INTO etf_min_1m (symbol, timestamp, open, high, low, close, volume, amount)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', data_to_insert)
+            
+            conn.commit()
+            conn.close()
+            print(f"Successfully imported {len(df)} records from {file_path}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error importing from local parquet for {symbol}: {e}")
+            return False
+
+
     def update_data(self, symbol: str) -> bool:
         """
-        从 AKShare 下载最新分钟数据并更新到数据库。
-        注意：fund_etf_hist_min_em 通常返回最近一段时间的数据（如最近几千条）。
+        更新数据策略：
+        1. 优先尝试从本地 data/etf_1min/ 下的 parquet 文件导入。
+        2. 如果本地无文件，则从 AKShare 下载。
         """
+        # 1. 尝试本地导入
+        if self.import_from_local_parquet(symbol):
+            return True
+            
+        # 2. 降级到 AKShare 在线下载
+        print(f"Fallback to AKShare download for {symbol}...")
         try:
             # period='1' 代表 1分钟线
             df = ak.fund_etf_hist_min_em(symbol=symbol, period='1', adjust='qfq')
@@ -103,6 +241,7 @@ class MinDataLoader:
             
             conn.commit()
             conn.close()
+            
             return True
             
         except Exception as e:
