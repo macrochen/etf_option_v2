@@ -12,14 +12,71 @@ $(document).ready(function() {
     // 1. 初始化 ETF 列表
     loadEtfList();
 
-    // 监听开始日期变化，自动填充推荐区间
-    $('#start-date').on('change', function() {
+    // 监听日期变化：同步滑杆 + 自动填充推荐区间
+    $('#start-date, #end-date').on('change', function() {
         const symbol = $('#symbol').val();
-        const date = $(this).val();
-        if (symbol && date) {
-            fetchPriceInfo(symbol, date);
+        const startVal = $('#start-date').val();
+        const endVal = $('#end-date').val();
+        
+        // 同步滑杆
+        const $slider = $('#date-slider');
+        if ($slider.hasClass('ui-slider') && startVal && endVal) {
+            const sTs = new Date(startVal).getTime();
+            const eTs = new Date(endVal).getTime();
+            // 简单校验
+            if (sTs <= eTs) {
+                $slider.slider("values", [sTs, eTs]);
+            }
+        }
+
+        // 仅当 start-date 变化时触发价格获取 (因为推荐区间只依赖开始时间)
+        if ($(this).attr('id') === 'start-date' && symbol && startVal) {
+            fetchPriceInfo(symbol, startVal);
         }
     });
+    
+    function initDateSlider(minDateStr, maxDateStr) {
+        // 转换 UTC 时间戳，避免时区问题导致日期偏差
+        const parseDate = (str) => new Date(str + 'T00:00:00');
+        const minTs = parseDate(minDateStr).getTime();
+        const maxTs = parseDate(maxDateStr).getTime();
+        
+        let currStart = $('#start-date').val() ? parseDate($('#start-date').val()).getTime() : minTs;
+        let currEnd = $('#end-date').val() ? parseDate($('#end-date').val()).getTime() : maxTs;
+        
+        if (currStart < minTs) currStart = minTs;
+        if (currEnd > maxTs) currEnd = maxTs;
+        if (currStart > currEnd) currStart = currEnd;
+
+        // 如果已初始化，先销毁
+        if ($('#date-slider').hasClass('ui-slider')) {
+            $('#date-slider').slider("destroy");
+        }
+
+        $('#date-slider').slider({
+            range: true,
+            min: minTs,
+            max: maxTs,
+            step: 86400000, // 1 day
+            values: [currStart, currEnd],
+            slide: function(event, ui) {
+                // 转换回 YYYY-MM-DD
+                const fmt = (ts) => {
+                    const d = new Date(ts);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${day}`;
+                };
+                $('#start-date').val(fmt(ui.values[0]));
+                $('#end-date').val(fmt(ui.values[1]));
+            },
+            stop: function(event, ui) {
+                // 拖动结束后触发一次 change 事件，以便更新价格信息
+                $('#start-date').trigger('change');
+            }
+        });
+    }
 
     // 加载 ETF 列表
     function loadEtfList(selectedCode = null) {
@@ -71,6 +128,9 @@ $(document).ready(function() {
             
             if ($('#start-date').val() < start) $('#start-date').val(start);
             if ($('#end-date').val() > end) $('#end-date').val(end);
+            
+            // 初始化滑杆
+            initDateSlider(start, end);
         } else {
              // 如果没数据或没选中
              const val = $('#etf-select').val();
@@ -78,6 +138,10 @@ $(document).ready(function() {
                  $('#data-status').text('该标的暂无本地数据，请点击右侧下载按钮').addClass('text-muted').removeClass('text-success text-danger');
              } else {
                  $('#data-status').text('').removeClass();
+             }
+             // 销毁滑杆防止残留
+             if ($('#date-slider').hasClass('ui-slider')) {
+                 $('#date-slider').slider("destroy");
              }
         }
     }
