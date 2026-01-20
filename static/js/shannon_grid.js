@@ -88,9 +88,38 @@ $(document).ready(function() {
                 $('#lower-limit').val(res.rec_lower);
                 $('#upper-limit').val(res.rec_upper);
                 
-                // 可选：显示基准价格提示
-                // 比如在 input 旁边显示 "基准: 3.000"
-                // 暂时不改 UI 结构，直接填充数值
+                // 渲染估值状态
+                if (res.valuation) {
+                    const v = res.valuation;
+                    const isDefault = v.status.includes('默认');
+                    const color = v.status.includes('低估') ? 'success' : (v.status.includes('高估') ? 'danger' : 'primary');
+                    const bgClass = isDefault ? 'bg-light text-muted' : `bg-${color} bg-opacity-10 text-${color}`;
+                    
+                    const $container = $('#valuation-status-container');
+                    $container.empty();
+                    
+                    const $box = $('<div class="rounded p-2 mt-2 mb-0 small border"></div>');
+                    
+                    if (isDefault) {
+                        $box.addClass('bg-light text-muted')
+                            .html(`<i class="bi bi-exclamation-circle"></i> ${v.status} (将使用默认宽区间)`);
+                    } else {
+                        $box.addClass(`border-${color} ${bgClass}`)
+                            .html(`
+                                <div class="d-flex justify-content-between">
+                                    <span><i class="bi bi-graph-up"></i> ${v.index_name || '跟踪指数'}</span>
+                                    <strong>${v.status}</strong>
+                                </div>
+                                <div class="mt-1">
+                                    ${v.metric}: <b>${v.current_val}</b> (分位: ${v.percentile}%)
+                                </div>
+                                <div class="progress mt-1" style="height: 4px;">
+                                    <div class="progress-bar bg-${color}" style="width: ${v.percentile}%"></div>
+                                </div>
+                            `);
+                    }
+                    $container.append($box);
+                }
             }
         }).fail(function() {
             console.log('无法获取基准价格 (可能是本地无数据)');

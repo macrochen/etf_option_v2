@@ -6,11 +6,13 @@ from grid.min_data_loader import MinDataLoader
 from grid.data_loader import GridDataLoader
 from grid.shannon_engine import ShannonEngine
 from services.shannon_scorer import ShannonGridScorer
+from grid.boundary_calc import DynamicGridBoundary
 import logging
 
 shannon_bp = Blueprint('shannon', __name__)
 min_loader = MinDataLoader()
 daily_loader = GridDataLoader()
+boundary_calc = DynamicGridBoundary()
 
 def clean_nan(obj):
     """递归将 NaN/Inf 替换为 0.0，确保 JSON 兼容"""
@@ -121,15 +123,16 @@ def get_price_info():
         first_row = df.iloc[0]
         base_price = float(first_row['open'])
         
-        # 推荐逻辑：下限 0.7，上限 1.3
-        rec_lower = round(base_price * 0.7, 3)
-        rec_upper = round(base_price * 1.3, 3)
+        # 使用 DynamicGridBoundary 计算动态上下限
+        # 传入 start_date 作为回测视角下的"当前时间"
+        limits = boundary_calc.calculate_limits(symbol, base_price, date_str)
         
         return jsonify({
             'success': True,
             'price': base_price,
-            'rec_lower': rec_lower,
-            'rec_upper': rec_upper,
+            'rec_lower': limits['lower'],
+            'rec_upper': limits['upper'],
+            'valuation': limits['valuation'],
             'actual_date': str(first_row['timestamp'])[:8]
         })
         

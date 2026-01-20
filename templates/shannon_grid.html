@@ -38,6 +38,15 @@
                                     <input type="date" class="form-control" id="end-date">
                                 </div>
                             </div>
+                            
+                            <div class="d-flex gap-2 mt-3">
+                                <button type="submit" class="btn btn-primary flex-grow-1" id="btn-run">
+                                    <i class="bi bi-play-fill"></i> 运行回测
+                                </button>
+                                <button type="button" class="btn btn-outline-success flex-grow-1" id="btn-heatmap">
+                                    <i class="bi bi-grid-3x3"></i> 生成热力图
+                                </button>
+                            </div>
                         </div>
 
                         <!-- 资金与网格 -->
@@ -75,24 +84,17 @@
                         <div class="col-md-4">
                             <h6 class="text-muted mb-3">边界控制 (有效战场)</h6>
                             <div class="mb-2">
-                                <label class="form-label small text-success" data-bs-toggle="tooltip" title="区间上限 (Upper Limit)：当价格突破此值时，清空网格仓位（保留底仓），防止卖飞后回补。">区间上限 (清仓位) <i class="bi bi-info-circle small text-muted"></i></label>
+                                <label class="form-label small text-success">区间上限 (清仓位) <i class="bi bi-info-circle text-muted" data-bs-toggle="tooltip" title="突破此值时清空网格仓位 (保留底仓)，防止卖飞后回补"></i></label>
                                 <input type="number" class="form-control form-control-sm" id="upper-limit" value="999.0" step="0.001">
-                                <div class="form-text small">突破清仓网格 (留底仓)</div>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label small text-danger" data-bs-toggle="tooltip" title="区间下限 (Lower Limit)：当价格跌破此值时，停止买入（装死），防止接飞刀。">区间下限 (止损位) <i class="bi bi-info-circle small text-muted"></i></label>
+                                <label class="form-label small text-danger">区间下限 (止损位) <i class="bi bi-info-circle text-muted" data-bs-toggle="tooltip" title="跌破此值时停止买入 (装死)，防止接飞刀"></i></label>
                                 <input type="number" class="form-control form-control-sm" id="lower-limit" value="0.0" step="0.001">
-                                <div class="form-text small">跌破停止买入 (装死)</div>
                             </div>
                             
-                            <div class="d-flex gap-2 mt-3">
-                                <button type="submit" class="btn btn-primary flex-grow-1" id="btn-run">
-                                    <i class="bi bi-play-fill"></i> 运行回测
-                                </button>
-                                <button type="button" class="btn btn-outline-success flex-grow-1" id="btn-heatmap">
-                                    <i class="bi bi-grid-3x3"></i> 生成热力图
-                                </button>
-                            </div>
+                            <!-- 估值状态展示区 -->
+                            <div id="valuation-status-container"></div>
+                        </div>
                         </div>
                     </div>
                 </form>

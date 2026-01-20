@@ -16,6 +16,7 @@ class MarketDatabase:
         self.db = Database(db_path)
         self.fund_info_manager = FundInfoManager(db_path)
         self._init_asset_classification_table()
+        self._init_valuation_tables()
         
     def _init_asset_classification_table(self):
         """初始化资产分类表"""
@@ -28,6 +29,30 @@ class MarketDatabase:
                 category_2 VARCHAR(50),
                 updated_at TIMESTAMP,
                 PRIMARY KEY (asset_code, market)
+            )
+        ''')
+
+    def _init_valuation_tables(self):
+        """初始化估值相关表"""
+        # ETF -> 指数 映射表
+        self.db.execute('''
+            CREATE TABLE IF NOT EXISTS etf_index_mapping (
+                etf_code TEXT PRIMARY KEY,
+                index_code TEXT,
+                index_name TEXT,
+                update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # 指数历史估值表
+        self.db.execute('''
+            CREATE TABLE IF NOT EXISTS index_valuation_history (
+                index_code TEXT,
+                date TEXT,
+                pe REAL,
+                pb REAL,
+                update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (index_code, date)
             )
         ''')
         
