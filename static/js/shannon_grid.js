@@ -161,9 +161,25 @@ $(document).ready(function() {
             const colorClass = 'text-' + res.color;
             const badgeClass = 'bg-' + res.color;
             
+            // 处理评语中的特赦标记
+            let verdictHtml = res.verdict;
+            if (res.is_bull_exemption) {
+                const tip = "触发牛市特赦条款：因短期热度极高(>85)，系统自动调低了安全权重。属于高风险趋势交易。";
+                // 将文字 [趋势特赦] 替换为带图标的红标签
+                const tag = ` <span class="badge bg-danger ms-1" data-bs-toggle="tooltip" title="${tip}" style="cursor: help;"><i class="bi bi-fire"></i> 趋势特赦</span>`;
+                verdictHtml = res.verdict.replace('[趋势特赦]', tag);
+            }
+            
             $('#total-score').text(score).removeClass().addClass(`display-4 fw-bold mb-0 ${colorClass}`);
-            $('#score-verdict').text(res.verdict).removeClass().addClass(colorClass + ' mt-2');
+            $('#score-verdict').html(verdictHtml).removeClass().addClass(colorClass + ' mt-2');
             $('#score-badge').text(res.verdict.split(' ')[0]).removeClass().addClass(`badge ${badgeClass}`);
+            
+            // 重新初始化新产生的 Tooltip
+            setTimeout(() => {
+                $('#score-verdict [data-bs-toggle="tooltip"]').each(function() {
+                    new bootstrap.Tooltip(this, { container: 'body' });
+                });
+            }, 100);
             
             // 渲染雷达图
             renderRadarChart(res);

@@ -166,7 +166,21 @@ class ShannonGridScorer:
         score_short = np.interp(recent_amp, [0.5, 2.5], [0, 100])
 
         # 4. 加权汇总
+        # 原逻辑：40% 基因 + 30% 安全 + 30% 热度
         total_score = (score_long * 0.4) + (score_mid * 0.3) + (score_short * 0.3)
+        is_bull_exemption = False
+
+        # 【V2.1 补丁：牛市特赦 (Momentum Exemption)】
+        # 逻辑：如果短期热度极高(>85)，说明处于主升浪/风口。
+        # 此时允许牺牲安全性，大幅提高热度权重，防止踏空。
+        if score_short > 85:
+            # 特赦权重：30% 基因 + 10% 安全 + 60% 热度
+            # 这种配置下，即使安全分很低，只要热度够高，总分也能及格
+            bull_score = (score_long * 0.3) + (score_mid * 0.1) + (score_short * 0.6)
+            
+            if bull_score > total_score:
+                total_score = bull_score
+                is_bull_exemption = True
 
         # 生成评语
         if total_score >= 75:
@@ -181,11 +195,18 @@ class ShannonGridScorer:
         else:
             verdict = "放弃 (Avoid)"
             color = "danger" # Red
+            
+        # 如果触发了特赦，虽然分数高了，但本质是激进策略，颜色和评语微调
+        if is_bull_exemption:
+            verdict += " [趋势特赦]"
+            # 如果原来是 danger/warning，现在变成了 primary/success，
+            # 我们可以保留高分颜色，但一定要在 UI 上加火苗标记
 
         return {
             "total_score": round(total_score, 1),
             "verdict": verdict,
             "color": color,
+            "is_bull_exemption": is_bull_exemption,
             "details": {
                 "long_term_gene": round(score_long, 1),   # 基因分 (MA20穿越)
                 "mid_term_safety": round(score_mid, 1),   # 安全分 (4年分位)
