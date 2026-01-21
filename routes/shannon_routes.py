@@ -3,16 +3,16 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from grid.min_data_loader import MinDataLoader
-from grid.data_loader import GridDataLoader
 from grid.shannon_engine import ShannonEngine
 from services.shannon_scorer import ShannonGridScorer
+from services.similarity_searcher import SimilaritySearcher
 from grid.boundary_calc import DynamicGridBoundary
 import logging
 
 shannon_bp = Blueprint('shannon', __name__)
 min_loader = MinDataLoader()
-daily_loader = GridDataLoader()
 boundary_calc = DynamicGridBoundary()
+similarity_searcher = SimilaritySearcher()
 
 def clean_nan(obj):
     """递归将 NaN/Inf 替换为 0.0，确保 JSON 兼容"""
@@ -40,23 +40,11 @@ def get_shannon_score():
         if not symbol:
             return jsonify({'error': 'Missing symbol'}), 400
             
-        # 加载全量日线数据
-        df_daily = daily_loader.load_daily_data(symbol)
+        # 加载全量日线数据 (从分钟数据聚合)
+        df_daily = min_loader.load_daily_data(symbol)
         
         if df_daily.empty:
-            # 尝试从分钟库聚合日线作为兜底
-            df_min = min_loader.load_data(symbol)
-            if not df_min.empty:
-                # 简单聚合
-                df_min['dt'] = pd.to_datetime(df_min['timestamp'])
-                df_min['date'] = df_min['dt'].dt.date
-                df_daily = df_min.groupby('date').agg({
-                    'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'
-                }).reset_index()
-                # 转换 date 列为 datetime 以便 scorer 排序
-                df_daily['date'] = pd.to_datetime(df_daily['date'])
-            else:
-                return jsonify({'error': 'No data found for scoring'}), 404
+            return jsonify({'error': 'No data found for scoring'}), 404
         
         scorer = ShannonGridScorer(df_daily)
         result = scorer.calculate_score()
@@ -99,6 +87,21 @@ def download_data():
             
     except Exception as e:
         logging.error(f"Download Error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@shannon_bp.route('/api/shannon/similar_scenarios', methods=['GET'])
+def get_similar_scenarios():
+    """获取历史相似情景"""
+    try:
+        symbol = request.args.get('symbol')
+        metric = request.args.get('metric', 'auto')
+        if not symbol:
+            return jsonify({'error': 'Missing symbol'}), 400
+            
+        result = similarity_searcher.find_similar_moments(symbol, metric_preference=metric)
+        return jsonify(clean_nan(result))
+    except Exception as e:
+        logging.error(f"Similar Scenarios Error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @shannon_bp.route('/api/shannon/price_info', methods=['GET'])

@@ -262,3 +262,40 @@ class MinDataLoader:
                 'count': res[2]
             }
         return None
+
+    def load_daily_data(self, symbol: str) -> pd.DataFrame:
+        """
+        从分钟数据聚合出日线数据 (用于相似度搜索等)
+        """
+        # 1. 加载所有分钟数据 (只取需要的列以加速)
+        conn = sqlite3.connect(self.db_path)
+        # 假设 timestamp 格式 YYYY-MM-DD HH:MM:SS
+        # 我们可以直接在 SQL 里做部分聚合，或者加载后 Pandas 聚合
+        # Pandas 聚合通常更灵活
+        df = pd.read_sql_query(
+            "SELECT timestamp, open, high, low, close, volume FROM etf_min_1m WHERE symbol = ? ORDER BY timestamp", 
+            conn, 
+            params=(symbol,)
+        )
+        conn.close()
+        
+        if df.empty:
+            return pd.DataFrame()
+            
+        # 2. 转换时间
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['date'] = df['timestamp'].dt.date
+        
+        # 3. 聚合
+        daily_df = df.groupby('date').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        }).reset_index()
+        
+        # date 转 datetime (为了后续索引统一)
+        daily_df['date'] = pd.to_datetime(daily_df['date'])
+        
+        return daily_df

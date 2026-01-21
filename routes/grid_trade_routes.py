@@ -40,15 +40,15 @@ def load_etf_data():
         etf_code = data['etf_code']
         logging.info(f"开始处理ETF数据下载请求: code={etf_code}")
         
-        # 计算时间范围（5年）
+        # 计算时间范围（为了支持相似场景搜索，下载全量历史，从2005年开始）
         end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=365*5)
+        start_date_str = "20050101"
         
         # 获取数据 (注意：此处仅负责下载并存库，不做清洗)
         df = ak.fund_etf_hist_em(
             symbol=etf_code,
             period="daily",
-            start_date=start_date.strftime("%Y%m%d"),
+            start_date=start_date_str,
             end_date=end_date.strftime("%Y%m%d"),
             adjust="qfq"  # 前复权
         )

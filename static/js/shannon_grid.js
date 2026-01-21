@@ -252,6 +252,150 @@ $(document).ready(function() {
         fetchShannonScore(symbol);
     });
 
+    // 寻找历史相似时刻
+    $('#btn-find-similar').on('click', function() {
+        const symbol = $('#symbol').val();
+        if (!symbol) return alert('请先选择 ETF');
+        
+        // 确保面板展开
+        const $panel = $('#scenarioCardBody');
+        if (!$panel.hasClass('show')) {
+            new bootstrap.Collapse($panel[0], { show: true });
+        }
+        
+        // 获取当前选中的 metric
+        let metric = 'auto';
+        const $checkedMetric = $('#valuation-status-container input[name="val-metric"]:checked');
+        if ($checkedMetric.length > 0) {
+            metric = $checkedMetric.val();
+        }
+        
+        const $btn = $(this);
+        const $statusBox = $('#similar-status-box');
+        const $list = $('#similar-scenarios-list');
+        
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 搜索中...');
+        $statusBox.html('<div class="text-center py-2 text-muted">正在全量扫描历史数据...</div>');
+        $list.empty();
+
+        $.get(`/api/shannon/similar_scenarios?symbol=${symbol}&metric=${metric}`, function(res) {
+            if (res.error) {
+                $statusBox.html(`<div class="alert alert-danger">${res.error}</div>`);
+                return;
+            }
+            
+            // 渲染状态
+            $statusBox.html(`
+                <div class="alert alert-info border-info bg-opacity-10 mb-0">
+                    <h6 class="alert-heading small fw-bold">当前诊断</h6>
+                    <p class="mb-0 small">
+                        跟踪指数: <b>${res.current.index_name}</b><br>
+                        估值指标: <b>${res.current.metric}</b> (分位: <b>${res.current.val_pct}%</b>)<br>
+                        趋势状态: <b>${res.current.trend}</b>
+                    </p>
+                </div>
+            `);
+            
+            // 渲染列表
+            if (res.matches.length === 0) {
+                $list.html('<div class="text-center text-muted py-3">未找到高度相似的历史时刻</div>');
+            } else {
+                res.matches.forEach(m => {
+                    const color = m.future_label.includes('上涨') ? 'success' : (m.future_label.includes('下跌') ? 'danger' : 'warning');
+                    const icon = m.future_label.includes('上涨') ? 'graph-up-arrow' : (m.future_label.includes('下跌') ? 'graph-down-arrow' : 'distribute-horizontal');
+                    
+                    const html = `
+                        <button type="button" class="list-group-item list-group-item-action p-2 btn-apply-scenario" data-date="${m.date}">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1 fw-bold">${m.date}</h6>
+                                <span class="badge bg-${color} text-dark bg-opacity-25 border border-${color}"><i class="bi bi-${icon}"></i> ${m.future_label.split(' ')[0]}</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-end">
+                                <small class="text-muted">相似度: ${m.similarity}%</small>
+                                <small class="text-${color} fw-bold">${m.future_ret > 0 ? '+' : ''}${m.future_ret}%</small>
+                            </div>
+                        </button>
+                    `;
+                    $list.append(html);
+                });
+            }
+            
+            // 渲染图表
+            renderScenarioChart(res.kline, res.matches);
+            
+            // 绑定应用事件
+            $('.btn-apply-scenario').on('click', function() {
+                const date = $(this).data('date');
+                $('#start-date').val(date).trigger('change');
+                
+                // 高亮选中
+                $('.btn-apply-scenario').removeClass('active');
+                $(this).addClass('active');
+                
+                // 滚动到顶部
+                $('html, body').animate({ scrollTop: $('#configPanel').offset().top - 70 }, 300);
+            });
+            
+        }).fail((xhr) => {
+            $statusBox.html(`<div class="alert alert-danger">请求失败: ${xhr.statusText}</div>`);
+        }).always(() => {
+            $btn.prop('disabled', false).html('<i class="bi bi-search"></i> 开始匹配');
+        });
+    });
+
+    let scenarioChart = null;
+    function renderScenarioChart(klineData, matches) {
+        if (!klineData || klineData.length === 0) return;
+        
+        const dom = document.getElementById('scenario-chart');
+        if (scenarioChart) scenarioChart.dispose();
+        scenarioChart = echarts.init(dom);
+        
+        const dates = klineData.map(d => d.date);
+        const prices = klineData.map(d => d.price);
+        
+        // 构造标记点
+        const markPoints = matches.map(m => {
+            const color = m.future_label.includes('上涨') ? '#52c41a' : (m.future_label.includes('下跌') ? '#ff4d4f' : '#faad14');
+            // 找到对应价格，如果找不到就用前后填补，或者忽略
+            const pointData = klineData.find(k => k.date === m.date);
+            const price = pointData ? pointData.price : 0;
+            
+            return {
+                coord: [m.date, price],
+                value: m.future_label.split(' ')[0],
+                itemStyle: { color: color },
+                label: { color: '#fff', fontSize: 10 }
+            };
+        });
+        
+        const option = {
+            title: { text: '历史走势与相似时刻标记', left: 'center', textStyle: { fontSize: 14 } },
+            tooltip: { trigger: 'axis' },
+            grid: { top: 40, bottom: 30, left: 50, right: 30 },
+            xAxis: { type: 'category', data: dates },
+            yAxis: { type: 'value', scale: true },
+            dataZoom: [{ type: 'inside' }, { type: 'slider', bottom: 0 }],
+            series: [{
+                name: '收盘价',
+                type: 'line',
+                data: prices,
+                smooth: true,
+                symbol: 'none',
+                lineStyle: { width: 1.5, color: '#666' },
+                markPoint: {
+                    symbol: 'pin',
+                    symbolSize: 40,
+                    data: markPoints
+                }
+            }]
+        };
+        
+        scenarioChart.setOption(option);
+        
+        // 自动缩放到最近的一个匹配点附近？或者显示全图。默认全图较好。
+    }
+
     function fetchShannonScore(symbol) {
         // 确保面板展开
         const $panel = $('#scoreCardBody');
