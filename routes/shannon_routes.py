@@ -107,6 +107,7 @@ def get_price_info():
     try:
         symbol = request.args.get('symbol')
         date_str = request.args.get('date')
+        metric = request.args.get('metric', 'auto')
         
         if not symbol or not date_str:
             return jsonify({'error': 'Missing symbol or date'}), 400
@@ -125,7 +126,7 @@ def get_price_info():
         
         # 使用 DynamicGridBoundary 计算动态上下限
         # 传入 start_date 作为回测视角下的"当前时间"
-        limits = boundary_calc.calculate_limits(symbol, base_price, date_str)
+        limits = boundary_calc.calculate_limits(symbol, base_price, date_str, metric)
         
         return jsonify({
             'success': True,
@@ -167,6 +168,24 @@ def run_backtest():
         
         # 初始化引擎
         engine = _get_engine(symbol, start_date, end_date)
+        
+        # --- 自动设定回测开始时刻的估值边界 ---
+        # 如果用户没有手动调整(即使用默认值)，或者为了更准确的回测，
+        # 我们根据 start_date 当天的历史估值分位来设定 lower_limit/upper_limit
+        try:
+            # 获取回测起点价格 (使用 engine 加载的第一条数据)
+            base_price = float(engine.opens[0])
+            
+            # 计算回测起点的动态边界
+            limits = boundary_calc.calculate_limits(symbol, base_price, start_date)
+            
+            # 使用计算出的动态边界作为回测期间的固定边界
+            lower_limit = limits['lower']
+            upper_limit = limits['upper']
+            logging.info(f"Backtest initialized with valuation-based limits: {lower_limit} - {upper_limit}")
+        except Exception as e:
+            logging.error(f"Error calculating initial backtest limits: {e}")
+            # Fallback to defaults from request already assigned above
         
         # 运行回测
         result = engine.run(

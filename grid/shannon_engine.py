@@ -126,19 +126,8 @@ def _core_backtest(
             frozen_shares = 0.0
             current_date = today
             
-        # --- 卖飞处理 (Upper Limit) ---
-        if c > upper_limit and (free_shares + frozen_shares) > 0:
-            if free_shares > 0:
-                revenue = c * free_shares
-                sell_fee = revenue * fee_rate
-                cash += (revenue - sell_fee)
-                current_total_shares = locked_shares + frozen_shares # free 被卖了
-                trades_log.append(np.array([float(ts), -1.0, c, free_shares, sell_fee, cash, current_total_shares]))
-                free_shares = 0.0
-            while len(pos_stack_price) > 0:
-                pos_stack_price.pop()
-                pos_stack_vol.pop()
-            ref_price = c
+        # [Adjusted] 移除突破上限清仓逻辑，改为仅停止买入(断电)
+        # 上限之上，持仓仍可正常止盈，但不补回。
 
         # --- 卖出逻辑 (LIFO) ---
         while len(pos_stack_price) > 0:
@@ -148,7 +137,10 @@ def _core_backtest(
             
             if h >= target_sell_price:
                 if free_shares >= vol:
-                    revenue = target_sell_price * vol
+                    # 撮合逻辑：如果开盘价就高过止盈价，按开盘价成交（高卖）
+                    actual_sell_price = max(target_sell_price, o)
+                    
+                    revenue = actual_sell_price * vol
                     sell_fee = revenue * fee_rate
                     cash += (revenue - sell_fee)
                     free_shares -= vol
@@ -157,28 +149,31 @@ def _core_backtest(
                     ref_price = pos_stack_price[-1] if len(pos_stack_price) > 0 else cost
                     
                     current_total_shares = locked_shares + free_shares + frozen_shares
-                    trades_log.append(np.array([float(ts), -1.0, target_sell_price, float(vol), sell_fee, cash, current_total_shares]))
+                    trades_log.append(np.array([float(ts), -1.0, actual_sell_price, float(vol), sell_fee, cash, current_total_shares]))
                 else:
                     break
             else:
                 break
         
         # --- 买入逻辑 ---
-        if c > lower_limit:
+        if c > lower_limit and c < upper_limit:
             next_buy_price = ref_price * (1.0 - grid_density)
             if l <= next_buy_price:
-                buy_vol = np.floor(pos_per_grid / next_buy_price / 100.0) * 100.0
+                # 撮合逻辑：如果开盘价就低于买入价，按开盘价成交（低买）
+                actual_buy_price = min(next_buy_price, o)
+                
+                buy_vol = np.floor(pos_per_grid / actual_buy_price / 100.0) * 100.0
                 if buy_vol > 0:
-                    total_pay = (next_buy_price * buy_vol) * (1.0 + fee_rate)
+                    total_pay = (actual_buy_price * buy_vol) * (1.0 + fee_rate)
                     if cash >= total_pay:
                         cash -= total_pay
                         frozen_shares += buy_vol
-                        pos_stack_price.append(next_buy_price)
+                        pos_stack_price.append(actual_buy_price)
                         pos_stack_vol.append(buy_vol)
-                        ref_price = next_buy_price
+                        ref_price = actual_buy_price
                         
                         current_total_shares = locked_shares + free_shares + frozen_shares
-                        trades_log.append(np.array([float(ts), 1.0, next_buy_price, float(buy_vol), total_pay - (next_buy_price * buy_vol), cash, current_total_shares]))
+                        trades_log.append(np.array([float(ts), 1.0, actual_buy_price, float(buy_vol), total_pay - (actual_buy_price * buy_vol), cash, current_total_shares]))
         
         # --- 记录净值 ---
         total_shares = locked_shares + free_shares + frozen_shares

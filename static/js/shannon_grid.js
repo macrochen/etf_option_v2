@@ -146,8 +146,8 @@ $(document).ready(function() {
         }
     }
 
-    function fetchPriceInfo(symbol, date) {
-        $.get(`/api/shannon/price_info?symbol=${symbol}&date=${date}`, function(res) {
+    function fetchPriceInfo(symbol, date, metric='auto') {
+        $.get(`/api/shannon/price_info?symbol=${symbol}&date=${date}&metric=${metric}`, function(res) {
             if (res.success) {
                 $('#lower-limit').val(res.rec_lower);
                 $('#upper-limit').val(res.rec_upper);
@@ -168,19 +168,38 @@ $(document).ready(function() {
                         $box.addClass('bg-light text-muted')
                             .html(`<i class="bi bi-exclamation-circle"></i> ${v.status} (将使用默认宽区间)`);
                     } else {
+                        const isPe = v.metric === 'PE';
+                        const detailUrl = `https://etf818.com/red-rocket/indexDetail?targetPage=indexDetail&securityCode=${v.index_code}`;
                         $box.addClass(`border-${color} ${bgClass}`)
                             .html(`
-                                <div class="d-flex justify-content-between">
-                                    <span><i class="bi bi-graph-up"></i> ${v.index_name || '跟踪指数'}</span>
-                                    <strong>${v.status}</strong>
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span>
+                                        <i class="bi bi-graph-up"></i> ${v.index_name || '跟踪指数'}
+                                        <a href="${detailUrl}" target="_blank" class="text-${color} ms-1" title="查看 etf818 估值详情"><i class="bi bi-box-arrow-up-right small"></i></a>
+                                    </span>
+                                    
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <input type="radio" class="btn-check val-metric-toggle" name="val-metric" id="vm-pe" value="pe" ${isPe ? 'checked' : ''}>
+                                        <label class="btn btn-outline-${color} py-0 px-1" style="font-size: 0.75rem;" for="vm-pe">PE</label>
+                                        
+                                        <input type="radio" class="btn-check val-metric-toggle" name="val-metric" id="vm-pb" value="pb" ${!isPe ? 'checked' : ''}>
+                                        <label class="btn btn-outline-${color} py-0 px-1" style="font-size: 0.75rem;" for="vm-pb">PB</label>
+                                    </div>
                                 </div>
-                                <div class="mt-1">
-                                    ${v.metric}: <b>${v.current_val}</b> (分位: ${v.percentile}%)
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span>${v.metric}: <b>${v.current_val}</b> (分位: ${v.percentile}%)</span>
+                                    <strong>${v.status}</strong>
                                 </div>
                                 <div class="progress mt-1" style="height: 4px;">
                                     <div class="progress-bar bg-${color}" style="width: ${v.percentile}%"></div>
                                 </div>
                             `);
+                            
+                        // 绑定切换事件
+                        $box.find('.val-metric-toggle').on('change', function() {
+                            const newMetric = $(this).val();
+                            fetchPriceInfo(symbol, date, newMetric);
+                        });
                     }
                     $container.append($box);
                 }
@@ -659,10 +678,10 @@ $(document).ready(function() {
         const upLimit = parseFloat($('#upper-limit').val());
         // 只有当非默认值时才画线
         if (lowLimit > 0.01) {
-            markLineData.push({ yAxis: lowLimit, lineStyle: { color: '#ff4d4f', type: 'dashed' }, label: { formatter: '止损' } });
+            markLineData.push({ yAxis: lowLimit, lineStyle: { color: '#ff4d4f', type: 'dashed' }, label: { formatter: '下限熔断' } });
         }
         if (upLimit < 200.0) {
-            markLineData.push({ yAxis: upLimit, lineStyle: { color: '#52c41a', type: 'dashed' }, label: { formatter: '清仓' } });
+            markLineData.push({ yAxis: upLimit, lineStyle: { color: '#52c41a', type: 'dashed' }, label: { formatter: '上限停买' } });
         }
 
         const buyPoints = [];
