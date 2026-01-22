@@ -56,6 +56,17 @@ class MarketDatabase:
             )
         ''')
         
+        # 尝试添加 rank 列 (Schema Migration)
+        try:
+            self.db.execute('ALTER TABLE index_valuation_history ADD COLUMN pe_rank REAL')
+        except:
+            pass # 忽略已存在错误
+            
+        try:
+            self.db.execute('ALTER TABLE index_valuation_history ADD COLUMN pb_rank REAL')
+        except:
+            pass
+        
     def save_grid_trade_data(self, etf_code: str, data: Dict[str, List[Any]]) -> None:
         """保存ETF数据到网格交易表
         

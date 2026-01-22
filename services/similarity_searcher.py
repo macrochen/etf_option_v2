@@ -28,48 +28,74 @@ class SimilaritySearcher:
         if df_val.empty or df_price.empty:
             return {"error": "数据不足，无法进行匹配"}
 
-        # 2. 数据对齐与预处理
+        # 2. 数据处理与对齐
         df_price['date'] = pd.to_datetime(df_price['date'])
         df_price = df_price.set_index('date').sort_index()
         
+        # 确保估值数据也是 datetime 索引
+        df_val.index = pd.to_datetime(df_val.index)
+        
         logging.info(f"Price Range: {df_price.index[0].date()} -> {df_price.index[-1].date()} (Count: {len(df_price)})")
         logging.info(f"Valuation Range: {df_val.index[0].date()} -> {df_val.index[-1].date()} (Count: {len(df_val)})")
-        
-        # 合并估值与价格
-        df = df_price[['close']].join(df_val[['pe', 'pb']], how='inner')
-        if df.empty:
-            return {"error": "价格与估值数据无法对齐"}
 
-        # 3. 计算特征指标
-        # A. 估值分位 (5年滑动窗口)
+        # 3. 在全量估值历史(指数)上计算特征指标 (参考香农策略：先算分位，再对齐价格)
         # 根据偏好选择指标
         use_pe = True
         if metric_preference == 'pb':
             use_pe = False
         elif metric_preference == 'auto':
-            # 默认逻辑：如果有 PE 且有效则用 PE，否则 PB
-            if not df['pe'].notnull().any():
+            if not df_val['pe'].notnull().any():
+                use_pe = False
+        
+        index_code = index_info['index_code']
+        
+        # 确保估值 Rank 已缓存
+        self.vm.ensure_valuation_ranks(index_code)
+        
+        # 获取全量估值历史
+        df_val = self.vm.get_valuation_history(index_code)
+        # 获取全量价格历史 (日线)
+        df_price = self.dl.load_daily_data(etf_code)
+        
+        if df_val.empty or df_price.empty:
+            return {"error": "数据不足，无法进行匹配"}
+
+        # 2. 数据处理与对齐
+        df_price['date'] = pd.to_datetime(df_price['date'])
+        df_price = df_price.set_index('date').sort_index()
+        
+        # 确保估值数据也是 datetime 索引
+        df_val.index = pd.to_datetime(df_val.index)
+        
+        logging.info(f"Price Range: {df_price.index[0].date()} -> {df_price.index[-1].date()} (Count: {len(df_price)})")
+        logging.info(f"Valuation Range: {df_val.index[0].date()} -> {df_val.index[-1].date()} (Count: {len(df_val)})")
+
+        # 3. 选择指标并使用缓存的 Rank
+        # 根据偏好选择指标
+        use_pe = True
+        if metric_preference == 'pb':
+            use_pe = False
+        elif metric_preference == 'auto':
+            if not df_val['pe'].notnull().any():
                 use_pe = False
         
         val_col = 'pe' if use_pe else 'pb'
-        series_val = df[val_col].where(df[val_col] > 0)
+        rank_col = f'{val_col}_rank'
         
-        # 记录一下计算前的状态
-        logging.info(f"Using Metric for Similarity: {val_col.upper()}")
-        logging.info(f"Data Length: {len(series_val)}")
+        logging.info(f"Using Metric for Similarity: {val_col.upper()} (Pre-calculated)")
         
-        df['val_pct'] = series_val.rolling(window=1250, min_periods=250).apply(
-            lambda x: (x < x.iloc[-1]).mean() * 100 if len(x) > 0 else np.nan
-        )
-        
-        # 检查最后一日的计算详情
-        if len(series_val) > 0:
-            last_window = series_val.iloc[-1250:]
-            last_val = last_window.iloc[-1]
-            calc_rank = (last_window < last_val).mean() * 100
-            logging.info(f"Manual check for last date: Value={last_val}, Window Size={len(last_window)}, Calculated Rank={calc_rank:.2f}%")
+        # 直接使用数据库中的 Rank (val_pct)
+        # 过滤掉 Rank 为空的数据 (比如前 1 年的预热期)
+        # 注意：这里我们给 df_val 赋值一个新的列名 'val_pct' 以便后续合并
+        df_val['val_pct'] = df_val[rank_col]
 
-        # B. 趋势因子 (MA20/MA60 乖离)
+        # 4. 合并估值分位到价格数据
+        # 此时得到的 df 的 val_pct 是基于指数完整历史背景的
+        df = df_price[['close']].join(df_val[['pe', 'pb', 'val_pct']], how='inner')
+        if df.empty:
+            return {"error": "价格与估值数据无法对齐"}
+            
+        # 5. 计算趋势因子 (在对齐后的数据上计算)
         df['ma20'] = df['close'].rolling(20).mean()
         df['ma60'] = df['close'].rolling(60).mean()
         df['trend_factor'] = (df['ma20'] - df['ma60']) / df['ma60']
@@ -82,7 +108,7 @@ class SimilaritySearcher:
         
         df['trend_type'] = df['trend_factor'].apply(get_trend_type)
 
-        # 4. 获取当前状态
+        # 6. 获取当前状态
         current_state = df.iloc[-1]
         c_val_pct = current_state['val_pct']
         c_trend_type = current_state['trend_type']
@@ -90,10 +116,13 @@ class SimilaritySearcher:
         logging.info(f"--- Similarity Search for {etf_code} ({index_info['index_name']}) ---")
         logging.info(f"Current State: Val={c_val_pct:.1f}%, Trend={c_trend_type}")
         
+        # 检查最后一日的计算详情
+        logging.info(f"Manual check for current date: Metric={val_col.upper()}, Value={current_state[val_col]}, Rank={c_val_pct:.2f}%")
+        
         if pd.isna(c_val_pct) or c_trend_type is None:
-            return {"error": "当前状态尚未稳定 (数据预热不足)"}
+            return {"error": "当前状态尚未稳定 (数据预热不足或历史分位无法计算)"}
 
-        # 5. 历史扫描匹配
+        # 7. 历史扫描匹配
         # 排除最近半年的数据，避免匹配到自己
         search_df = df.iloc[:-120].copy()
         
@@ -112,6 +141,7 @@ class SimilaritySearcher:
             return {
                 "current": {
                     "val_pct": round(c_val_pct, 1), 
+                    "val_value": round(current_state[val_col], 2),
                     "trend": c_trend_type,
                     "index_name": index_info['index_name'],
                     "metric": val_col.upper()
@@ -158,6 +188,7 @@ class SimilaritySearcher:
         return {
             "current": {
                 "val_pct": round(c_val_pct, 1),
+                "val_value": round(current_state[val_col], 2),
                 "trend": c_trend_type,
                 "index_name": index_info['index_name'],
                 "metric": val_col.upper()

@@ -290,7 +290,7 @@ $(document).ready(function() {
                     <h6 class="alert-heading small fw-bold">当前诊断</h6>
                     <p class="mb-0 small">
                         跟踪指数: <b>${res.current.index_name}</b><br>
-                        估值指标: <b>${res.current.metric}</b> (分位: <b>${res.current.val_pct}%</b>)<br>
+                        估值指标: <b>${res.current.metric} (${res.current.val_value})</b> (分位: <b>${res.current.val_pct}%</b>)<br>
                         趋势状态: <b>${res.current.trend}</b>
                     </p>
                 </div>

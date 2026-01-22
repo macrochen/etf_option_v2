@@ -4,6 +4,7 @@ import akshare as ak
 import os
 import glob
 from datetime import datetime
+import logging
 
 class MinDataLoader:
     def __init__(self, db_path='db/market_data_min.db'):
@@ -120,19 +121,26 @@ class MinDataLoader:
         优先从本地 Parquet 文件增量导入数据。
         参考 scripts/import_parquet_data.py 的处理逻辑 (含复权和格式转换)。
         """
+        logging.info(f"Attempting to import local parquet for {symbol} from {parquet_dir}...")
         try:
             # 查找文件
             pattern = os.path.join(parquet_dir, f"*{symbol}*.parquet")
             files = glob.glob(pattern)
             
             if not files:
+                logging.warning(f"No parquet file found for {symbol} matching {pattern}")
                 return False
                 
             file_path = files[0]
+            logging.info(f"Found parquet file: {file_path}")
+            
             df = pd.read_parquet(file_path)
             
             if df.empty:
+                logging.warning(f"Parquet file {file_path} is empty.")
                 return False
+
+            logging.info(f"Read {len(df)} rows from parquet. Processing...")
 
             # Parquet 可能使用 MultiIndex (trade_date, trade_time)
             df = df.reset_index()
@@ -149,7 +157,7 @@ class MinDataLoader:
             if 'trade_time' in df.columns:
                 df['timestamp'] = df['trade_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
             else:
-                print(f"Missing 'trade_time' column in {file_path}")
+                logging.error(f"Missing 'trade_time' column in {file_path}")
                 return False
 
             df['symbol'] = symbol
@@ -162,11 +170,12 @@ class MinDataLoader:
             required_cols = ['symbol', 'timestamp', 'open', 'high', 'low', 'close', 'volume', 'amount']
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
-                print(f"Missing columns in {file_path}: {missing_cols}")
+                logging.error(f"Missing columns in {file_path}: {missing_cols}")
                 return False
                 
             data_to_insert = df[required_cols].values.tolist()
             
+            logging.info(f"Inserting {len(data_to_insert)} records into database...")
             conn = sqlite3.connect(self.db_path)
             conn.executemany('''
                 INSERT OR REPLACE INTO etf_min_1m (symbol, timestamp, open, high, low, close, volume, amount)
@@ -175,12 +184,12 @@ class MinDataLoader:
             
             conn.commit()
             conn.close()
-            print(f"Successfully imported {len(df)} records from {file_path}")
+            logging.info(f"Successfully imported {len(df)} records from {file_path} to DB.")
             
             return True
             
         except Exception as e:
-            print(f"Error importing from local parquet for {symbol}: {e}")
+            logging.error(f"Error importing from local parquet for {symbol}: {e}", exc_info=True)
             return False
 
 
@@ -190,18 +199,24 @@ class MinDataLoader:
         1. 优先尝试从本地 data/etf_1min/ 下的 parquet 文件导入。
         2. 如果本地无文件，则从 AKShare 下载。
         """
+        logging.info(f"Start updating data for {symbol}...")
+        
         # 1. 尝试本地导入
         if self.import_from_local_parquet(symbol):
+            logging.info(f"Local import successful for {symbol}.")
             return True
             
         # 2. 降级到 AKShare 在线下载
-        print(f"Fallback to AKShare download for {symbol}...")
+        logging.info(f"Fallback to AKShare download for {symbol}...")
         try:
             # period='1' 代表 1分钟线
             df = ak.fund_etf_hist_min_em(symbol=symbol, period='1', adjust='qfq')
             
             if df.empty:
+                logging.warning(f"AKShare returned empty data for {symbol}.")
                 return False
+
+            logging.info(f"AKShare downloaded {len(df)} rows. Processing...")
 
             # 重命名列
             # 原始列: 时间, 开盘, 收盘, 最高, 最低, 成交量, 成交额, 均价
@@ -228,6 +243,7 @@ class MinDataLoader:
                 df.loc[(df['low'] <= 0) & (df['close'] > 0), 'low'] = df.loc[(df['low'] <= 0) & (df['close'] > 0), 'close']
             
             # 存入数据库 (Upsert)
+            logging.info(f"Saving {len(df)} records to DB...")
             conn = sqlite3.connect(self.db_path)
             
             # 使用 executemany 进行批量插入/更新
@@ -241,11 +257,12 @@ class MinDataLoader:
             
             conn.commit()
             conn.close()
+            logging.info(f"Successfully updated data for {symbol} from AKShare.")
             
             return True
             
         except Exception as e:
-            print(f"Error updating minute data for {symbol}: {e}")
+            logging.error(f"Error updating minute data for {symbol}: {e}", exc_info=True)
             return False
 
     def get_available_range(self, symbol: str):
