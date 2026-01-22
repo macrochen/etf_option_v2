@@ -87,23 +87,12 @@ $(document).ready(function() {
                 const selected = (selectedCode === etf.code) ? 'selected' : '';
                 $select.append(`<option value="${etf.code}" ${selected} data-start="${etf.start_date}" data-end="${etf.end_date}">${etf.code} - ${etf.name}</option>`);
             });
+            
             if (selectedCode) {
                 $('#symbol').val(selectedCode);
-            } else {
-                // 默认选中 510300 如果在列表里
-                if ($('#symbol').val()) {
-                    $select.val($('#symbol').val());
-                }
-            }
-            
-            // 初始触发一次价格获取 (如果有默认值)
-            if ($('#symbol').val()) {
                 autoFillDateRange();
-                const sym = $('#symbol').val();
-                if ($('#start-date').val()) {
-                    fetchPriceInfo(sym, $('#start-date').val());
-                }
-                // fetchShannonScore(sym); // 移除自动检测
+                const date = $('#start-date').val();
+                if (date) fetchPriceInfo(selectedCode, date);
             }
         });
     }
@@ -321,7 +310,7 @@ $(document).ready(function() {
             }
             
             // 渲染图表
-            renderScenarioChart(res.kline, res.matches);
+            renderScenarioChart(res.kline, res.matches, res.current.metric);
             
             // 绑定应用事件
             $('.btn-apply-scenario').on('click', function() {
@@ -344,7 +333,7 @@ $(document).ready(function() {
     });
 
     let scenarioChart = null;
-    function renderScenarioChart(klineData, matches) {
+    function renderScenarioChart(klineData, matches, currentMetric='PE') {
         if (!klineData || klineData.length === 0) return;
         
         const dom = document.getElementById('scenario-chart');
@@ -353,11 +342,14 @@ $(document).ready(function() {
         
         const dates = klineData.map(d => d.date);
         const prices = klineData.map(d => d.price);
+        // 根据当前 metric 选择数据列
+        const valKey = currentMetric.toLowerCase();
+        const valuations = klineData.map(d => d[valKey]);
         
         // 构造标记点
         const markPoints = matches.map(m => {
             const color = m.future_label.includes('上涨') ? '#52c41a' : (m.future_label.includes('下跌') ? '#ff4d4f' : '#faad14');
-            // 找到对应价格，如果找不到就用前后填补，或者忽略
+            // 找到对应价格
             const pointData = klineData.find(k => k.date === m.date);
             const price = pointData ? pointData.price : 0;
             
@@ -370,30 +362,65 @@ $(document).ready(function() {
         });
         
         const option = {
-            title: { text: '历史走势与相似时刻标记', left: 'center', textStyle: { fontSize: 14 } },
-            tooltip: { trigger: 'axis' },
-            grid: { top: 40, bottom: 30, left: 50, right: 30 },
+            title: { text: `历史走势与相似时刻 (叠加${currentMetric})`, left: 'center', textStyle: { fontSize: 14 } },
+            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+            legend: { data: ['收盘价', `${currentMetric}估值`], top: 30 },
+            grid: { top: 60, bottom: 30, left: 50, right: 50 },
             xAxis: { type: 'category', data: dates },
-            yAxis: { type: 'value', scale: true },
+            yAxis: [
+                { type: 'value', scale: true, name: '价格' },
+                { type: 'value', scale: true, name: '估值', splitLine: { show: false } }
+            ],
             dataZoom: [{ type: 'inside' }, { type: 'slider', bottom: 0 }],
-            series: [{
-                name: '收盘价',
-                type: 'line',
-                data: prices,
-                smooth: true,
-                symbol: 'none',
-                lineStyle: { width: 1.5, color: '#666' },
-                markPoint: {
-                    symbol: 'pin',
-                    symbolSize: 40,
-                    data: markPoints
+            series: [
+                {
+                    name: '收盘价',
+                    type: 'line',
+                    data: prices,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { width: 1.5, color: '#666' },
+                    markPoint: {
+                        symbol: 'pin',
+                        symbolSize: 40,
+                        data: markPoints
+                    }
+                },
+                {
+                    name: `${currentMetric}估值`,
+                    type: 'line',
+                    yAxisIndex: 1,
+                    data: valuations,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { width: 1, type: 'dashed', opacity: 0.7, color: '#1890ff' }
                 }
-            }]
+            ]
         };
         
         scenarioChart.setOption(option);
         
-        // 自动缩放到最近的一个匹配点附近？或者显示全图。默认全图较好。
+        // 绑定图表点击事件：快速设置回测起点 (使用 ZRender 监听全画布点击)
+        scenarioChart.getZr().off('click'); 
+        scenarioChart.getZr().on('click', function (params) {
+            const pointInPixel = [params.offsetX, params.offsetY];
+            // 确保点击在 Grid 区域内
+            if (scenarioChart.containPixel('grid', pointInPixel)) {
+                // 将像素坐标转换为 x 轴索引
+                const xIndex = scenarioChart.convertFromPixel({ seriesIndex: 0 }, pointInPixel)[0];
+                
+                // 从 Option 中获取日期数据
+                const op = scenarioChart.getOption();
+                const dates = op.xAxis[0].data;
+                const date = dates[xIndex];
+                
+                if (date && date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    $('#start-date').val(date).trigger('change');
+                    // 滚动到配置面板
+                    $('html, body').animate({ scrollTop: $('#configPanel').offset().top - 70 }, 300);
+                }
+            }
+        });
     }
 
     function fetchShannonScore(symbol) {

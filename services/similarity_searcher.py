@@ -137,6 +137,16 @@ class SimilaritySearcher:
         logging.info(f"Search Range: {search_df.index[0].date()} -> {search_df.index[-1].date()}")
         logging.info(f"Matches Found: {len(matches)}")
 
+        # 构造 K 线数据 (含估值)
+        kline_data = []
+        for d, row in df.iterrows():
+            kline_data.append({
+                "date": d.strftime('%Y-%m-%d'),
+                "price": row['close'],
+                "pe": row['pe'] if pd.notna(row['pe']) else None,
+                "pb": row['pb'] if pd.notna(row['pb']) else None
+            })
+
         if matches.empty:
             return {
                 "current": {
@@ -146,7 +156,8 @@ class SimilaritySearcher:
                     "index_name": index_info['index_name'],
                     "metric": val_col.upper()
                 }, 
-                "matches": []
+                "matches": [],
+                "kline": kline_data
             }
 
         # 6. 后验分析 (观察之后 120 个交易日的走势)
@@ -194,8 +205,5 @@ class SimilaritySearcher:
                 "metric": val_col.upper()
             },
             "matches": results,
-            "kline": [
-                {"date": d.strftime('%Y-%m-%d'), "price": p} 
-                for d, p in df_price['close'].items()
-            ]
+            "kline": kline_data
         }
