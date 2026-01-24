@@ -68,8 +68,7 @@ class PortfolioDatabase:
                 description,
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             )
-            self.db.execute(sql, params)
-            return self.db.cursor.lastrowid
+            return self.db.execute_insert(sql, params)
         except Exception as e:
             logging.error(f"Failed to add account {name}: {e}")
             raise
@@ -102,8 +101,8 @@ class PortfolioDatabase:
         sql = '''
             INSERT INTO asset_holdings (
                 account_name, asset_type, category_1, category_2, 
-                symbol, name, quantity, cost_price, update_time
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                symbol, name, quantity, cost_price, last_price, update_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
         params = (
             data['account_name'],
@@ -114,10 +113,10 @@ class PortfolioDatabase:
             data.get('name', ''),
             data.get('quantity', 0),
             data.get('cost_price', 0),
+            data.get('last_price', 0),
             datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         )
-        self.db.execute(sql, params)
-        return self.db.cursor.lastrowid
+        return self.db.execute_insert(sql, params)
 
     def update_asset(self, asset_id: int, data: Dict[str, Any]) -> bool:
         """更新资产信息"""
@@ -125,7 +124,7 @@ class PortfolioDatabase:
         values = []
         
         valid_fields = ['account_name', 'asset_type', 'category_1', 'category_2', 
-                       'symbol', 'name', 'quantity', 'cost_price']
+                       'symbol', 'name', 'quantity', 'cost_price', 'last_price']
         
         for field in valid_fields:
             if field in data:
@@ -179,7 +178,8 @@ class PortfolioDatabase:
                 'name': row[6],
                 'quantity': row[7],
                 'cost_price': row[8],
-                'update_time': row[9]
+                'update_time': row[9],
+                'last_price': row[10] if len(row) > 10 else 0
             })
         return assets
 

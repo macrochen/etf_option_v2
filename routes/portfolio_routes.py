@@ -31,55 +31,72 @@ def upload_screenshot():
 @portfolio_bp.route('/api/portfolio/data')
 def get_portfolio_data():
     """获取全量资产数据（含实时市值和分类汇总）"""
-    assets = db.get_all_assets()
-    
-    # 1. 获取最新价格
-    prices = PriceService.get_batch_prices(assets)
-    
-    # 2. 计算各项指标
-    total_assets = 0
-    total_cost = 0
-    asset_list = []
-    
-    for asset in assets:
-        current_price = prices.get(asset['symbol'], 0)
-        quantity = asset['quantity']
-        cost_price = asset['cost_price']
+    try:
+        assets = db.get_all_assets()
         
-        market_value = quantity * current_price
-        cost_value = quantity * cost_price
-        pnl = market_value - cost_value
-        pnl_percent = (pnl / cost_value * 100) if cost_value else 0
+        # 1. 获取最新价格
+        try:
+            prices = PriceService.get_batch_prices(assets)
+        except Exception as e:
+            logging.error(f"Failed to fetch prices: {e}")
+            prices = {}
         
-        total_assets += market_value
-        total_cost += cost_value
+        # 2. 计算各项指标
+        total_assets = 0
+        total_cost = 0
+        asset_list = []
         
-        asset_info = asset.copy()
-        asset_info.update({
-            'current_price': current_price,
-            'market_value': market_value,
-            'pnl': pnl,
-            'pnl_percent': pnl_percent
+        for asset in assets:
+            current_price = prices.get(asset['symbol'], 0)
+            
+            # Fallback to last known price (user input or previous) if API fails
+            if current_price == 0:
+                current_price = asset.get('last_price', 0)
+                
+            quantity = asset['quantity'] or 0
+            cost_price = asset['cost_price'] or 0
+            
+            market_value = quantity * current_price
+            cost_value = quantity * cost_price
+            
+            # 如果现价获取失败，但有成本价，是否用成本价估算？或者直接显示0
+            # 这里保持0，但在前端显示时可以优化
+            
+            pnl = market_value - cost_value
+            pnl_percent = (pnl / cost_value * 100) if cost_value else 0
+            
+            total_assets += market_value
+            total_cost += cost_value
+            
+            asset_info = asset.copy()
+            asset_info.update({
+                'current_price': current_price,
+                'market_value': market_value,
+                'pnl': pnl,
+                'pnl_percent': pnl_percent
+            })
+            asset_list.append(asset_info)
+            
+        total_pnl = total_assets - total_cost
+        
+        # 3. 构建多维汇总数据
+        summary = {
+            'total_assets': total_assets,
+            'total_cost': total_cost,
+            'total_pnl': total_pnl,
+            'by_category_1': _group_by(asset_list, 'category_1'),
+            'by_category_2': _group_by(asset_list, 'category_2'),
+            'by_account': _group_by(asset_list, 'account_name'),
+            'by_asset_type': _group_by(asset_list, 'asset_type')
+        }
+        
+        return jsonify({
+            'summary': summary,
+            'assets': asset_list
         })
-        asset_list.append(asset_info)
-        
-    total_pnl = total_assets - total_cost
-    
-    # 3. 构建多维汇总数据
-    summary = {
-        'total_assets': total_assets,
-        'total_cost': total_cost,
-        'total_pnl': total_pnl,
-        'by_category_1': _group_by(asset_list, 'category_1'),
-        'by_category_2': _group_by(asset_list, 'category_2'),
-        'by_account': _group_by(asset_list, 'account_name'),
-        'by_asset_type': _group_by(asset_list, 'asset_type')
-    }
-    
-    return jsonify({
-        'summary': summary,
-        'assets': asset_list
-    })
+    except Exception as e:
+        logging.error(f"Get portfolio data error: {e}")
+        return jsonify({'message': str(e), 'status': 'error'}), 500
 
 def _group_by(assets, key):
     """按指定key分组汇总市值"""

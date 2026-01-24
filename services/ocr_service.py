@@ -1,118 +1,132 @@
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 import re
 import io
 import logging
 
 class OCRService:
     @staticmethod
-    def parse_screenshot(image_bytes: bytes) -> list:
+    def parse_screenshot(image_bytes: bytes) -> dict:
         """
-        解析截图内容，提取资产列表
-        返回格式: [{'symbol': '600519', 'name': '贵州茅台', 'quantity': 100, 'cost_price': 1500}, ...] 
+        解析截图内容，返回所有识别到的文本块及其坐标
+        (已优化：智能间距合并，解决连体字和拆散问题)
         """
         try:
             image = Image.open(io.BytesIO(image_bytes))
-            # 预处理图片可能提高准确率（灰度、二值化等），这里先做基础识别
-            text = pytesseract.image_to_string(image, lang='chi_sim+eng') # 假设用户安装了中文包，否则fallback到eng
             
-            lines = text.split('\n')
-            assets = []
+            # --- 图像预处理增强 ---
+            image = image.convert('L')
             
-            # 简单的启发式解析
-            # 模式1: 寻找6位数字代码 (如 600519, 510300, 159915)
-            # 很多APP布局是： 名称 代码 ... 数量 ... 市值
+            # 提高对比度增强系数，帮助识别灰色字体
+            # cutoff用于忽略直方图两端极值，使中间的灰色更明显
+            image = ImageOps.autocontrast(image, cutoff=2) 
             
-            code_pattern = re.compile(r'(\d{6})')
+            width, height = image.size
+            scale_factor = 2
+            new_size = (int(width * scale_factor), int(height * scale_factor))
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
             
-            for line in lines:
-                line = line.strip()
-                if not line:
+            # 适度锐化
+            enhancer = ImageEnhance.Sharpness(image)
+            image = enhancer.enhance(1.5)
+            
+            # 识别
+            data = pytesseract.image_to_data(image, lang='chi_sim+eng', output_type=pytesseract.Output.DICT)
+            
+            # --- 智能聚合逻辑 ---
+            blocks = [] 
+            current_block = None
+            
+            n_boxes = len(data['text'])
+            for i in range(n_boxes):
+                text = data['text'][i].strip()
+                if not text:
                     continue
+                
+                # 坐标信息
+                l = data['left'][i]
+                t = data['top'][i]
+                w = data['width'][i]
+                h = data['height'][i]
+                r = l + w
+                b = t + h
+                
+                # 逻辑行号 (Tesseract 自己的行划分)
+                line_id = f"{data['block_num'][i]}_{data['par_num'][i]}_{data['line_num'][i]}"
+                
+                should_merge = False
+                if current_block and current_block['line_id'] == line_id:
+                    # 在同一行，计算间距
+                    gap = l - current_block['right']
+                    avg_height = (h + (current_block['bottom'] - current_block['top'])) / 2
                     
-                # 查找股票代码
-                match = code_pattern.search(line)
-                if match:
-                    symbol = match.group(1)
+                    # 阈值判断：
+                    # 1. 间距小于字高的一半 -> 视为同个词 (如 "科" "创")
+                    # 2. 间距很大 -> 视为不同词 (如 "市价" ... "123")
+                    if gap < avg_height * 0.6: 
+                        should_merge = True
                     
-                    # 尝试从行中提取其他数字
-                    # 移除代码，剩下的找数字
-                    remaining = line.replace(symbol, ' ')
+                    # 特殊处理：如果前一个是中文，当前也是中文，放宽合并条件（因为中文有时候间距略大）
+                    if not should_merge and re.match(r'[\u4e00-\u9fa5]', current_block['text'][-1:]) and re.match(r'[\u4e00-\u9fa5]', text):
+                         if gap < avg_height * 1.2:
+                             should_merge = True
+
+                if should_merge:
+                    # 合并
+                    current_block['text'] += text
+                    current_block['right'] = max(current_block['right'], r)
+                    current_block['bottom'] = max(current_block['bottom'], b)
+                    # top/left 保持 block 初始值，因为是向右延伸
+                else:
+                    # 结束上一个块，开始新块
+                    if current_block:
+                        blocks.append(current_block)
                     
-                    # 提取所有数字（包括浮点数）
-                    numbers = re.findall(r'-?\d+\.?\d*', remaining)
-                    
-                    # 提取文字作为名称 (简单过滤掉数字和特殊字符)
-                    # 这里假设名称在代码前面或附近
-                    name_part = re.sub(r'[^\u4e00-\u9fa5a-zA-Z]', '', remaining)
-                    
-                    # 简单的推断逻辑：
-                    # 通常截图里会有：持仓数量、成本/现价、市值
-                    # 这很难精确，所以我们返回原始识别结果给前端，让用户选
-                    
-                    asset = {
-                        'symbol': symbol,
-                        'name': name_part or '未知名称',
-                        'raw_line': line,
-                        'suggested_quantity': 0,
-                        'suggested_cost': 0
+                    current_block = {
+                        'text': text,
+                        'left': l, 'top': t, 'right': r, 'bottom': b,
+                        'line_id': line_id
                     }
-                    
-                    # 尝试猜测数量和成本
-                    # 假设：数量通常是整数或2位小数，成本通常是价格
-                    if len(numbers) >= 2:
-                        # 这是一个非常粗略的猜测，完全依赖于APP的排版
-                        # 比如: 数量 100, 成本 50.5
-                        # 往往最大的那个数字可能是市值，把它排除？
-                        try:
-                            valid_nums = [float(n) for n in numbers]
-                            # 假设第一个是数量，第二个是价格（或者反过来，需要用户确认）
-                            asset['suggested_quantity'] = valid_nums[0]
-                            asset['suggested_cost'] = valid_nums[1] if len(valid_nums) > 1 else 0
-                        except:
-                            pass
-                            
-                    assets.append(asset)
             
-            return assets
+            # 追加最后一个块
+            if current_block:
+                blocks.append(current_block)
+            
+            # --- 转换为输出格式 ---
+            raw_texts = []
+            for block in blocks:
+                text = block['text']
+                
+                # 清洗逻辑
+                if re.match(r'^[^\w\u4e00-\u9fa5]+$', text):
+                    continue
+                # 单个字母过滤，但保留 'K', 'M' 等单位，或者保留数字
+                if len(text) == 1 and re.match(r'[a-zA-Z]', text) and text not in ['K', 'M', 'B']:
+                    continue
+                
+                # 还原坐标
+                box = {
+                    'left': block['left'] / scale_factor,
+                    'top': block['top'] / scale_factor,
+                    'width': (block['right'] - block['left']) / scale_factor,
+                    'height': (block['bottom'] - block['top']) / scale_factor
+                }
+                
+                raw_texts.append({
+                    'text': text,
+                    'box': box
+                })
+            
+            return {
+                'raw_texts': raw_texts,
+                'image_size': {'width': width, 'height': height}
+            }
             
         except Exception as e:
             logging.error(f"OCR parse error: {e}")
-            # 如果没有中文包，尝试仅英文
-            if "chi_sim" in str(e):
-                 logging.warning("chi_sim not found, retrying with eng only")
-                 return OCRService._parse_eng_only(image_bytes)
-            return []
+            return {'raw_texts': [], 'error': str(e)}
 
     @staticmethod
     def _parse_eng_only(image_bytes):
-        """仅使用英文模型重试（针对代码）"""
-        try:
-            image = Image.open(io.BytesIO(image_bytes))
-            text = pytesseract.image_to_string(image, lang='eng')
-            lines = text.split('\n')
-            assets = []
-            code_pattern = re.compile(r'(\d{6})')
-            
-            for line in lines:
-                match = code_pattern.search(line)
-                if match:
-                    symbol = match.group(1)
-                    numbers = re.findall(r'-?\d+\.?\d*', line.replace(symbol, ' '))
-                    asset = {
-                        'symbol': symbol,
-                        'name': '请手动输入',
-                        'raw_line': line,
-                        'suggested_quantity': 0,
-                        'suggested_cost': 0
-                    }
-                    if len(numbers) >= 2:
-                        try:
-                            asset['suggested_quantity'] = float(numbers[0])
-                            asset['suggested_cost'] = float(numbers[1])
-                        except: pass
-                    assets.append(asset)
-            return assets
-        except Exception as e:
-             logging.error(f"OCR retry error: {e}")
-             return []
+        # 废弃
+        return []

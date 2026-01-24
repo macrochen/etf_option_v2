@@ -43,6 +43,21 @@ class Database:
                 cursor = conn.execute(query, params)
                 return cursor
     
+    def execute_insert(self, query: str, params: tuple = ()) -> int:
+        """执行插入语句并返回自增ID
+        
+        Args:
+            query: SQL插入语句
+            params: 参数
+            
+        Returns:
+            int: lastrowid
+        """
+        with self.get_connection() as conn:
+            with conn:
+                cursor = conn.execute(query, params)
+                return cursor.lastrowid
+
     def execute_many(self, query: str, params_list: List[tuple]) -> None:
         """执行多条SQL语句"""
         with self.get_connection() as conn:

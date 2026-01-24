@@ -9,7 +9,7 @@
             <h2>资产全景仪表盘</h2>
             <div>
                 <button class="btn btn-warning me-2 text-dark" data-bs-toggle="modal" data-bs-target="#importModal">
-                    <i class="fas fa-camera"></i> 截图导入
+                    <i class="fas fa-file-import"></i> 批量导入
                 </button>
                 <button class="btn btn-info me-2 text-white" data-bs-toggle="modal" data-bs-target="#accountListModal">
                     <i class="fas fa-wallet"></i> 账户管理
@@ -62,7 +62,6 @@
                         <button type="button" class="btn btn-outline-secondary active" onclick="switchChart('category_1')">一级分类</button>
                         <button type="button" class="btn btn-outline-secondary" onclick="switchChart('category_2')">二级分类</button>
                         <button type="button" class="btn btn-outline-secondary" onclick="switchChart('account')">账户</button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="switchChart('asset_type')">资产形态</button>
                     </div>
                 </div>
                 <div class="card-body">
@@ -76,24 +75,50 @@
     <div class="row">
         <div class="col-12">
             <div class="card">
-                <div class="card-header">
-                    资产明细
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>资产明细</span>
+                    <button class="btn btn-danger btn-sm" id="btnBatchDelete" onclick="batchDeleteAssets()" style="display: none;">
+                        <i class="fas fa-trash"></i> 批量删除
+                    </button>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-striped table-hover" id="assetTable">
                             <thead>
                                 <tr>
-                                    <th>账户</th>
-                                    <th>名称/代码</th>
-                                    <th>一级分类</th>
-                                    <th>二级分类</th>
-                                    <th>持有数量</th>
-                                    <th>成本价</th>
-                                    <th>现价</th>
-                                    <th>市值</th>
-                                    <th>盈亏</th>
+                                    <th width="40"><input class="form-check-input" type="checkbox" id="selectAllAssets"></th>
+                                    <th style="cursor:pointer" data-sort="account_name">账户 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="name">名称/代码 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="category_1">一级分类 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="category_2">二级分类 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="quantity">持有数量 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="cost_price">成本价 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="current_price">现价 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="market_value">市值 <i class="fas fa-sort"></i></th>
+                                    <th style="cursor:pointer" data-sort="pnl">盈亏 <i class="fas fa-sort"></i></th>
                                     <th>操作</th>
+                                </tr>
+                                <tr class="filter-row bg-light">
+                                    <th></th>
+                                    <th>
+                                        <select class="form-select form-select-sm column-filter" data-col="account_name" id="filterAccount">
+                                            <option value="">全部</option>
+                                            <!-- JS populated -->
+                                        </select>
+                                    </th>
+                                    <th><input type="text" class="form-control form-control-sm column-filter" data-col="name" placeholder="筛选..."></th>
+                                    <th>
+                                        <select class="form-select form-select-sm column-filter" data-col="category_1">
+                                            <option value="">全部</option>
+                                            <option value="权益类">权益类</option>
+                                            <option value="固收类">固收类</option>
+                                            <option value="商品类">商品类</option>
+                                            <option value="现金类">现金类</option>
+                                            <option value="其他">其他</option>
+                                        </select>
+                                    </th>
+                                    <th><input type="text" class="form-control form-control-sm column-filter" data-col="category_2" placeholder="筛选..."></th>
+                                    <th></th><th></th><th></th><th></th><th></th><th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -120,16 +145,18 @@
                     <input type="hidden" id="assetId">
                     <div class="mb-3">
                         <label class="form-label">账户名称</label>
-                        <input type="text" class="form-control" id="accountName" required list="accountList">
-                        <datalist id="accountList"></datalist>
+                        <select class="form-select" id="accountName" required>
+                            <!-- JS populated -->
+                        </select>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">资产类型</label>
-                        <select class="form-select" id="assetType" required>
+                    <div class="mb-3" style="display:none;">
+                        <label class="form-label">资产类型 (自动推断)</label>
+                        <select class="form-select" id="assetType">
                             <option value="stock">股票</option>
                             <option value="etf">ETF</option>
                             <option value="fund">场外基金</option>
                             <option value="cash">现金</option>
+                            <option value="other">其他</option>
                         </select>
                     </div>
                     <div class="row">
@@ -137,23 +164,31 @@
                             <label class="form-label">一级分类</label>
                             <select class="form-select" id="category1">
                                 <option value="">请选择...</option>
-                                <option value="股票">股票</option>
-                                <option value="基金">基金</option>
-                                <option value="债券">债券</option>
-                                <option value="现金">现金</option>
+                                <option value="权益类">权益类 (股票/股基)</option>
+                                <option value="固收类">固收类 (债券/理财)</option>
+                                <option value="商品类">商品类 (黄金/REITs)</option>
+                                <option value="现金类">现金类 (货币基金/存款)</option>
                                 <option value="其他">其他</option>
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">二级分类</label>
                             <input type="text" class="form-control" id="category2" list="cat2List">
-                            <datalist id="cat2List"></datalist>
+                            <datalist id="cat2List">
+                                <option value="宽基">
+                                <option value="行业">
+                                <option value="红利">
+                                <option value="策略">
+                                <option value="QDII">
+                                <option value="债券">
+                                <option value="货币">
+                            </datalist>
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">代码</label>
-                            <input type="text" class="form-control" id="symbol" required>
+                            <input type="text" class="form-control" id="symbol" placeholder="投顾可不填，自动生成">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">名称</label>
@@ -161,13 +196,17 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-4 mb-3">
                             <label class="form-label">持有数量</label>
                             <input type="number" step="any" class="form-control" id="quantity" required>
                         </div>
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-4 mb-3">
                             <label class="form-label">成本价</label>
                             <input type="number" step="any" class="form-control" id="costPrice" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">现价</label>
+                            <input type="number" step="any" class="form-control" id="currentPrice" placeholder="不填则自动获取">
                         </div>
                     </div>
                 </form>
@@ -253,6 +292,90 @@
     </div>
 </div>
 
+<!-- 截图导入模态框 -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">批量导入资产</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- 提示区域 -->
+                <div class="alert alert-info py-2 small">
+                    <i class="fas fa-info-circle"></i> 推荐使用 ChatGPT / Claude 将持仓截图转换为 Markdown 表格后粘贴。
+                    <br><strong>表头需包含：</strong>代码、名称、数量、成本、现价、二级分类（可选）。
+                </div>
+
+                <!-- 输入区域 -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">1. 粘贴 Markdown 表格数据</label>
+                    <textarea class="form-control font-monospace" id="mdInput" rows="6" placeholder="| 代码 | 名称 | 二级分类 | 数量 | 成本 | 现价 |
+|---|---|---|---|---|---|
+| 510300 | 沪深300ETF | 宽基 | 10000 | 3.50 | 3.65 |"></textarea>
+                </div>
+                
+                <div class="d-grid gap-2 mb-4">
+                    <button class="btn btn-secondary" type="button" onclick="parseMarkdownInput()">
+                        <i class="fas fa-magic"></i> 解析表格数据
+                    </button>
+                </div>
+                
+                <!-- 批量设置 (可选) -->
+                <div class="card mb-3 bg-light border-0">
+                    <div class="card-body py-2">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-auto"><small class="fw-bold">统一设置：</small></div>
+                            <div class="col-md-4">
+                                <select class="form-select form-select-sm" id="batchAccount">
+                                    <!-- JS填充 -->
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-select form-select-sm" id="batchCategory1">
+                                    <option value="权益类">权益类</option>
+                                    <option value="固收类">固收类</option>
+                                    <option value="商品类">商品类</option>
+                                    <option value="现金类">现金类</option>
+                                    <option value="其他">其他</option>
+                                </select>
+                            </div>
+                            <div class="col-auto text-muted small">(仅对新解析的数据生效)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 待导入列表 -->
+                <div id="ocrResult" style="display: none;">
+                    <label class="form-label fw-bold">2. 确认待导入列表</label>
+                    <div class="table-responsive border rounded" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-striped mb-0" id="ocrTable">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th style="width: 20%">名称</th>
+                                    <th style="width: 15%">代码</th>
+                                    <th style="width: 15%">二级分类</th>
+                                    <th style="width: 15%">数量</th>
+                                    <th style="width: 15%">成本</th>
+                                    <th style="width: 15%">现价</th>
+                                    <th style="width: 5%">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="d-grid gap-2 mt-3">
+                        <button class="btn btn-primary btn-lg" onclick="importAllAssets()">
+                            <i class="fas fa-file-import"></i> 全部导入并保存
+                        </button>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -261,10 +384,50 @@ let portfolioData = null;
 let currentChartType = 'category_1';
 let myChart = null;
 let allAccounts = [];
+let currentSort = { field: 'update_time', asc: false }; // 默认按更新时间降序排列
+let currentFilters = {}; // 存储过滤条件 { col: value }
 
 $(document).ready(function() {
     refreshData();
     initChart();
+    refreshAccountOptions(); // Load accounts for filter immediately
+    
+    // Table Header Click for Sorting
+    $('#assetTable thead th[data-sort]').on('click', function() {
+        const field = $(this).data('sort');
+        if (currentSort.field === field) {
+            currentSort.asc = !currentSort.asc;
+        } else {
+            currentSort.field = field;
+            currentSort.asc = true;
+        }
+        
+        // Update Sort Icons
+        $('#assetTable thead th i').removeClass('fa-sort-up fa-sort-down').addClass('fa-sort');
+        $(this).find('i').removeClass('fa-sort').addClass(currentSort.asc ? 'fa-sort-up' : 'fa-sort-down');
+        
+        sortAndRenderTable();
+    });
+    
+    // Column Filter Logic
+    $('.column-filter').on('input change', function() {
+        const col = $(this).data('col');
+        const val = $(this).val().toLowerCase().trim();
+        currentFilters[col] = val;
+        sortAndRenderTable();
+    });
+    
+    // Checkbox Logic
+    $('#selectAllAssets').change(function() {
+        $('.asset-select').prop('checked', $(this).is(':checked'));
+        toggleBatchDeleteBtn();
+    });
+
+    $('#assetTable tbody').on('change', '.asset-select', function() {
+        const allChecked = $('.asset-select:checked').length === $('.asset-select').length;
+        $('#selectAllAssets').prop('checked', allChecked);
+        toggleBatchDeleteBtn();
+    });
     
     // Load accounts when modal is opened
     $('#accountListModal').on('show.bs.modal', function () {
@@ -274,6 +437,68 @@ $(document).ready(function() {
     // Refresh account datalist when asset modal is opened
     $('#assetModal').on('show.bs.modal', function() {
         refreshAccountOptions();
+    });
+
+    // Refresh account list when import modal is opened
+    $('#importModal').on('show.bs.modal', function() {
+        refreshAccountOptions();
+    });
+    
+    // Paste event listener for import modal
+    const importModal = document.getElementById('importModal');
+    const fileInput = document.getElementById('screenshotFile');
+    const imgPreview = document.getElementById('imagePreview');
+    
+    // OCR Data State
+    let ocrData = null; // { rawTexts: [], imgSize: {width, height} }
+
+    // Monitor symbol input to toggle add button
+    $('#ocr-symbol').on('input', function() {
+        const val = $(this).val().trim();
+        $('#btn-add-ocr-asset').prop('disabled', !val);
+    });
+
+    // Helper to preview image
+    function previewImage(file) {
+        if (file && file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imgPreview.src = e.target.result;
+                imgPreview.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        } else {
+            imgPreview.style.display = 'none';
+        }
+    }
+
+    // Manual selection handler
+    fileInput.addEventListener('change', function() {
+        if (this.files && this.files[0]) {
+            previewImage(this.files[0]);
+        }
+    });
+
+    importModal.addEventListener('paste', function(e) {
+        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        for (let index in items) {
+            const item = items[index];
+            if (item.kind === 'file' && item.type.indexOf('image/') !== -1) {
+                const blob = item.getAsFile();
+                
+                // Create a DataTransfer to set the file input
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(blob);
+                fileInput.files = dataTransfer.files;
+                
+                // Show preview
+                previewImage(blob);
+                
+                fileInput.classList.add('is-valid');
+                setTimeout(() => fileInput.classList.remove('is-valid'), 1000);
+                break;
+            }
+        }
     });
 });
 
@@ -363,15 +588,58 @@ function deleteAccount(id) {
     }
 }
 
+function determineAssetType(cat1, symbol) {
+    if (cat1 === '现金类') return 'cash';
+    if (cat1 === '权益类' || cat1 === '固收类' || cat1 === '商品类') {
+        // Simple guess based on symbol
+        if (symbol.startsWith('1') || symbol.startsWith('5')) return 'etf';
+        if (symbol.length === 6 && (symbol.startsWith('6') || symbol.startsWith('0') || symbol.startsWith('3') || symbol.startsWith('8') || symbol.startsWith('4'))) return 'stock';
+        return 'fund'; // Default to fund/other
+    }
+    return 'other';
+}
+
 function refreshAccountOptions() {
-    // Load accounts for datalist
+    // Load accounts for select
     $.get('/api/portfolio/accounts', function(res) {
         allAccounts = res;
-        const datalist = $('#accountList');
-        datalist.empty();
-        res.forEach(acc => {
-            datalist.append(`<option value="${acc.name}">`);
-        });
+        
+        // Populate Asset Modal Select
+        const assetSelect = $('#accountName');
+        const currentVal = assetSelect.val(); 
+        assetSelect.empty();
+        
+        // Populate Batch Import Select
+        const batchSelect = $('#batchAccount');
+        const batchVal = batchSelect.val();
+        batchSelect.empty();
+        
+        // Populate Filter Select
+        const filterSelect = $('#filterAccount');
+        const filterVal = filterSelect.val();
+        filterSelect.empty();
+        filterSelect.append('<option value="">全部</option>'); // Reset default
+        
+        if (res.length === 0) {
+            const noOpt = '<option value="">无账户，请先创建</option>';
+            assetSelect.append(noOpt);
+            batchSelect.append(noOpt);
+        } else {
+            res.forEach(acc => {
+                const opt = `<option value="${acc.name}">${acc.name}</option>`;
+                assetSelect.append(opt);
+                
+                const batchOpt = `<option value="${acc.name}">${acc.name} (${acc.type || '-'})</option>`;
+                batchSelect.append(batchOpt);
+                
+                filterSelect.append(`<option value="${acc.name}">${acc.name}</option>`);
+            });
+        }
+        
+        // Restore selection if valid
+        if (currentVal) assetSelect.val(currentVal);
+        if (batchVal) batchSelect.val(batchVal);
+        if (filterVal) filterSelect.val(filterVal);
     });
 }
 
@@ -386,10 +654,55 @@ function refreshData() {
     $.get('/api/portfolio/data', function(res) {
         portfolioData = res;
         updateDashboard();
-        updateTable();
+        sortAndRenderTable(); // 使用当前的排序状态渲染表格
         updateChart();
         updateDatalists();
+    }).fail(function(err) {
+        console.error("Load data failed", err);
+        // alert("获取资产数据失败: " + (err.responseJSON ? err.responseJSON.message : err.statusText));
+        $('#totalAssets, #totalPnL, #totalCost').text('加载失败');
     });
+}
+
+function sortAndRenderTable() {
+    if (!portfolioData || !portfolioData.assets) return;
+    
+    // 1. Copy and Filter
+    let data = portfolioData.assets.filter(item => {
+        for (const [col, filterVal] of Object.entries(currentFilters)) {
+            if (!filterVal) continue;
+            
+            // Special handling for 'name' to search both name and symbol
+            if (col === 'name') {
+                const name = (item.name || '').toLowerCase();
+                const symbol = (item.symbol || '').toLowerCase();
+                if (!name.includes(filterVal) && !symbol.includes(filterVal)) return false;
+            } else {
+                const val = String(item[col] || '').toLowerCase();
+                if (!val.includes(filterVal)) return false;
+            }
+        }
+        return true;
+    });
+    
+    // 2. Sort
+    const field = currentSort.field;
+    const isAsc = currentSort.asc;
+    
+    data.sort((a, b) => {
+        let valA = a[field];
+        let valB = b[field];
+        
+        if (valA === null || valA === undefined) valA = '';
+        if (valB === null || valB === undefined) valB = '';
+        
+        if (typeof valA === 'string') {
+            return isAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return isAsc ? valA - valB : valB - valA;
+    });
+    
+    updateTable(data);
 }
 
 function updateDashboard() {
@@ -403,14 +716,25 @@ function updateDashboard() {
     $('#totalPnL').parent().parent().removeClass('bg-success bg-danger').addClass(pnlClass);
 }
 
-function updateTable() {
+function updateTable(data) {
     const tbody = $('#assetTable tbody');
     tbody.empty();
     
-    portfolioData.assets.forEach(asset => {
+    // Reset selection state
+    $('#selectAllAssets').prop('checked', false);
+    toggleBatchDeleteBtn();
+    
+    const assets = data || (portfolioData ? portfolioData.assets : []);
+    if (!assets || assets.length === 0) {
+        tbody.html('<tr><td colspan="11" class="text-center text-muted">无数据</td></tr>');
+        return;
+    }
+    
+    assets.forEach(asset => {
         const pnlClass = asset.pnl >= 0 ? 'text-success' : 'text-danger';
         const row = `
             <tr>
+                <td><input class="form-check-input asset-select" type="checkbox" value="${asset.id}"></td>
                 <td>${asset.account_name}</td>
                 <td>
                     <div>${asset.name || '-'}</div>
@@ -429,9 +753,6 @@ function updateTable() {
                 <td>
                     <button class="btn btn-sm btn-outline-primary" onclick='editAsset(${JSON.stringify(asset)})'>
                         <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteAsset(${asset.id})">
-                        <i class="fas fa-trash"></i>
                     </button>
                 </td>
             </tr>
@@ -472,7 +793,9 @@ function updateChart() {
         },
         tooltip: {
             trigger: 'item',
-            formatter: '{b}: {c} ({d}%)'
+            formatter: function(params) {
+                return `${params.name}<br/>市值: <b>¥${params.value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</b> (${params.percent}%)`;
+            }
         },
         legend: {
             orient: 'vertical',
@@ -497,7 +820,10 @@ function updateChart() {
                     label: {
                         show: true,
                         fontSize: 20,
-                        fontWeight: 'bold'
+                        fontWeight: 'bold',
+                        formatter: function(params) {
+                            return `${params.name}\n¥${params.value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                        }
                     }
                 },
                 labelLine: {
@@ -520,16 +846,34 @@ function switchChart(type) {
 }
 
 function saveAsset() {
+    const cat1 = $('#category1').val();
+    let symbol = $('#symbol').val().trim();
+    const name = $('#name').val().trim();
+    
+    // Auto-generate symbol for investment advisors/others if missing
+    if (!symbol && name) {
+        const hash = name.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0);
+        symbol = 'TG_' + Math.abs(hash).toString(16).toUpperCase();
+    }
+    
+    // Auto-determine asset type ONLY if value is missing (New mode)
+    // In Edit mode, val() is populated by editAsset, so we keep it.
+    let aType = $('#assetType').val();
+    if (!aType) {
+        aType = determineAssetType(cat1, symbol);
+    }
+
     const data = {
         id: $('#assetId').val() || null,
         account_name: $('#accountName').val(),
-        asset_type: $('#assetType').val(),
-        category_1: $('#category1').val(),
+        asset_type: aType,
+        category_1: cat1,
         category_2: $('#category2').val(),
-        symbol: $('#symbol').val(),
-        name: $('#name').val(),
+        symbol: symbol,
+        name: name,
         quantity: parseFloat($('#quantity').val()),
-        cost_price: parseFloat($('#costPrice').val())
+        cost_price: parseFloat($('#costPrice').val()),
+        last_price: parseFloat($('#currentPrice').val()) || 0
     };
     
     $.ajax({
@@ -550,6 +894,7 @@ function saveAsset() {
 }
 
 function deleteAsset(id) {
+    // 已废弃，保留作为单行删除的逻辑参考
     if (confirm('确定要删除这条资产记录吗？')) {
         $.ajax({
             url: `/api/portfolio/asset/${id}`,
@@ -564,6 +909,56 @@ function deleteAsset(id) {
     }
 }
 
+function toggleBatchDeleteBtn() {
+    const count = $('.asset-select:checked').length;
+    const btn = $('#btnBatchDelete');
+    if (count > 0) {
+        btn.show().html(`<i class="fas fa-trash"></i> 批量删除 (${count})`);
+    } else {
+        btn.hide();
+    }
+}
+
+function batchDeleteAssets() {
+    const ids = [];
+    $('.asset-select:checked').each(function() {
+        ids.push($(this).val());
+    });
+    
+    if (ids.length === 0) return;
+    
+    if (!confirm(`确定要删除选中的 ${ids.length} 条资产记录吗？此操作不可恢复。`)) return;
+    
+    const btn = $('#btnBatchDelete');
+    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 删除中...');
+    
+    let completed = 0;
+    let failed = 0;
+    
+    // 使用 Promise.allSettled 或简单计数
+    const promises = ids.map(id => {
+        return new Promise(resolve => {
+            $.ajax({
+                url: `/api/portfolio/asset/${id}`,
+                type: 'DELETE',
+                success: () => resolve(true),
+                error: () => {
+                    failed++;
+                    resolve(false);
+                }
+            });
+        });
+    });
+    
+    Promise.all(promises).then(() => {
+        btn.prop('disabled', false);
+        if (failed > 0) {
+            alert(`删除完成。成功: ${ids.length - failed}, 失败: ${failed}`);
+        }
+        refreshData();
+    });
+}
+
 function editAsset(asset) {
     $('#modalTitle').text('编辑资产');
     $('#assetId').val(asset.id);
@@ -575,6 +970,7 @@ function editAsset(asset) {
     $('#name').val(asset.name);
     $('#quantity').val(asset.quantity);
     $('#costPrice').val(asset.cost_price);
+    $('#currentPrice').val(asset.last_price || ''); 
     
     const modal = new bootstrap.Modal(document.getElementById('assetModal'));
     modal.show();
@@ -584,8 +980,18 @@ function editAsset(asset) {
 function updateDatalists() {
     if (!portfolioData) return;
     
-    // Only update category 2 list from existing assets
-    const cat2s = new Set();
+    // Default options based on new classification
+    const defaultCat2 = [
+        // 权益类
+        '宽基', '行业', '红利', '策略', 'QDII', '个股', '科技', '消费', '医药', '金融', '新能源',
+        // 固收类
+        '利率债', '信用债', '可转债', '理财',
+        // 商品/另类
+        '黄金', '原油', 'REITs', '豆粕',
+        // 现金
+        '货币', '存款'
+    ];
+    const cat2s = new Set(defaultCat2);
     
     portfolioData.assets.forEach(a => {
         if (a.category_2) cat2s.add(a.category_2);
@@ -611,10 +1017,211 @@ function formatNumber(num) {
     return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(num);
 }
 
+// 截图上传逻辑
+let ocrCurrentStep = 'name'; // name -> symbol -> qty -> cost
+
+// uploadScreenshot removed
+
+// renderOcrItems removed
+
+function resetOcrForm() {
+    // Only used to clear inputs, though inputs are now driven by markdown parsing
+    // But we might need it if we keep manual add? No, manual add is removed from UI.
+    // So this function is actually unused, but parseMarkdown calls it?
+    // Wait, parseMarkdownInput calls appendAssetRow, which doesn't need reset.
+    // Let's check parseMarkdownInput... it doesn't call resetOcrForm.
+    // So we can remove all these.
+}
+
+// Removed: setOcrStep, focus listener, onChipClick, addOcrAssetToTable
+
+function appendAssetRow(asset) {
+    const index = Date.now() + Math.floor(Math.random() * 1000); // Ensure unique
+    const row = `
+        <tr id="ocr-row-${index}">
+            <td><input type="text" class="form-control form-control-sm asset-name" value="${asset.name || ''}"></td>
+            <td><input type="text" class="form-control form-control-sm asset-symbol" value="${asset.symbol || ''}"></td>
+            <td><input type="text" class="form-control form-control-sm asset-cat2" value="${asset.cat2 || ''}" placeholder="二级分类" list="cat2List"></td>
+            <td><input type="number" class="form-control form-control-sm asset-qty" value="${asset.qty || ''}"></td>
+            <td><input type="number" class="form-control form-control-sm asset-cost" value="${asset.cost || ''}"></td>
+            <td><input type="number" class="form-control form-control-sm asset-last-price" value="${asset.lastPrice || ''}"></td>
+            <td>
+                <button class="btn btn-sm btn-outline-danger border-0" onclick="$(this).closest('tr').remove()" title="删除">
+                    <i class="fas fa-times"></i>
+                </button>
+            </td>
+        </tr>
+    `;
+    $('#ocrTable tbody').append(row);
+}
+
+function parseMarkdownInput() {
+    const text = $('#mdInput').val().trim();
+    if (!text) return alert('请粘贴 Markdown 表格内容');
+    
+    const lines = text.split('\n').filter(line => line.trim() && line.includes('|'));
+    if (lines.length < 2) return alert('未识别到有效的 Markdown 表格');
+    
+    // 1. Parse Header
+    const headerLine = lines[0];
+    const headers = headerLine.split('|').map(h => h.trim()).filter(h => h);
+    
+    // Mapping: header text -> field key
+    const mapping = {};
+    headers.forEach((h, index) => {
+        if (h.includes('代码') || h.includes('Symbol')) mapping[index] = 'symbol';
+        else if (h.includes('名称') || h.includes('Name')) mapping[index] = 'name';
+        else if (h.includes('数量') || h.includes('Qty') || h.includes('持仓')) mapping[index] = 'qty';
+        else if (h.includes('成本') || h.includes('Cost')) mapping[index] = 'cost';
+        else if (h.includes('现价') || h.includes('Price') || h.includes('最新')) mapping[index] = 'lastPrice';
+        else if (h.includes('二级') || h.includes('分类') || h.includes('Type')) mapping[index] = 'cat2';
+    });
+    
+    if (!Object.values(mapping).includes('symbol')) {
+        alert('警告：未识别到“代码”列，请检查表头是否包含“代码”字样');
+    }
+    
+    // 2. Parse Data Rows
+    let addedCount = 0;
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.includes('---')) continue; // Skip separator line
+        
+        const cols = line.split('|').map(c => c.trim()).filter(c => c !== ''); // simple split, might need regex for escaped pipes
+        // Note: .split('|') might produce empty strings at start/end if line starts/ends with |
+        // Better way: remove leading/trailing |, then split
+        
+        const cleanLine = line.replace(/^\||\|$/g, '');
+        const values = cleanLine.split('|').map(c => c.trim());
+        
+        if (values.length < headers.length) continue; // Skip incomplete lines
+        
+        const asset = {};
+        let hasData = false;
+        
+        Object.keys(mapping).forEach(colIndex => {
+            if (values[colIndex]) {
+                // Remove currency symbols, commas for numeric fields
+                let val = values[colIndex];
+                const field = mapping[colIndex];
+                
+                if (['qty', 'cost', 'lastPrice'].includes(field)) {
+                    val = val.replace(/[¥$,]/g, '');
+                }
+                
+                asset[field] = val;
+                hasData = true;
+            }
+        });
+        
+        if (hasData) {
+            // 如果没有代码但有名称，生成虚拟代码 (投顾/理财)
+            if (!asset.symbol && asset.name) {
+                // Generate simple hash or timestamp
+                const hash = asset.name.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0);
+                asset.symbol = 'TG_' + Math.abs(hash).toString(16).toUpperCase();
+            }
+            
+            if (asset.symbol) {
+                appendAssetRow(asset);
+                addedCount++;
+            }
+        }
+    }
+    
+    if (addedCount > 0) {
+        alert(`🎉 成功解析并添加了 ${addedCount} 条资产记录！\n请在下方列表确认无误后，点击“全部导入”按钮保存。`);
+        $('#mdInput').val(''); // Clear input
+        $('#ocrResult').show(); // Ensure table is visible
+        $('#markdownArea').collapse('hide');
+    } else {
+        alert('未解析到有效数据，请检查 Markdown 格式');
+    }
+}
+
+function importAllAssets() {
+    const rows = $('#ocrTable tbody tr');
+    if (rows.length === 0) {
+        return alert('列表为空，请先添加资产');
+    }
+    
+    // 获取公共字段
+    const accountName = $('#batchAccount').val(); // From select
+    const cat1 = $('#batchCategory1').val();
+    
+    if (!accountName) {
+        return alert('请先设置【归属账户】');
+    }
+    
+    const assets = [];
+    rows.each(function() {
+        const row = $(this);
+        const symbol = row.find('.asset-symbol').val().trim();
+        const cat2 = row.find('.asset-cat2').val().trim();
+        
+        assets.push({
+            account_name: accountName,
+            category_1: cat1,
+            category_2: cat2, // From row
+            symbol: symbol,
+            name: row.find('.asset-name').val().trim(),
+            quantity: parseFloat(row.find('.asset-qty').val()) || 0,
+            cost_price: parseFloat(row.find('.asset-cost').val()) || 0,
+            last_price: parseFloat(row.find('.asset-last-price').val()) || 0,
+            asset_type: determineAssetType(cat1, symbol)
+        });
+    });
+    
+    if (!confirm(`确认导入这 ${assets.length} 条资产到账户 [${accountName}] 吗？`)) return;
+    
+    const btn = $('button[onclick="importAllAssets()"]');
+    const originalText = btn.html();
+    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 正在导入...');
+    
+    // 串行提交（因为后端目前只支持单条添加）
+    let successCount = 0;
+    let failCount = 0;
+    
+    // 使用 Promise 链或 async/await
+    // 这里简单用 reduce 来串行执行 Promise
+    assets.reduce((promise, asset) => {
+        return promise.then(() => {
+            return new Promise((resolve) => {
+                $.ajax({
+                    url: '/api/portfolio/asset',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(asset),
+                    success: function() {
+                        successCount++;
+                        resolve();
+                    },
+                    error: function() {
+                        failCount++;
+                        resolve(); // 继续下一个
+                    }
+                });
+            });
+        });
+    }, Promise.resolve()).then(() => {
+        btn.prop('disabled', false).html(originalText);
+        alert(`导入完成！成功: ${successCount}, 失败: ${failCount}`);
+        
+        if (successCount > 0) {
+            $('#importModal').modal('hide');
+            refreshData(); // 刷新主列表
+            
+            // 清空表格
+            $('#ocrTable tbody').empty();
+        }
+    });
+}
+
 // Reset form when modal closes
 $('#assetModal').on('hidden.bs.modal', function () {
     $('#modalTitle').text('新增资产');
     $('#assetId').val('');
+    $('#assetType').val(''); // Clear hidden field
     document.getElementById('assetForm').reset();
 });
 </script>
