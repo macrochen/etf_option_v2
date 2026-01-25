@@ -55,6 +55,16 @@ app.register_blueprint(futu_bp)  # 注册富途 API蓝图
 app.register_blueprint(option_bp)
 app.register_blueprint(sim_trade_bp)
 
+@app.before_request
+def log_request_info():
+    if request.method == 'DELETE':
+        app.logger.info(f"Handling DELETE request: {request.url}")
+
+@app.errorhandler(404)
+def page_not_found(e):
+    app.logger.error(f"404 Error: {request.url}")
+    return jsonify(error=str(e)), 404
+
 def init_app():
     # 应用初始化代码，不再包含同步操作
     pass

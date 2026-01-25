@@ -165,7 +165,10 @@ def refresh_prices():
     except Exception as e:
         logging.error(f"Refresh prices error: {e}")
         return jsonify({'message': str(e), 'status': 'error'}), 500
+@portfolio_bp.route('/api/portfolio/asset/<int:asset_id>', methods=['DELETE'], strict_slashes=False)
+def delete_asset(asset_id):
     """删除资产"""
+    logging.info(f"Received delete request for asset_id: {asset_id} (type: {type(asset_id)})")
     try:
         success = db.delete_asset(asset_id)
         if success:

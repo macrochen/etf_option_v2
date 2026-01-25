@@ -274,7 +274,7 @@ function updateDatalists() {
     const defaultCat2 = [
         '宽基', '行业', '红利', '策略', 'QDII', '个股', '科技', '消费', '医药', '金融', '新能源',
         '利率债', '信用债', '可转债', '理财',
-        '黄金', '原油', 'REITs', '豆粕',
+        '黄金', '原油', 'REITs', '豆粕', '期权', '期货',
         '货币', '存款'
     ];
     const cat2s = new Set(defaultCat2);
@@ -528,8 +528,9 @@ function editAsset(asset) {
 }
 
 function saveAsset() {
+    // Basic Validation
     const accountName = $('#accountName').val();
-    const symbol = $('#symbol').val().trim();
+    let symbol = $('#symbol').val().trim(); // 使用 let
     const name = $('#name').val().trim();
     const quantity = $('#quantity').val();
     const costPrice = $('#costPrice').val();
@@ -541,16 +542,26 @@ function saveAsset() {
 
     const cat1 = $('#category1').val();
     
-    // Auto-generate symbol 
-    let finalSymbol = symbol;
-    if (!finalSymbol && name) {
+    // Auto-generate symbol if missing
+    if (!symbol && name) {
         const hash = name.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0);
-        finalSymbol = 'TG_' + Math.abs(hash).toString(16).toUpperCase();
+        let prefix = 'TG_';
+        
+        if (cat1 === '现金类' || name.includes('现金') || name.includes('存款') || name.includes('余额') || name.includes('宝')) {
+            prefix = 'CASH_';
+        } else if (name.includes('期权')) {
+            prefix = 'OPT_';
+        } else if (name.includes('期货')) {
+            prefix = 'FUT_';
+        }
+        
+        symbol = prefix + Math.abs(hash).toString(16).toUpperCase();
     }
     
+    // Auto-determine asset type
     let aType = $('#assetType').val();
     if (!aType) {
-        aType = determineAssetType(cat1, finalSymbol);
+        aType = determineAssetType(cat1, symbol);
     }
 
     const data = {
@@ -559,7 +570,7 @@ function saveAsset() {
         asset_type: aType,
         category_1: cat1,
         category_2: $('#category2').val(),
-        symbol: finalSymbol,
+        symbol: symbol, // Use symbol
         name: name,
         quantity: parseFloat(quantity),
         cost_price: parseFloat(costPrice),
@@ -646,39 +657,64 @@ function parseMarkdownInput() {
     const text = $('#mdInput').val().trim();
     if (!text) return alert('请粘贴 Markdown 表格内容');
     
-    const lines = text.split('\n').filter(line => line.trim() && line.includes('|'));
+    // 过滤掉空行，并只保留包含竖线的行
+    const lines = text.split('\n').map(l => l.trim()).filter(line => line && line.includes('|'));
     if (lines.length < 2) return alert('未识别到有效的 Markdown 表格');
+
+    // 助手函数：安全解析一行 Markdown
+    const parseLine = (l) => {
+        let parts = l.split('|').map(p => p.trim());
+        // 如果是以 | 开头和结尾的表格，split 会产生首尾空元素
+        if (parts[0] === '') parts.shift();
+        if (parts[parts.length - 1] === '') parts.pop();
+        return parts;
+    };
+
+    // 1. 解析表头
+    const headers = parseLine(lines[0]);
+    console.log("Parsed Headers:", headers); // 调试用
     
-    const headerLine = lines[0];
-    const headers = headerLine.split('|').map(h => h.trim()).filter(h => h);
-    
+    // 映射表：列索引 -> 字段名
     const mapping = {};
     headers.forEach((h, index) => {
-        if (h.includes('代码') || h.includes('Symbol')) mapping[index] = 'symbol';
-        else if (h.includes('名称') || h.includes('Name')) mapping[index] = 'name';
-        else if (h.includes('数量') || h.includes('Qty') || h.includes('持仓')) mapping[index] = 'qty';
-        else if (h.includes('成本') || h.includes('Cost')) mapping[index] = 'cost';
-        else if (h.includes('现价') || h.includes('Price') || h.includes('最新')) mapping[index] = 'lastPrice';
-        else if (h.includes('二级') || h.includes('分类') || h.includes('Type')) mapping[index] = 'cat2';
+        const lowerH = h.toLowerCase();
+        if (lowerH.includes('代码') || lowerH.includes('symbol') || lowerH.includes('code')) {
+            mapping[index] = 'symbol';
+        } else if (lowerH.includes('名称') || lowerH.includes('name')) {
+            mapping[index] = 'name';
+        } else if (lowerH.includes('数量') || lowerH.includes('qty') || lowerH.includes('持仓') || lowerH.includes('份额')) {
+            mapping[index] = 'qty';
+        } else if (lowerH.includes('成本') || lowerH.includes('cost')) {
+            mapping[index] = 'cost';
+        } else if (lowerH.includes('现价') || lowerH.includes('price') || lowerH.includes('最新')) {
+            mapping[index] = 'lastPrice';
+        } else if (lowerH.includes('二级') || lowerH.includes('分类') || lowerH.includes('type') || lowerH.includes('指数')) {
+            mapping[index] = 'cat2';
+        }
     });
     
+    console.log("Column Mapping:", mapping); // 调试用
+
+    // 2. 解析数据行
     let addedCount = 0;
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
-        if (line.includes('---')) continue; 
+        if (line.includes('---')) continue; // 跳过分割线
         
-        const cleanLine = line.replace(/^\|\|\|$/g, '');
-        const values = cleanLine.split('|').map(c => c.trim());
-        
-        if (values.length < headers.length) continue; 
+        const values = parseLine(line);
+        if (values.length === 0) continue;
         
         const asset = {};
         let hasData = false;
         
+        // 根据映射关系填充数据
         Object.keys(mapping).forEach(colIndex => {
-            if (values[colIndex]) {
-                let val = values[colIndex];
+            const idx = parseInt(colIndex);
+            if (values[idx] !== undefined) {
+                let val = values[idx];
                 const field = mapping[colIndex];
+                
+                // 数字清洗
                 if (['qty', 'cost', 'lastPrice'].includes(field)) {
                     val = val.replace(/[¥$,]/g, '');
                 }
@@ -688,9 +724,21 @@ function parseMarkdownInput() {
         });
         
         if (hasData) {
+            // 自动补全逻辑
             if (!asset.symbol && asset.name) {
                 const hash = asset.name.split('').reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0);
-                asset.symbol = 'TG_' + Math.abs(hash).toString(16).toUpperCase();
+                let prefix = 'TG_';
+                const n = asset.name;
+                
+                if (n.includes('现金') || n.includes('存款') || n.includes('余额') || n.includes('钱包') || n.includes('宝')) {
+                    prefix = 'CASH_';
+                } else if (n.includes('期权')) {
+                    prefix = 'OPT_';
+                } else if (n.includes('期货')) {
+                    prefix = 'FUT_';
+                }
+                
+                asset.symbol = prefix + Math.abs(hash).toString(16).toUpperCase();
             }
             
             if (asset.symbol) {
@@ -701,12 +749,11 @@ function parseMarkdownInput() {
     }
     
     if (addedCount > 0) {
-        alert(`🎉 成功解析并添加了 ${addedCount} 条资产记录！\n请在下方列表确认无误后，点击“全部导入”按钮保存。`);
+        alert(`🎉 成功解析并添加了 ${addedCount} 条资产记录！\n请在下方列表确认无误后提交。`);
         $('#mdInput').val(''); 
         $('#ocrResult').show(); 
-        $('#markdownArea').collapse('hide');
     } else {
-        alert('未解析到有效数据，请检查 Markdown 格式');
+        alert('未解析到有效数据，请检查 Markdown 表格格式是否正确。');
     }
 }
 
@@ -839,6 +886,21 @@ $(document).ready(function() {
     
     $('#accountListModal').on('show.bs.modal', function () {
         loadAccounts();
+    });
+    
+    // Auto-fill for Cash category
+    $('#category1').change(function() {
+        if ($(this).val() === '现金类') {
+            const cat2 = $('#category2');
+            const name = $('#name');
+            const cost = $('#costPrice');
+            const price = $('#currentPrice');
+            
+            if (!cat2.val()) cat2.val('现金');
+            if (!name.val()) name.val('现金');
+            if (!cost.val()) cost.val(1);
+            if (!price.val()) price.val(1);
+        }
     });
     
     $('#assetModal').on('show.bs.modal', function() {
