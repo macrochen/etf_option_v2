@@ -30,37 +30,22 @@ def upload_screenshot():
 
 @portfolio_bp.route('/api/portfolio/data')
 def get_portfolio_data():
-    """获取全量资产数据（含实时市值和分类汇总）"""
+    """获取全量资产数据（使用数据库缓存价格）"""
     try:
         assets = db.get_all_assets()
         
-        # 1. 获取最新价格
-        try:
-            prices = PriceService.get_batch_prices(assets)
-        except Exception as e:
-            logging.error(f"Failed to fetch prices: {e}")
-            prices = {}
-        
-        # 2. 计算各项指标
+        # 计算各项指标 (基于缓存的 last_price)
         total_assets = 0
         total_cost = 0
         asset_list = []
         
         for asset in assets:
-            current_price = prices.get(asset['symbol'], 0)
-            
-            # Fallback to last known price (user input or previous) if API fails
-            if current_price == 0:
-                current_price = asset.get('last_price', 0)
-                
-            quantity = asset['quantity'] or 0
-            cost_price = asset['cost_price'] or 0
+            current_price = asset.get('last_price', 0) or 0
+            quantity = asset.get('quantity', 0) or 0
+            cost_price = asset.get('cost_price', 0) or 0
             
             market_value = quantity * current_price
             cost_value = quantity * cost_price
-            
-            # 如果现价获取失败，但有成本价，是否用成本价估算？或者直接显示0
-            # 这里保持0，但在前端显示时可以优化
             
             pnl = market_value - cost_value
             pnl_percent = (pnl / cost_value * 100) if cost_value else 0
@@ -79,7 +64,6 @@ def get_portfolio_data():
             
         total_pnl = total_assets - total_cost
         
-        # 3. 构建多维汇总数据
         summary = {
             'total_assets': total_assets,
             'total_cost': total_cost,
@@ -127,8 +111,41 @@ def add_or_update_asset():
         logging.error(f"Save asset error: {e}")
         return jsonify({'message': str(e), 'status': 'error'}), 500
 
-@portfolio_bp.route('/api/portfolio/asset/<int:asset_id>', methods=['DELETE'])
-def delete_asset(asset_id):
+@portfolio_bp.route('/api/portfolio/refresh_prices', methods=['POST'])
+def refresh_prices():
+    """主动更新所有资产的最新价格"""
+    try:
+        assets = db.get_all_assets()
+        if not assets:
+            return jsonify({'message': 'No assets to update', 'status': 'success'})
+            
+        # 1. 批量获取最新价格
+        prices = PriceService.get_batch_prices(assets)
+        
+        updated_count = 0
+        
+        # 2. 更新数据库
+        for asset in assets:
+            symbol = asset['symbol']
+            if symbol in prices and prices[symbol] > 0:
+                # 仅更新价格字段
+                new_price = prices[symbol]
+                # 保持其他字段不变
+                asset_data = {
+                    'last_price': new_price
+                }
+                # 注意：update_asset 会更新 update_time，这正好符合需求
+                db.update_asset(asset['id'], asset_data)
+                updated_count += 1
+                
+        return jsonify({
+            'message': f'Updated {updated_count} assets', 
+            'status': 'success',
+            'updated_count': updated_count
+        })
+    except Exception as e:
+        logging.error(f"Refresh prices error: {e}")
+        return jsonify({'message': str(e), 'status': 'error'}), 500
     """删除资产"""
     try:
         success = db.delete_asset(asset_id)
