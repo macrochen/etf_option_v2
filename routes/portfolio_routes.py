@@ -48,7 +48,15 @@ def get_portfolio_data():
             cost_value = quantity * cost_price
             
             pnl = market_value - cost_value
-            pnl_percent = (pnl / cost_value * 100) if cost_value else 0
+            
+            # 处理负成本或零成本情况
+            if cost_value <= 0:
+                if pnl > 0:
+                    pnl_percent = 999999  # 标识无限大
+                else:
+                    pnl_percent = 0
+            else:
+                pnl_percent = (pnl / cost_value * 100)
             
             total_assets += market_value
             total_cost += cost_value
@@ -64,6 +72,7 @@ def get_portfolio_data():
             
         total_pnl = total_assets - total_cost
         
+        # 3. 构建多维汇总数据
         summary = {
             'total_assets': total_assets,
             'total_cost': total_cost,
@@ -74,9 +83,19 @@ def get_portfolio_data():
             'by_asset_type': _group_by(asset_list, 'asset_type')
         }
         
+        # 4. 自动保存本周快照
+        try:
+            db.add_or_update_snapshot(total_assets, total_pnl, total_cost)
+        except Exception as e:
+            logging.error(f"Snapshot failed: {e}")
+            
+        # 5. 获取历史趋势
+        history = db.get_snapshots()
+        
         return jsonify({
             'summary': summary,
-            'assets': asset_list
+            'assets': asset_list,
+            'history': history
         })
     except Exception as e:
         logging.error(f"Get portfolio data error: {e}")

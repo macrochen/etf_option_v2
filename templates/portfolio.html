@@ -6,13 +6,16 @@
 <div class="container-fluid">
     <div class="row mb-4">
         <div class="col-12 d-flex justify-content-between align-items-center">
-            <h2>资产全景仪表盘</h2>
+            <h2>资产全景仪表盘 <button class="btn btn-sm btn-outline-secondary ms-2 border-0" id="toggleSensitiveBtn" onclick="toggleSensitivity()"><i class="fas fa-eye-slash"></i></button></h2>
             <div>
                 <button class="btn btn-warning me-2 text-dark" data-bs-toggle="modal" data-bs-target="#importModal">
                     <i class="fas fa-file-import"></i> 批量导入
                 </button>
                 <button class="btn btn-info me-2 text-white" data-bs-toggle="modal" data-bs-target="#accountListModal">
                     <i class="fas fa-wallet"></i> 账户管理
+                </button>
+                <button class="btn btn-success me-2" onclick="showLedgerModal()">
+                    <i class="fas fa-file-invoice-dollar"></i> 导出账本
                 </button>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#assetModal">
                     <i class="fas fa-plus"></i> 新增资产
@@ -55,6 +58,32 @@
         </div>
     </div>
 
+    <!-- 资产趋势图 & 异动分析 -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-header">
+                    资产周趋势分析 (每周记录)
+                </div>
+                <div class="card-body">
+                    <div id="trendChart" style="height: 300px; width: 100%;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    重点关注 (累计盈亏)
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush" id="topMoversList">
+                        <!-- JS Populated -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 图表区域 -->
     <div class="row mb-4">
         <div class="col-12">
@@ -85,9 +114,9 @@
                     </button>
                 </div>
                 <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-striped table-hover" id="assetTable">
-                            <thead>
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table class="table table-striped table-hover mb-0" id="assetTable">
+                            <thead class="sticky-top bg-white" style="z-index: 1;">
                                 <tr>
                                     <th width="40"><input class="form-check-input" type="checkbox" id="selectAllAssets"></th>
                                     <th style="cursor:pointer" data-sort="account_name">账户 <i class="fas fa-sort"></i></th>
@@ -379,6 +408,40 @@
     </div>
 </div>
 
+<!-- 账本导出模态框 -->
+<div class="modal fade" id="ledgerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">账户资金快照 (抹零至百位)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover" id="ledgerTable">
+                        <thead>
+                            <tr>
+                                <th>账户名称</th>
+                                <th class="text-end">同步金额</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                        <tfoot class="table-light fw-bold">
+                            <tr>
+                                <td>总计</td>
+                                <td class="text-end" id="ledgerTotal"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -386,16 +449,30 @@
 let portfolioData = null;
 let currentChartType = 'category_1';
 let myChart = null;
+let trendChart = null; // 新增趋势图实例
 let allAccounts = [];
 let currentSort = { field: 'update_time', asc: false }; // 默认按更新时间降序排列
 let currentFilters = {}; // 存储过滤条件 { col: value }
+let isSensitiveHidden = true; // 默认脱敏显示
+
+function toggleSensitivity() {
+    isSensitiveHidden = !isSensitiveHidden;
+    const btn = $('#toggleSensitiveBtn');
+    if (isSensitiveHidden) {
+        btn.html('<i class="fas fa-eye-slash"></i>');
+    } else {
+        btn.html('<i class="fas fa-eye"></i>');
+    }
+    updateDashboard();
+}
 
 $(document).ready(function() {
+    // 1. 初始化数据和图表
     refreshData();
     initChart();
-    refreshAccountOptions(); // Load accounts for filter immediately
+    refreshAccountOptions(); // 关键：页面加载即加载账户列表
     
-    // Table Header Click for Sorting
+    // 2. 表头排序监听
     $('#assetTable thead th[data-sort]').on('click', function() {
         const field = $(this).data('sort');
         if (currentSort.field === field) {
@@ -404,15 +481,12 @@ $(document).ready(function() {
             currentSort.field = field;
             currentSort.asc = true;
         }
-        
-        // Update Sort Icons
         $('#assetTable thead th i').removeClass('fa-sort-up fa-sort-down').addClass('fa-sort');
         $(this).find('i').removeClass('fa-sort').addClass(currentSort.asc ? 'fa-sort-up' : 'fa-sort-down');
-        
         sortAndRenderTable();
     });
     
-    // Column Filter Logic
+    // 3. 列过滤监听
     $('.column-filter').on('input change', function() {
         const col = $(this).data('col');
         const val = $(this).val().toLowerCase().trim();
@@ -420,7 +494,7 @@ $(document).ready(function() {
         sortAndRenderTable();
     });
     
-    // Checkbox Logic
+    // 4. 复选框逻辑
     $('#selectAllAssets').change(function() {
         $('.asset-select').prop('checked', $(this).is(':checked'));
         toggleBatchDeleteBtn();
@@ -432,78 +506,97 @@ $(document).ready(function() {
         toggleBatchDeleteBtn();
     });
     
-    // Load accounts when modal is opened
+    // 5. 模态框事件
     $('#accountListModal').on('show.bs.modal', function () {
         loadAccounts();
     });
     
-    // Refresh account datalist when asset modal is opened
     $('#assetModal').on('show.bs.modal', function() {
         refreshAccountOptions();
     });
 
-    // Refresh account list when import modal is opened
     $('#importModal').on('show.bs.modal', function() {
         refreshAccountOptions();
     });
-    
-    // Paste event listener for import modal
-    const importModal = document.getElementById('importModal');
-    const fileInput = document.getElementById('screenshotFile');
-    const imgPreview = document.getElementById('imagePreview');
-    
-    // OCR Data State
-    let ocrData = null; // { rawTexts: [], imgSize: {width, height} }
-
-    // Monitor symbol input to toggle add button
-    $('#ocr-symbol').on('input', function() {
-        const val = $(this).val().trim();
-        $('#btn-add-ocr-asset').prop('disabled', !val);
-    });
-
-    // Helper to preview image
-    function previewImage(file) {
-        if (file && file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                imgPreview.src = e.target.result;
-                imgPreview.style.display = 'block';
-            };
-            reader.readAsDataURL(file);
-        } else {
-            imgPreview.style.display = 'none';
-        }
-    }
-
-    // Manual selection handler
-    fileInput.addEventListener('change', function() {
-        if (this.files && this.files[0]) {
-            previewImage(this.files[0]);
-        }
-    });
-
-    importModal.addEventListener('paste', function(e) {
-        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
-        for (let index in items) {
-            const item = items[index];
-            if (item.kind === 'file' && item.type.indexOf('image/') !== -1) {
-                const blob = item.getAsFile();
-                
-                // Create a DataTransfer to set the file input
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(blob);
-                fileInput.files = dataTransfer.files;
-                
-                // Show preview
-                previewImage(blob);
-                
-                fileInput.classList.add('is-valid');
-                setTimeout(() => fileInput.classList.remove('is-valid'), 1000);
-                break;
-            }
-        }
-    });
 });
+
+function initChart() {
+    myChart = echarts.init(document.getElementById('portfolioChart'));
+    trendChart = echarts.init(document.getElementById('trendChart')); // 初始化趋势图
+    
+    window.addEventListener('resize', function() {
+        myChart.resize();
+        trendChart.resize();
+    });
+}
+
+// Duplicate refreshData removed
+
+function updateTrendChart() {
+    if (!portfolioData || !portfolioData.history) return;
+    
+    const dates = portfolioData.history.map(h => h.week); // 使用周号作为X轴
+    const assets = portfolioData.history.map(h => h.total_assets);
+    const costs = portfolioData.history.map(h => h.total_cost);
+    
+    const option = {
+        tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+                let res = params[0].name + '<br/>';
+                params.forEach(item => {
+                    res += item.marker + item.seriesName + ': ' + formatCurrency(item.value) + '<br/>';
+                });
+                return res;
+            }
+        },
+        legend: {
+            data: ['总资产', '总本金'],
+            bottom: 0
+        },
+        grid: {
+            left: '3%',
+            right: '4%',
+            bottom: '10%',
+            containLabel: true
+        },
+        xAxis: {
+            type: 'category',
+            boundaryGap: false,
+            data: dates
+        },
+        yAxis: {
+            type: 'value',
+            axisLabel: {
+                formatter: function(value) {
+                    return (value / 10000).toFixed(0) + '万';
+                }
+            }
+        },
+        series: [
+            {
+                name: '总资产',
+                type: 'line',
+                data: assets,
+                smooth: true,
+                areaStyle: { opacity: 0.1 },
+                itemStyle: { color: '#0d6efd' }
+            },
+            {
+                name: '总本金',
+                type: 'line',
+                data: costs,
+                smooth: true,
+                itemStyle: { color: '#0dcaf0' },
+                lineStyle: { type: 'dashed' }
+            }
+        ]
+    };
+    
+    trendChart.setOption(option);
+}
+
+// Event listeners moved to ready block
 
 function loadAccounts() {
     $.get('/api/portfolio/accounts', function(res) {
@@ -591,6 +684,41 @@ function deleteAccount(id) {
     }
 }
 
+function showLedgerModal() {
+    if (!portfolioData || !portfolioData.summary) return alert('请先加载数据');
+    
+    const accounts = portfolioData.summary.by_account;
+    const tbody = $('#ledgerTable tbody');
+    tbody.empty();
+    
+    let totalSynced = 0;
+    
+    // 按金额降序排列
+    const sortedAccounts = [...accounts].sort((a, b) => b.value - a.value);
+    
+    sortedAccounts.forEach(acc => {
+        // 抹零逻辑：向下取整到 100
+        const rawValue = acc.value;
+        const syncedValue = Math.floor(rawValue / 100) * 100;
+        
+        totalSynced += syncedValue;
+        
+        // 格式化金额 (无小数位)
+        const displayValue = syncedValue.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+        
+        tbody.append(`
+            <tr>
+                <td>${acc.name}</td>
+                <td class="text-end font-monospace fs-5">${displayValue}</td>
+            </tr>
+        `);
+    });
+    
+    $('#ledgerTotal').text(totalSynced.toLocaleString('zh-CN', { maximumFractionDigits: 0 }));
+    
+    new bootstrap.Modal(document.getElementById('ledgerModal')).show();
+}
+
 function determineAssetType(cat1, symbol) {
     if (cat1 === '现金类') return 'cash';
     if (cat1 === '权益类' || cat1 === '固收类' || cat1 === '商品类') {
@@ -605,53 +733,52 @@ function determineAssetType(cat1, symbol) {
 function refreshAccountOptions() {
     // Load accounts for select
     $.get('/api/portfolio/accounts', function(res) {
+        console.log("Accounts loaded:", res); 
         allAccounts = res;
-        
-        // Populate Asset Modal Select
-        const assetSelect = $('#accountName');
-        const currentVal = assetSelect.val(); 
-        assetSelect.empty();
-        
-        // Populate Batch Import Select
-        const batchSelect = $('#batchAccount');
-        const batchVal = batchSelect.val();
-        batchSelect.empty();
         
         // Populate Filter Select
         const filterSelect = $('#filterAccount');
+        console.log("Filter select found:", filterSelect.length); // Debug
+        
         const filterVal = filterSelect.val();
         filterSelect.empty();
-        filterSelect.append('<option value="">全部</option>'); // Reset default
+        filterSelect.append('<option value="">全部</option>'); 
         
-        if (res.length === 0) {
-            const noOpt = '<option value="">无账户，请先创建</option>';
-            assetSelect.append(noOpt);
-            batchSelect.append(noOpt);
-        } else {
+        if (res && res.length > 0) {
             res.forEach(acc => {
-                const opt = `<option value="${acc.name}">${acc.name}</option>`;
-                assetSelect.append(opt);
-                
-                const batchOpt = `<option value="${acc.name}">${acc.name} (${acc.type || '-'})</option>`;
-                batchSelect.append(batchOpt);
-                
                 filterSelect.append(`<option value="${acc.name}">${acc.name}</option>`);
             });
         }
         
-        // Restore selection if valid
+        // Populate other selects (Asset Modal, Batch Import)
+        // ... (keep logic for assetName and batchAccount)
+        const assetSelect = $('#accountName');
+        const batchSelect = $('#batchAccount');
+        // ... (rest of logic)
+        
+        const currentVal = assetSelect.val();
+        const batchVal = batchSelect.val();
+        
+        assetSelect.empty();
+        batchSelect.empty();
+        
+        if (!res || res.length === 0) {
+             assetSelect.append('<option value="">无账户，请先创建</option>');
+             batchSelect.append('<option value="">无账户，请先创建</option>');
+        } else {
+             res.forEach(acc => {
+                 assetSelect.append(`<option value="${acc.name}">${acc.name}</option>`);
+                 batchSelect.append(`<option value="${acc.name}">${acc.name} (${acc.type || '-'})</option>`);
+             });
+        }
+
         if (currentVal) assetSelect.val(currentVal);
         if (batchVal) batchSelect.val(batchVal);
         if (filterVal) filterSelect.val(filterVal);
     });
 }
 
-function initChart() {
-    myChart = echarts.init(document.getElementById('portfolioChart'));
-    window.addEventListener('resize', function() {
-        myChart.resize();
-    });
-}
+// Duplicate initChart removed
 
 function refreshPrices() {
     const btn = $('#btnRefreshPrices');
@@ -678,25 +805,56 @@ function refreshData() {
     $.get('/api/portfolio/data', function(res) {
         portfolioData = res;
         updateDashboard();
-        sortAndRenderTable(); // 使用当前的排序状态渲染表格
+        sortAndRenderTable();
         updateChart();
+        if (typeof updateTrendChart === 'function') updateTrendChart();
+        if (typeof updateTopMovers === 'function') updateTopMovers();
         updateDatalists();
     }).fail(function(err) {
         console.error("Load data failed", err);
-        // alert("获取资产数据失败: " + (err.responseJSON ? err.responseJSON.message : err.statusText));
         $('#totalAssets, #totalPnL, #totalCost').text('加载失败');
     });
+}
+
+function updateTopMovers() {
+    if (!portfolioData || !portfolioData.assets) return;
+    
+    // Sort by PnL Percent (Exclude infinity)
+    const sorted = [...portfolioData.assets]
+        .filter(a => a.pnl_percent < 999999)
+        .sort((a, b) => b.pnl_percent - a.pnl_percent);
+    
+    const top3 = sorted.slice(0, 3);
+    const bottom3 = sorted.slice(-3).reverse();
+    
+    const list = $('#topMoversList');
+    list.empty();
+    
+    const createItem = (asset, type) => `
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+                <span class="badge ${type === 'win' ? 'bg-danger' : 'bg-success'} rounded-pill me-2">
+                    ${type === 'win' ? 'Top' : 'Low'}
+                </span>
+                <small>${asset.name || asset.symbol}</small>
+            </div>
+            <span class="${type === 'win' ? 'text-danger' : 'text-success'} fw-bold">
+                ${asset.pnl_percent >= 999999 ? '∞' : asset.pnl_percent.toFixed(2) + '%'}
+            </span>
+        </li>
+    `;
+    
+    top3.forEach(a => list.append(createItem(a, 'win')));
+    bottom3.forEach(a => list.append(createItem(a, 'loss')));
 }
 
 function sortAndRenderTable() {
     if (!portfolioData || !portfolioData.assets) return;
     
-    // 1. Copy and Filter
     let data = portfolioData.assets.filter(item => {
         for (const [col, filterVal] of Object.entries(currentFilters)) {
             if (!filterVal) continue;
             
-            // Special handling for 'name' to search both name and symbol
             if (col === 'name') {
                 const name = (item.name || '').toLowerCase();
                 const symbol = (item.symbol || '').toLowerCase();
@@ -709,7 +867,6 @@ function sortAndRenderTable() {
         return true;
     });
     
-    // 2. Sort
     const field = currentSort.field;
     const isAsc = currentSort.asc;
     
@@ -730,13 +887,21 @@ function sortAndRenderTable() {
 }
 
 function updateDashboard() {
+    if (!portfolioData) return;
     const sum = portfolioData.summary;
-    $('#totalAssets').text(formatCurrency(sum.total_assets));
-    $('#totalCost').text(formatCurrency(sum.total_cost));
-    $('#totalPnL').text(formatCurrency(sum.total_pnl));
+    
+    if (isSensitiveHidden) {
+        $('#totalAssets').text('******');
+        $('#totalCost').text('******');
+        $('#totalPnL').text('******');
+    } else {
+        $('#totalAssets').text(formatCurrency(sum.total_assets));
+        $('#totalCost').text(formatCurrency(sum.total_cost));
+        $('#totalPnL').text(formatCurrency(sum.total_pnl));
+    }
     
     // Set color for PnL
-    const pnlClass = sum.total_pnl >= 0 ? 'bg-success' : 'bg-danger';
+    const pnlClass = sum.total_pnl >= 0 ? 'bg-danger' : 'bg-success';
     $('#totalPnL').parent().parent().removeClass('bg-success bg-danger').addClass(pnlClass);
 }
 
@@ -755,7 +920,7 @@ function updateTable(data) {
     }
     
     assets.forEach(asset => {
-        const pnlClass = asset.pnl >= 0 ? 'text-success' : 'text-danger';
+        const pnlClass = asset.pnl >= 0 ? 'text-danger' : 'text-success';
         const row = `
             <tr>
                 <td><input class="form-check-input asset-select" type="checkbox" value="${asset.id}"></td>
@@ -772,7 +937,7 @@ function updateTable(data) {
                 <td>${formatNumber(asset.market_value)}</td>
                 <td class="${pnlClass}">
                     <div>${formatNumber(asset.pnl)}</div>
-                    <small>(${asset.pnl_percent.toFixed(2)}%)</small>
+                    <small>(${asset.pnl_percent >= 999999 ? '∞' : asset.pnl_percent.toFixed(2) + '%'})</small>
                 </td>
                 <td>
                     <button class="btn btn-sm btn-outline-primary" onclick='editAsset(${JSON.stringify(asset)})'>
@@ -870,9 +1035,23 @@ function switchChart(type) {
 }
 
 function saveAsset() {
-    const cat1 = $('#category1').val();
-    let symbol = $('#symbol').val().trim();
+    // Basic Validation
+    const accountName = $('#accountName').val();
+    const symbol = $('#symbol').val().trim();
+    const quantity = $('#quantity').val();
+    const costPrice = $('#costPrice').val();
+    
+    if (!accountName) return alert('请选择账户');
+    // 如果是投顾 (自动生成代码)，symbol 可以为空，但 name 必须有
+    // 但是 saveAsset 里有自动生成逻辑。
+    // 我们检查：如果有 symbol 则 ok，如果没有 symbol 则必须有 name
     const name = $('#name').val().trim();
+    
+    if (!symbol && !name) return alert('请填写代码或名称');
+    if (!quantity) return alert('请填写持有数量');
+    if (!costPrice) return alert('请填写成本价');
+
+    const cat1 = $('#category1').val();
     
     // Auto-generate symbol for investment advisors/others if missing
     if (!symbol && name) {

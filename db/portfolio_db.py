@@ -28,16 +28,72 @@ class PortfolioDatabase:
             )
         ''')
         
-        # 账户管理表
+        # 资产历史快照表 (按周记录)
         self.db.execute('''
-            CREATE TABLE IF NOT EXISTS accounts (
+            CREATE TABLE IF NOT EXISTS portfolio_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                type TEXT,  -- 账户类型：券商、银行卡、支付宝等
-                description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                date TEXT NOT NULL,      -- 记录日期 YYYY-MM-DD
+                week TEXT NOT NULL UNIQUE, -- 周标识 YYYY-WW (用于去重)
+                total_assets REAL,
+                total_pnl REAL,
+                total_cost REAL,
+                update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+    def add_or_update_snapshot(self, total_assets: float, total_pnl: float, total_cost: float) -> bool:
+        """记录本周资产快照 (如果本周已存在则更新，否则插入)"""
+        now = datetime.now()
+        date_str = now.strftime('%Y-%m-%d')
+        # 获取 ISO 周号 (例如 2026-04)
+        year, week, _ = now.isocalendar()
+        week_str = f"{year}-{week:02d}"
+        
+        try:
+            # 检查本周是否已有记录
+            existing = self.db.fetch_one('SELECT id FROM portfolio_snapshots WHERE week = ?', (week_str,))
+            
+            if existing:
+                # 更新
+                self.db.execute('''
+                    UPDATE portfolio_snapshots 
+                    SET total_assets = ?, total_pnl = ?, total_cost = ?, date = ?, update_time = ?
+                    WHERE week = ?
+                ''', (total_assets, total_pnl, total_cost, date_str, now.strftime('%Y-%m-%d %H:%M:%S'), week_str))
+            else:
+                # 插入
+                self.db.execute_insert('''
+                    INSERT INTO portfolio_snapshots (date, week, total_assets, total_pnl, total_cost, update_time)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (date_str, week_str, total_assets, total_pnl, total_cost, now.strftime('%Y-%m-%d %H:%M:%S')))
+            return True
+        except Exception as e:
+            logging.error(f"Failed to snapshot portfolio: {e}")
+            return False
+
+    def get_snapshots(self, limit: int = 52) -> List[Dict[str, Any]]:
+        """获取最近的历史快照"""
+        sql = 'SELECT * FROM portfolio_snapshots ORDER BY week ASC LIMIT ?'
+        # 注意：这里按周升序，方便前端画图
+        # 如果 limit 生效，应该先 DESC 再 ASC？
+        # 修正：先取最近的 N 条，再排序
+        sql = f'''
+            SELECT * FROM (
+                SELECT * FROM portfolio_snapshots ORDER BY week DESC LIMIT {limit}
+            ) ORDER BY week ASC
+        '''
+        rows = self.db.fetch_all(sql)
+        
+        snapshots = []
+        for row in rows:
+            snapshots.append({
+                'date': row[1],
+                'week': row[2],
+                'total_assets': row[3],
+                'total_pnl': row[4],
+                'total_cost': row[5]
+            })
+        return snapshots
 
     def get_all_accounts(self) -> List[Dict[str, Any]]:
         """获取所有账户"""
