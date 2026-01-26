@@ -6,6 +6,7 @@ MARKET_DATA_DB = os.path.join(DB_DIR, 'market_data.db')
 BACKTEST_SCHEMES_DB = os.path.join(DB_DIR, 'backtest_schemes.db')
 US_STOCK_DB = os.path.join(DB_DIR, 'us_stock.db')
 PORTFOLIO_DB = os.path.join(DB_DIR, 'portfolio.db')
+HPC_DB = os.path.join(DB_DIR, 'hpc.db')
 
 # 数据库连接配置
 DB_CONFIG = {
@@ -20,5 +21,8 @@ DB_CONFIG = {
     },
     'portfolio': {
         'path': PORTFOLIO_DB
+    },
+    'hpc': {
+        'path': HPC_DB
     }
 } 

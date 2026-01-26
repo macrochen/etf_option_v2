@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block title %}大V跟投助手{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <label class="form-label">当前跟投策略</label>
+            <div class="input-group">
+                <select class="form-select" id="strategySelect">
+                    <!-- JS Populated -->
+                </select>
+                <button class="btn btn-outline-secondary" onclick="showNewStrategyModal()">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">本地跟投总权益 (Total Equity)</label>
+            <div class="input-group">
+                <span class="input-group-text">¥</span>
+                <input type="number" class="form-control" id="localEquity" placeholder="输入当前净值+可用资金">
+                <button class="btn btn-outline-primary" onclick="updateEquity()">更新</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导航标签 -->
+    <ul class="nav nav-tabs mb-3" id="hpcTabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active" id="tab-rebalance" data-bs-toggle="tab" data-bs-target="#pane-rebalance" type="button">调仓计算器</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" id="tab-mapping" data-bs-toggle="tab" data-bs-target="#pane-mapping" type="button">持仓与映射</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" id="tab-analysis" data-bs-toggle="tab" data-bs-target="#pane-analysis" type="button">组合分析</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" id="tab-config" data-bs-toggle="tab" data-bs-target="#pane-config" type="button">分类管理</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" id="tab-init" data-bs-toggle="tab" data-bs-target="#pane-init" type="button">初始化/重置</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <!-- 1. 调仓计算器 -->
+        <div class="tab-pane fade show active" id="pane-rebalance">
+            <div class="row">
+                <div class="col-md-5">
+                    <div class="card h-100">
+                        <div class="card-header bg-light">
+                            <i class="fas fa-clipboard-list"></i> 输入调仓指令
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info small py-2">
+                                格式：<code>名称/代码 | 方向 | 数量 | 单位</code><br>
+                                示例：<br>
+                                <code>000905 | 买入 | 1000 | 金额</code><br>
+                                <code>510300 | 卖出 | 500 | 份额</code>
+                            </div>
+                            <textarea class="form-control font-monospace mb-3" id="rebalanceInput" rows="10" placeholder="粘贴 Markdown 表格或手动输入..."></textarea>
+                            <button class="btn btn-primary w-100" onclick="calculateRebalance()">
+                                <i class="fas fa-calculator"></i> 开始计算本地操作
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-7">
+                    <div class="card h-100">
+                        <div class="card-header bg-light">
+                            <i class="fas fa-exchange-alt"></i> 本地操作建议
+                        </div>
+                        <div class="card-body">
+                            <div id="rebalanceResult" class="text-center text-muted py-5">
+                                请先输入指令并计算
+                            </div>
+                        </div>
+                        <div class="card-footer" id="rebalanceFooter" style="display:none;">
+                            <button class="btn btn-success w-100" onclick="confirmExecute()">
+                                <i class="fas fa-check-circle"></i> 确认已执行 (同步更新基准)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 持仓与映射 -->
+        <div class="tab-pane fade" id="pane-mapping">
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle" id="mappingTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="cursor:pointer" onclick="sortMappingTable('target_code')">目标资产 (虚拟基准) <i class="fas fa-sort small"></i></th>
+                                    <th style="cursor:pointer" onclick="sortMappingTable('target_type')">类型 <i class="fas fa-sort small"></i></th>
+                                    <th style="cursor:pointer" onclick="sortMappingTable('target_category_2')">二级分类 <i class="fas fa-sort small"></i></th>
+                                    <th style="cursor:pointer" onclick="sortMappingTable('weight')">占比 <i class="fas fa-sort small"></i></th>
+                                    <th style="cursor:pointer" onclick="sortMappingTable('base_shares')">当前份额 / 净值 <i class="fas fa-sort small"></i></th>
+                                    <th>本地映射 (Local Mapping)</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- JS Populated -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 2.5 组合分析 -->
+        <div class="tab-pane fade" id="pane-analysis">
+            <div class="card">
+                <div class="card-body">
+                    <div id="hpcChart" style="width: 100%; height: 600px;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 3. 分类管理 -->
+        <div class="tab-pane fade" id="pane-config">
+            <div class="row justify-content-center">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>二级分类预设</span>
+                            <div class="input-group input-group-sm w-50">
+                                <input type="text" class="form-control" id="newCatName" placeholder="新分类名称">
+                                <button class="btn btn-primary" onclick="addCategory()">添加</button>
+                            </div>
+                        </div>
+                        <ul class="list-group list-group-flush" id="categoryList">
+                            <!-- JS Populated -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. 初始化 -->
+        <div class="tab-pane fade" id="pane-init">
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="fas fa-file-import"></i> 虚拟账户初始化
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">请粘贴大V组合的持仓表格 (Markdown 格式)。系统将以此作为计算基准。</p>
+                            <textarea class="form-control font-monospace mb-3" id="initMarkdown" rows="12" placeholder="| 代码 | 名称 | 持有份额 | 最新净值 | ..."></textarea>
+                            <button class="btn btn-warning w-100" onclick="initByMarkdown()">
+                                <i class="fas fa-save"></i> 覆盖/更新 虚拟持仓
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新建策略 Modal -->
+<div class="modal fade" id="newStrategyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">新建跟投策略</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">策略名称</label>
+                    <input type="text" class="form-control" id="newStrategyName">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">初始权益 (本金)</label>
+                    <input type="number" class="form-control" id="newStrategyEquity">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="createStrategy()">创建</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 映射编辑 Modal -->
+<div class="modal fade" id="mappingModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">配置资产映射</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6 id="mappingTargetTitle" class="mb-3 fw-bold text-primary"></h6>
+                <input type="hidden" id="mappingTargetCode">
+                
+                <div class="mb-3 row">
+                    <label class="col-sm-3 col-form-label">目标二级分类</label>
+                    <div class="col-sm-9">
+                        <input type="text" class="form-control" id="targetCat2Input" list="cat2Options" placeholder="选择或输入...">
+                        <datalist id="cat2Options">
+                            <!-- JS Populated -->
+                        </datalist>
+                    </div>
+                </div>
+                
+                <table class="table table-sm" id="mappingEditTable">
+                    <thead>
+                        <tr>
+                            <th>本地代码</th>
+                            <th>类型</th>
+                            <th>名称 (备注)</th>
+                            <th width="100">比例 (0-1)</th>
+                            <th width="50"></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <button class="btn btn-sm btn-outline-secondary" onclick="addMappingRow()">
+                    <i class="fas fa-plus"></i> 添加拆分
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="saveMapping()">保存配置</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/hpc.js') }}"></script>
+{% endblock %}

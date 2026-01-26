@@ -11,12 +11,11 @@ from routes.futu_routes import futu_bp
 from routes.earnings_routes import earnings_bp
 from routes.option_routes import option_bp
 from routes.sim_trade_routes import sim_trade_bp
+from routes.hpc_routes import hpc_bp
+from routes.shannon_routes import shannon_bp
 from routes.data_download_routes import data_download_bp
 from routes.wyckoff_routes import wyckoff_bp
 from routes.portfolio_routes import portfolio_bp
-from routes.shannon_routes import shannon_bp
-import os
-import subprocess
 
 app = Flask(__name__)
 
@@ -54,6 +53,7 @@ app.register_blueprint(tiger_bp)  # 注册Tiger API蓝图
 app.register_blueprint(futu_bp)  # 注册富途 API蓝图
 app.register_blueprint(option_bp)
 app.register_blueprint(sim_trade_bp)
+app.register_blueprint(hpc_bp)
 
 @app.before_request
 def log_request_info():
