@@ -144,10 +144,13 @@ def get_existing_alerts(quote_ctx, market):
     
     if isinstance(data, pd.DataFrame):
         for _, row in data.iterrows():
-            stock_reminder_count[row.code][row.reminder_type] += 1
-            
-            
             code = row.code
+            # 过滤掉 N/A. (指数) 等不支持删除的提醒
+            if code.startswith('N/A.'):
+                continue
+                
+            stock_reminder_count[code][row.reminder_type] += 1
+            
             if code not in price_alerts:
                 price_alerts[code] = []
             price_alerts[code].append({
@@ -165,14 +168,27 @@ def get_position_strikes(positions_data, market, is_futu):
     market_key = f"{market.lower()}_positions"
     
     for position in positions_data['data'][market_key]:
+        # 【调试日志】打印每个正在处理的标的分组
+        logger.info(f"--- [DEBUG] Processing Position Group: {position.get('symbol')} (Code: {position.get('code')}) ---")
+        
         if 'options' in position:
-            if is_futu:
-                symbol = market + "." + position['code']
-            else:
-                symbol = market + "." + position['symbol']
+            # 获取代码：如果是富途，使用提取好的 hk_symbol (股票代码)
+            ticker = position.get('hk_symbol') or position.get('code', '')
+            if is_futu and ticker.startswith(market + "."):
+                ticker = ticker.split('.')[-1]
+            
+            symbol = market + "." + ticker
 
             if symbol not in position_strikes:
-                position_strikes[symbol] = {'call': {}, 'put': {}}
+                display_name = position.get('symbol', symbol)
+                is_unconfigured = display_name.startswith('[待配置]')
+                
+                position_strikes[symbol] = {
+                    'call': {}, 
+                    'put': {},
+                    'display_name': display_name,
+                    'is_unconfigured': is_unconfigured # 显式标记缺失配置
+                }
             
             for option in position['options']:
                 strike = float(option['strike'])
@@ -270,6 +286,12 @@ def update_price_alerts():
 
         positions_data = response.get_json()
         
+        # 【调试日志】打印完整的持仓数据
+        import json
+        logger.info("=== [DEBUG] Raw Positions Data ===")
+        logger.info(json.dumps(positions_data, ensure_ascii=False, indent=2))
+        logger.info("==================================")
+        
         if positions_data['status'] != 'success':
             raise Exception('获取持仓信息失败')
         
@@ -283,11 +305,36 @@ def update_price_alerts():
         
         # 添加新的提醒
         added_count = 0
+        failed_alerts = []  # 记录失败的提醒
         request_count = 0
         last_request_time = time.time()
         
         # 在 update_price_alerts 函数中
         for code, strikes in position_strikes.items():
+            # 获取展示名称（优先从 strikes 中获取）
+            display_name = strikes.get('display_name', code)
+
+            # 1. 检查是否缺失映射配置 (针对港股)
+            if strikes.get('is_unconfigured'):
+                failed_alerts.append({
+                    'code': display_name,
+                    'price': 'N/A',
+                    'type': '配置',
+                    'reason': '缺失港股代码与名称映射。请前往[名称映射]管理页面添加该标的的配置。'
+                })
+                continue
+
+            # 2. 防御性检查：如果代码格式不正确 (例如只有 "HK." 或 "US." 或 "N/A.")，则记录错误并跳过
+            if code in ["HK.", "US.", "N/A."] or not code.split('.')[-1] or code.startswith("N/A."):
+                logger.warning(f"跳过无效的股票代码: {code} ({display_name})")
+                failed_alerts.append({
+                    'code': display_name,
+                    'price': 'N/A',
+                    'type': '配置',
+                    'reason': '代码格式错误或市场不支持（如指数）。若是港股，请检查[名称映射]是否缺失配置。'
+                })
+                continue
+
             existing_prices = {a['price'] for a in price_alerts.get(code, [])}
             
             # 添加CALL期权的向上突破提醒
@@ -301,6 +348,13 @@ def update_price_alerts():
                     )
                     if success:
                         added_count += 1
+                    else:
+                        failed_alerts.append({
+                            'code': code,
+                            'price': strike,
+                            'type': '向上',
+                            'reason': 'API调用失败，请检查日志'
+                        })
             
             # 添加PUT期权的向下突破提醒
             for strike, info in strikes['put'].items():
@@ -313,16 +367,30 @@ def update_price_alerts():
                     )
                     if success:
                         added_count += 1
+                    else:
+                        failed_alerts.append({
+                            'code': code,
+                            'price': strike,
+                            'type': '向下',
+                            'reason': 'API调用失败，请检查日志'
+                        })
         
-        logger.info(f"到价提醒更新完成 - 添加: {added_count}个, 删除: {removed_count}个")
+        logger.info(f"到价提醒更新完成 - 添加: {added_count}个, 删除: {removed_count}个, 失败: {len(failed_alerts)}个")
         
+        status = 'success' if len(failed_alerts) == 0 else 'partial_error'
+        message = f'更新完成，添加{added_count}个提醒，删除{removed_count}个提醒'
+        if failed_alerts:
+            message += f'，但有 {len(failed_alerts)} 个提醒添加失败，请查看详情。'
+
         return jsonify({
-            'status': 'success',
+            'status': status,
             'data': {
                 'added_count': added_count,
-                'removed_count': removed_count
+                'removed_count': removed_count,
+                'failed_count': len(failed_alerts),
+                'failed_alerts': failed_alerts
             },
-            'message': f'更新成功，添加{added_count}个提醒，删除{removed_count}个提醒'
+            'message': message
         })
         
     except Exception as e:

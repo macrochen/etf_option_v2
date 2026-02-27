@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}标的代码名称管理 - ETF期权回测系统{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>标的代码名称管理</h2>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#editModal" onclick="resetForm()">
+            <i class="fas fa-plus"></i> 新增映射
+        </button>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-light">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h5 class="mb-0">映射列表</h5>
+                </div>
+                <div class="col-auto">
+                    <select class="form-select form-select-sm" id="marketFilter" onchange="loadMappings()">
+                        <option value="">所有市场</option>
+                        <option value="HK" selected>港股 (HK)</option>
+                        <option value="US">美股 (US)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="mappingTable">
+                    <thead>
+                        <tr>
+                            <th>代码</th>
+                            <th>市场</th>
+                            <th>显示名称 (全称)</th>
+                            <th>简称</th>
+                            <th>更新时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mappingList">
+                        <!-- 动态加载 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑/新增弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">编辑映射</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="mappingForm">
+                    <div class="mb-3">
+                        <label class="form-label">市场</label>
+                        <select class="form-select" id="market" required>
+                            <option value="HK">港股 (HK)</option>
+                            <option value="US">美股 (US)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">标的代码</label>
+                        <input type="text" class="form-control" id="symbol" placeholder="例如: 00700" required>
+                        <div class="form-text">港股请填 5 位代码，如 00700</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">显示名称 (全称)</label>
+                        <input type="text" class="form-control" id="display_name" placeholder="例如: 腾讯控股" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">简称 (可选)</label>
+                        <input type="text" class="form-control" id="short_name" placeholder="例如: 腾讯">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveMapping()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    loadMappings();
+    
+    // 如果 URL 中有带参数，自动打开新增弹窗
+    const urlParams = new URLSearchParams(window.location.search);
+    const prefillSymbol = urlParams.get('symbol');
+    const prefillMarket = urlParams.get('market');
+    if (prefillSymbol) {
+        resetForm();
+        $('#symbol').val(prefillSymbol);
+        if (prefillMarket) $('#market').val(prefillMarket);
+        $('#modalTitle').text('新增缺失配置');
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    }
+});
+
+function loadMappings() {
+    const market = $('#marketFilter').val();
+    $.get('/api/symbol_mapping/list', { market: market }, function(data) {
+        let html = '';
+        data.forEach(m => {
+            html += `
+                <tr>
+                    <td><code>${m.symbol}</code></td>
+                    <td><span class="badge bg-secondary">${m.market}</span></td>
+                    <td>${m.display_name}</td>
+                    <td>${m.short_name || '-'}</td>
+                    <td class="small text-muted">${m.updated_at}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick='editMapping(${JSON.stringify(m)})'>
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteMapping('${m.symbol}', '${m.market}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        $('#mappingList').html(html || '<tr><td colspan="6" class="text-center">暂无映射数据</td></tr>');
+    });
+}
+
+function resetForm() {
+    $('#mappingForm')[0].reset();
+    $('#symbol').prop('readonly', false);
+    $('#market').prop('disabled', false);
+    $('#modalTitle').text('新增映射');
+}
+
+function editMapping(m) {
+    $('#symbol').val(m.symbol).prop('readonly', true);
+    $('#market').val(m.market).prop('disabled', true);
+    $('#display_name').val(m.display_name);
+    $('#short_name').val(m.short_name);
+    $('#modalTitle').text('编辑映射');
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+function saveMapping() {
+    const data = {
+        symbol: $('#symbol').val(),
+        market: $('#market').val(),
+        display_name: $('#display_name').val(),
+        short_name: $('#short_name').val()
+    };
+    
+    $.ajax({
+        url: '/api/symbol_mapping/update',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(res) {
+            if (res.success) {
+                bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+                loadMappings();
+            } else {
+                alert('保存失败: ' + res.error);
+            }
+        }
+    });
+}
+
+function deleteMapping(symbol, market) {
+    if (!confirm(`确定要删除 ${market}:${symbol} 的映射吗？`)) return;
+    
+    $.ajax({
+        url: '/api/symbol_mapping/delete',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ symbol, market }),
+        success: function(res) {
+            if (res.success) loadMappings();
+        }
+    });
+}
+</script>
+{% endblock %}

@@ -34,6 +34,18 @@ class MarketDatabase:
 
     def _init_valuation_tables(self):
         """初始化估值相关表"""
+        # 标的代码名称映射表
+        self.db.execute('''
+            CREATE TABLE IF NOT EXISTS symbol_name_mapping (
+                symbol VARCHAR(20),
+                market VARCHAR(10),
+                display_name VARCHAR(100),
+                short_name VARCHAR(50),
+                updated_at TIMESTAMP,
+                PRIMARY KEY (symbol, market)
+            )
+        ''')
+
         # ETF -> 指数 映射表
         self.db.execute('''
             CREATE TABLE IF NOT EXISTS etf_index_mapping (
@@ -67,6 +79,45 @@ class MarketDatabase:
         except:
             pass
         
+    def get_symbol_mappings(self, market: str = None) -> List[Dict[str, Any]]:
+        """获取代码名称映射列表"""
+        if market:
+            rows = self.db.fetch_all("SELECT * FROM symbol_name_mapping WHERE market = ? ORDER BY symbol", (market,))
+        else:
+            rows = self.db.fetch_all("SELECT * FROM symbol_name_mapping ORDER BY market, symbol")
+        return [dict(row) for row in rows]
+
+    def get_symbol_mapping_dict(self, market: str = 'HK') -> Dict[str, str]:
+        """获取字典格式的代码名称映射，用于代码查找"""
+        rows = self.db.fetch_all("SELECT symbol, display_name FROM symbol_name_mapping WHERE market = ?", (market,))
+        return {row['symbol']: row['display_name'] for row in rows}
+
+    def update_symbol_mapping(self, symbol: str, market: str, display_name: str, short_name: str = None):
+        """更新映射关系"""
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.db.execute('''
+            INSERT INTO symbol_name_mapping (symbol, market, display_name, short_name, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(symbol, market) DO UPDATE SET 
+                display_name = excluded.display_name,
+                short_name = excluded.short_name,
+                updated_at = excluded.updated_at
+        ''', (symbol, market, display_name, short_name, now))
+        self.db.commit()
+
+    def delete_symbol_mapping(self, symbol: str, market: str):
+        """删除映射关系"""
+        self.db.execute("DELETE FROM symbol_name_mapping WHERE symbol = ? AND market = ?", (symbol, market))
+        self.db.commit()
+
+    def get_full_to_short_name_mapping(self, market: str = 'HK') -> Dict[str, str]:
+        """获取全名到简称的映射，如 {'腾讯控股': '腾讯'}"""
+        rows = self.db.fetch_all(
+            "SELECT display_name, short_name FROM symbol_name_mapping WHERE market = ? AND short_name IS NOT NULL", 
+            (market,)
+        )
+        return {row['display_name']: row['short_name'] for row in rows}
+
     def save_grid_trade_data(self, etf_code: str, data: Dict[str, List[Any]]) -> None:
         """保存ETF数据到网格交易表
         

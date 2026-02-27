@@ -3,29 +3,16 @@ from futu import *
 import logging
 import traceback
 
-from routes.tiger_routes import HK_STOCK_NAMES
+from db.market_db import MarketDatabase
 
 futu_bp = Blueprint('futu', __name__)
-# 在文件开头添加映射表
-STOCK_NAME_MAPPING = {
-    '中国平安': '平安',
-    '腾讯控股': '腾讯',
-    '安踏体育': '安踏',
-    '携程集团': '携程',
-    '比亚迪股份': '比亚迪',
-    '美团-W': '美团',
-    '京东集团-SW': '京东',
-    '阿里巴巴-W': '阿里',
-    '小米集团': '小米',
-    '香港交易所': '港交所',
-    '新鸿基地产': '新鸿基',
-    # 可以根据需要添加更多映射
-}
 
-# 添加反向映射
-OPTION_NAME_MAPPING = {v: k for k, v in STOCK_NAME_MAPPING.items()}
-NAME_TO_CODE_MAPPING = {v: k for k, v in HK_STOCK_NAMES.items()}  # 使用 HK_STOCK_NAMES 创建反向映射
-
+def get_name_mappings():
+    db = MarketDatabase()
+    return {
+        'hk_names': db.get_symbol_mapping_dict('HK'),
+        'short_names': db.get_full_to_short_name_mapping('HK')
+    }
 
 @futu_bp.route('/api/futu_positions')
 def get_futu_positions():
@@ -52,49 +39,70 @@ def get_futu_positions():
             except (ValueError, TypeError):
                 return default
 
+        # 获取最新的名称映射
+        mappings = get_name_mappings()
+        hk_names = mappings['hk_names']        # code -> full_name (e.g. '00700': '腾讯控股')
+        short_names = mappings['short_names']  # full_name -> short_name (e.g. '腾讯控股': '腾讯')
+        
+        # 反向映射用于处理期权和分组
+        full_names_from_short = {v: k for k, v in short_names.items()}
+        code_from_full = {v: k for k, v in hk_names.items()}
+
         # 处理所有持仓数据
         for _, pos in data.iterrows():
             if safe_float(pos['qty']) == 0:
                 continue
+            
+            raw_stock_name = pos['stock_name']
+            is_option = ' ' in raw_stock_name
+            
+            # 港股名称处理逻辑改进
+            if pos['code'].startswith('HK.'):
+                if is_option:
+                    # 期权处理逻辑： "腾讯 250227 400.00 购"
+                    option_parts = raw_stock_name.split()
+                    short_name_in_option = option_parts[0]
+                    
+                    # 关键修复：通过映射链反查数字代码
+                    # 简称 -> 全称 -> 数字代码
+                    full_name = full_names_from_short.get(short_name_in_option, short_name_in_option)
+                    numeric_code = code_from_full.get(full_name)
+                    
+                    base_name = full_name
+                    # 如果找不到数字代码，numeric_code 为 None，此时 underlying_code 会包含 [待配置]
+                    underlying_code = numeric_code if numeric_code else f"[待配置] {short_name_in_option}"
+                    
+                    expiry_date = option_parts[1]
+                    strike_price = option_parts[2]
+                    option_type = option_parts[3]
+                    formatted_expiry = f"20{expiry_date[:2]}-{expiry_date[2:4]}-{expiry_date[4:]}"
+                else:
+                    # 股票处理逻辑：直接从代码提取数字部分
+                    underlying_code = pos['code'][3:]
+                    base_name = hk_names.get(underlying_code, f"[待配置] {underlying_code}")
+            else:
+                base_name = raw_stock_name
+                underlying_code = pos['code']
 
-            # 判断是否为期权
-            is_option = ' ' in pos['stock_name']
-            base_name = pos['stock_name']
-            code = pos['code']
-            
-            
-            # 计算盈亏百分比 - 使用API提供的pl_ratio
+            # 计算盈亏百分比
             pnl_percentage = float(pos['pl_ratio']) if pos['pl_ratio_valid'] else 0
             
-            if is_option:
-                # 从stock_name解析期权信息：例如 "安踏 250227 67.50 沽"
-                option_parts = pos['stock_name'].split()
-                if len(option_parts) >= 4:
-                    base_name = option_parts[0]  # 平安
-                    # base_name = OPTION_NAME_MAPPING.get(option_base_name, option_base_name)  # 转换为股票全称
-                    expiry_date = option_parts[1]  # 250227
-                    strike_price = option_parts[2]  # 67.50
-                    option_type = option_parts[3]
-                    
-                    formatted_expiry = f"20{expiry_date[:2]}-{expiry_date[2:4]}-{expiry_date[4:]}"
-            else:
-                base_name = pos['stock_name']
-            
             position_data = {
-                'code': code,  # 股票代码 0700 表示腾讯
-                'symbol': base_name,  # 使用基础股票名称
+                'code': pos['code'],
+                'symbol': base_name,
+                'hk_symbol': underlying_code, 
                 'quantity': safe_float(pos['qty']),
-                'average_cost': safe_float(pos['cost_price']) if pos['cost_price_valid'] else None,  # 持仓成本价
-                'market_value': safe_float(pos['market_val']),  # 持仓市值
-                'latest_price': safe_float(pos['nominal_price']),  # 最新价
-                'unrealized_pnl': safe_float(pos['pl_val']),  # 未实现盈亏
-                'unrealized_pnl_percentage': pnl_percentage,  # 盈亏百分比
-                'realized_pnl': safe_float(pos['realized_pl']),  # 已实现盈亏
+                'average_cost': safe_float(pos['cost_price']) if pos['cost_price_valid'] else None,
+                'market_value': safe_float(pos['market_val']),
+                'latest_price': safe_float(pos['nominal_price']),
+                'unrealized_pnl': safe_float(pos['pl_val']),
+                'unrealized_pnl_percentage': pnl_percentage,
+                'realized_pnl': safe_float(pos['realized_pl']),
                 'market': 'HK' if pos['code'].startswith('HK.') else 'US',
                 'sec_type': 'OPT' if is_option else 'STK',
                 'position_ratio': (safe_float(pos['market_val']) / total_market_value * 100) if total_market_value else 0,
-                'daily_pnl': safe_float(pos['today_pl_val']),  # 今日盈亏
-                'currency': pos['currency'],  # 货币类型
+                'daily_pnl': safe_float(pos['today_pl_val']),
+                'currency': pos['currency'],
             }
             
             if is_option:
@@ -104,20 +112,19 @@ def get_futu_positions():
                     'put_call': option_type
                 })
                 
-                # 添加到分组中
-                full_name = OPTION_NAME_MAPPING.get(base_name, base_name)  # 转换为股票全称
-                if full_name in grouped_positions:
-                    grouped_positions[full_name]['options'].append(position_data)
-                    group = grouped_positions[full_name]
+                # 添加到分组
+                if base_name in grouped_positions:
+                    group = grouped_positions[base_name]
+                    group['options'].append(position_data)
                     group['total_market_value'] += position_data['market_value']
                     group['total_unrealized_pnl'] += position_data['unrealized_pnl']
                     group['total_realized_pnl'] += position_data['realized_pnl']
                     group['total_position_ratio'] += position_data['position_ratio']
                     group['total_daily_pnl'] += position_data['daily_pnl']
                 else:
-                    grouped_positions[full_name] = {
-                        'symbol': full_name,
-                        'code': NAME_TO_CODE_MAPPING.get(full_name),  # 使用反向映射获取代码
+                    grouped_positions[base_name] = {
+                        'symbol': base_name,
+                        'code': underlying_code, 
                         'stock': None,
                         'options': [position_data],
                         'market': position_data['market'],
@@ -126,45 +133,35 @@ def get_futu_positions():
                         'total_realized_pnl': position_data['realized_pnl'],
                         'is_group': True,
                         'total_position_ratio': position_data['position_ratio'],
-                        'total_daily_pnl': 0
+                        'total_daily_pnl': position_data['daily_pnl']
                     }
             else:
-                # 检查是否有相关的期权持仓
-                short_name = STOCK_NAME_MAPPING.get(base_name, base_name)
-                has_options = any(
-                    opt['stock_name'].split()[0] == short_name
-                    for _, opt in data.iterrows() 
-                    if ' ' in opt['stock_name']
-                )
-                
-                if has_options:
-                    if base_name not in grouped_positions:
-                        grouped_positions[base_name] = {
-                            'symbol': base_name,
-                            'code': NAME_TO_CODE_MAPPING.get(base_name),  # 使用反向映射获取代码
-                            'stock': position_data,
-                            'options': [],
-                            'market': position_data['market'],
-                            'total_market_value': position_data['market_value'],
-                            'total_unrealized_pnl': position_data['unrealized_pnl'],
-                            'total_realized_pnl': position_data['realized_pnl'],
-                            'is_group': True,
-                            'total_position_ratio': position_data['position_ratio'],
-                            'total_daily_pnl': 0
-                        }
-                    else:
-                        group = grouped_positions[base_name]
-                        group['total_market_value'] += position_data['market_value']
-                        group['total_unrealized_pnl'] += position_data['unrealized_pnl']
-                        group['total_realized_pnl'] += position_data['realized_pnl']
-                        group['total_position_ratio'] += position_data['position_ratio']
-                        group['total_daily_pnl'] += position_data['daily_pnl']
-                        group['stock'] = position_data
+                # 股票处理逻辑
+                if base_name not in grouped_positions:
+                    grouped_positions[base_name] = {
+                        'symbol': base_name,
+                        'code': underlying_code,
+                        'stock': position_data,
+                        'options': [],
+                        'market': position_data['market'],
+                        'total_market_value': position_data['market_value'],
+                        'total_unrealized_pnl': position_data['unrealized_pnl'],
+                        'total_realized_pnl': position_data['realized_pnl'],
+                        'is_group': True,
+                        'total_position_ratio': position_data['position_ratio'],
+                        'total_daily_pnl': position_data['daily_pnl']
+                    }
                 else:
-                    ungrouped_positions.append(position_data)
+                    group = grouped_positions[base_name]
+                    group['total_market_value'] += position_data['market_value']
+                    group['total_unrealized_pnl'] += position_data['unrealized_pnl']
+                    group['total_realized_pnl'] += position_data['realized_pnl']
+                    group['total_position_ratio'] += position_data['position_ratio']
+                    group['total_daily_pnl'] += position_data['daily_pnl']
+                    group['stock'] = position_data
         
-        # 合并分组和非分组数据
-        final_positions = list(grouped_positions.values()) + ungrouped_positions
+        # 移出未分组的股票（如果有的话，目前都在分组里处理了）
+        final_positions = list(grouped_positions.values())
         
         # 对期权进行排序的辅助函数
         def option_sort_key(option):

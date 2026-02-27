@@ -15,6 +15,7 @@ from routes.shannon_routes import shannon_bp
 from routes.data_download_routes import data_download_bp
 from routes.wyckoff_routes import wyckoff_bp
 from routes.portfolio_routes import portfolio_bp
+from routes.symbol_mapping_routes import symbol_mapping_bp
 
 app = Flask(__name__)
 
@@ -29,6 +30,7 @@ app.register_blueprint(earnings_bp)  # 注册财报分析蓝图
 app.register_blueprint(data_download_bp)  # 注册数据下载蓝图
 app.register_blueprint(wyckoff_bp) # 注册威科夫分析蓝图
 app.register_blueprint(portfolio_bp) # 注册资产全景蓝图
+app.register_blueprint(symbol_mapping_bp) # 注册标的映射管理蓝图
 
 # ETF选项列表
 ETF_OPTIONS = [

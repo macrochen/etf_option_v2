@@ -33,30 +33,12 @@ def get_tiger_client():
     # 创建交易客户端
     return TradeClient(client_config), QuoteClient(client_config) 
 
-# 在文件开头添加港股代码与名称的映射
-HK_STOCK_NAMES = {
-    '00388': '香港交易所',
-    '09992': '泡泡玛特',
-    '03750': '宁德时代',
-    '00300': '美的集团',
-    '00700': '腾讯控股',
-    '01448': '福寿园',
-    '02318': '中国平安',
-    '02800': '盈富基金',
-    '03032': '恒生科技ETF', 
-    '03069': '华夏恒生生科',
-    '03690': '美团-W',
-    '03968': '招商银行',
-    '02020': '安踏体育',
-    '02382': '舜宇光学',
-    '09961': '携程集团',
-    '01211': '比亚迪股份',
-    '09999': '网易',
-    '09618': '京东集团-SW',
-    '09988': '阿里巴巴-W',
-    '01810': '小米集团',
-    '00016': '新鸿基地产',
-}
+from db.market_db import MarketDatabase
+
+# 移除硬编码映射，改为从数据库获取
+def get_hk_name_mapping():
+    db = MarketDatabase()
+    return db.get_symbol_mapping_dict('HK')
 
 @tiger_bp.route('/api/update_hk_prev_close', methods=['GET'])
 def update_hk_prev_close():
@@ -375,7 +357,10 @@ def get_positions():
                 daily_pnl = (latest_price - prev_close) * position.quantity if prev_close else 0
                 # 如果是港股，使用名称映射
                 if position.contract.market == 'HK':
-                    display_symbol = HK_STOCK_NAMES.get(symbol, symbol)
+                    hk_mapping = get_hk_name_mapping()
+                    display_symbol = hk_mapping.get(symbol, f"[待配置] {symbol}")
+                    if symbol not in hk_mapping:
+                        logging.warning(f"Missing name mapping for HK symbol: {symbol}")
                 else:
                     display_symbol = symbol
 
@@ -446,7 +431,8 @@ def get_positions():
                 base_symbol = symbol_parts[0]
                 # 如果是港股，使用名称映射
                 if contract.market == 'HK':
-                    base_symbol = HK_STOCK_NAMES.get(base_symbol, base_symbol)
+                    hk_mapping = get_hk_name_mapping()
+                    base_symbol = hk_mapping.get(base_symbol, base_symbol)
                 expiry_date = symbol_parts[1]
                 strike_price = symbol_parts[2]
                 option_type = symbol_parts[3]
