@@ -24,6 +24,8 @@ class PortfolioDatabase:
                 name TEXT,
                 quantity REAL DEFAULT 0,
                 cost_price REAL DEFAULT 0,
+                last_price REAL DEFAULT 0,
+                valuation_link TEXT,
                 update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -157,8 +159,8 @@ class PortfolioDatabase:
         sql = '''
             INSERT INTO asset_holdings (
                 account_name, asset_type, category_1, category_2, 
-                symbol, name, quantity, cost_price, last_price, update_time
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                symbol, name, quantity, cost_price, last_price, valuation_link, update_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
         params = (
             data['account_name'],
@@ -170,6 +172,7 @@ class PortfolioDatabase:
             data.get('quantity', 0),
             data.get('cost_price', 0),
             data.get('last_price', 0),
+            data.get('valuation_link'),
             datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         )
         return self.db.execute_insert(sql, params)
@@ -180,7 +183,7 @@ class PortfolioDatabase:
         values = []
         
         valid_fields = ['account_name', 'asset_type', 'category_1', 'category_2', 
-                       'symbol', 'name', 'quantity', 'cost_price', 'last_price']
+                       'symbol', 'name', 'quantity', 'cost_price', 'last_price', 'valuation_link']
         
         for field in valid_fields:
             if field in data:
@@ -235,7 +238,8 @@ class PortfolioDatabase:
                 'quantity': row[7],
                 'cost_price': row[8],
                 'update_time': row[9],
-                'last_price': row[10] if len(row) > 10 else 0
+                'last_price': row[10] if len(row) > 10 else 0,
+                'valuation_link': row[11] if len(row) > 11 else None
             })
         return assets
 

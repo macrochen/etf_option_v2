@@ -311,7 +311,10 @@ function updateDatalists() {
 
 // Table & Filtering
 function sortAndRenderTable() {
-    if (!portfolioData || !portfolioData.assets) return; 
+    if (!portfolioData || !portfolioData.assets) {
+        console.warn("sortAndRenderTable called but portfolioData is not ready.");
+        return; 
+    }
     
     let data = portfolioData.assets.filter(item => {
         for (const [col, filterVal] of Object.entries(currentFilters)) {
@@ -363,14 +366,46 @@ function updateTable(data) {
     
     assets.forEach(asset => {
         const pnlClass = asset.pnl >= 0 ? 'text-danger' : 'text-success';
+        
+        // 构建外部链接逻辑
+        let displayName = asset.name || '-';
+        const s = asset.symbol;
+        const isNumeric = /^\d+$/.test(s);
+
+        if (isNumeric) {
+            if (asset.asset_type === 'stock' || asset.asset_type === 'etf') {
+                // 雪球链接
+                let prefix = '';
+                if (s.startsWith('6') || s.startsWith('5') || s.startsWith('9')) prefix = 'SH';
+                else if (s.startsWith('0') || s.startsWith('3') || s.startsWith('1')) prefix = 'SZ';
+                else if (s.startsWith('4') || s.startsWith('8')) prefix = 'BJ';
+                
+                if (prefix) {
+                    const xqUrl = `https://xueqiu.com/S/${prefix}${s}`;
+                    displayName = `<a href="${xqUrl}" target="_blank" class="text-decoration-none" title="在雪球中查看">${displayName} <i class="fas fa-external-link-alt fa-xs"></i></a>`;
+                }
+            } else if (asset.asset_type === 'fund') {
+                // 蛋卷基金链接
+                const djUrl = `https://danjuanfunds.com/funding/${s}`;
+                displayName = `<a href="${djUrl}" target="_blank" class="text-decoration-none text-success" title="在蛋卷基金中查看">${displayName} <i class="fas fa-external-link-alt fa-xs"></i></a>`;
+            }
+        }
+
+        // 估值链接列
+        const valuationHtml = asset.valuation_link ? 
+            `<a href="${asset.valuation_link}" target="_blank" class="btn btn-sm btn-link p-0 text-info" title="打开估值详情">
+                <i class="fas fa-chart-line"></i> 查看
+             </a>` : '-';
+
         const row = `
             <tr>
                 <td><input class="form-check-input asset-select" type="checkbox" value="${asset.id}"></td>
                 <td>${asset.account_name}</td>
                 <td>
-                    <div>${asset.name || '-'}</div>
+                    <div>${displayName}</div>
                     <small class="text-muted">${asset.symbol}</small>
                 </td>
+                <td class="text-center">${valuationHtml}</td>
                 <td>${asset.category_1 || '-'}</td>
                 <td>${asset.category_2 || '-'}</td>
                 <td>${asset.quantity}</td>
@@ -562,6 +597,7 @@ function editAsset(asset) {
     $('#quantity').val(asset.quantity);
     $('#costPrice').val(asset.cost_price);
     $('#currentPrice').val(asset.last_price || ''); 
+    $('#valuationLink').val(asset.valuation_link || ''); // 回填估值链接
     
     new bootstrap.Modal(document.getElementById('assetModal')).show();
 }
@@ -620,7 +656,8 @@ function saveAsset() {
         name: name,
         quantity: parseFloat(quantity),
         cost_price: parseFloat(costPrice),
-        last_price: parseFloat($('#currentPrice').val()) || 0
+        last_price: parseFloat($('#currentPrice').val()) || 0,
+        valuation_link: $('#valuationLink').val().trim() // 抓取估值链接
     };
     
     $.ajax({

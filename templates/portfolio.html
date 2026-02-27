@@ -121,6 +121,7 @@
                                     <th width="40"><input class="form-check-input" type="checkbox" id="selectAllAssets"></th>
                                     <th style="cursor:pointer" data-sort="account_name">账户 <i class="fas fa-sort"></i></th>
                                     <th style="cursor:pointer" data-sort="name">名称/代码 <i class="fas fa-sort"></i></th>
+                                    <th>估值</th>
                                     <th style="cursor:pointer" data-sort="category_1">一级分类 <i class="fas fa-sort"></i></th>
                                     <th style="cursor:pointer" data-sort="category_2">二级分类 <i class="fas fa-sort"></i></th>
                                     <th style="cursor:pointer" data-sort="quantity">持有数量 <i class="fas fa-sort"></i></th>
@@ -139,6 +140,7 @@
                                         </select>
                                     </th>
                                     <th><input type="text" class="form-control form-control-sm column-filter" data-col="name" placeholder="筛选..."></th>
+                                    <th></th>
                                     <th>
                                         <select class="form-select form-select-sm column-filter" data-col="category_1">
                                             <option value="">全部</option>
@@ -206,7 +208,7 @@
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">二级分类</label>
-                            <input type="text" class="form-control" id="category2" list="cat2List">
+                            <input type="text" class="form-control modal-input-no-filter" id="category2" list="cat2List">
                             <datalist id="cat2List">
                                 <option value="宽基">
                                 <option value="行业">
@@ -227,6 +229,10 @@
                             <label class="form-label">名称</label>
                             <input type="text" class="form-control" id="name">
                         </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">估值链接 (关联指数/乐估值等 URL)</label>
+                        <input type="url" class="form-control" id="valuationLink" placeholder="https://...">
                     </div>
                     <div class="row">
                         <div class="col-md-4 mb-3">

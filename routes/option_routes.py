@@ -168,13 +168,23 @@ def get_position_strikes(positions_data, market, is_futu):
     market_key = f"{market.lower()}_positions"
     
     for position in positions_data['data'][market_key]:
-        # 【调试日志】打印每个正在处理的标的分组
-        logger.info(f"--- [DEBUG] Processing Position Group: {position.get('symbol')} (Code: {position.get('code')}) ---")
-        
         if 'options' in position:
-            # 获取代码：如果是富途，使用提取好的 hk_symbol (股票代码)
-            ticker = position.get('hk_symbol') or position.get('code', '')
-            if is_futu and ticker.startswith(market + "."):
+            # 智能获取 Ticker 代码：
+            # 1. 优先使用已解析好的 hk_symbol (针对港股缩写转换)
+            # 2. 对于美股老虎，代码通常在 symbol 字段中
+            # 3. 最后回退到 code 字段
+            ticker = position.get('hk_symbol') or position.get('symbol') or position.get('code', '')
+            
+            # 兼容性处理：如果此时 ticker 仍然是中文（例如 symbol="中国平安"），则尝试使用 code
+            if ticker and '\u4e00' <= ticker[0] <= '\u9fff':
+                ticker = position.get('code', '')
+
+            # 如果 ticker 为空，说明该项可能是非法数据，跳过
+            if not ticker:
+                continue
+
+            # 清理前缀 (防止出现 HK.HK.00700)
+            if ticker.startswith(market + "."):
                 ticker = ticker.split('.')[-1]
             
             symbol = market + "." + ticker
@@ -187,7 +197,7 @@ def get_position_strikes(positions_data, market, is_futu):
                     'call': {}, 
                     'put': {},
                     'display_name': display_name,
-                    'is_unconfigured': is_unconfigured # 显式标记缺失配置
+                    'is_unconfigured': is_unconfigured 
                 }
             
             for option in position['options']:

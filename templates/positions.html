@@ -244,7 +244,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <div id="distributionChart" style="width: 100%; height: 800px;"></div>
+                    <div id="distributionChart" style="width: 100%; height: 85vh;"></div>
                 </div>
             </div>
         </div>
@@ -1902,7 +1902,8 @@ function renderOptionRow(option, isGroupItem) {
                 title: {
                     text: '卖出期权持仓分布',
                     subtext: `总空头市值: $${formatNumber(grandTotal)} | 内层:标的 | 外层:类型`,
-                    left: 'center'
+                    left: 'center',
+                    top: 10 // 增加顶部边距
                 },
                 tooltip: {
                     trigger: 'item',
@@ -1917,7 +1918,7 @@ function renderOptionRow(option, isGroupItem) {
                                     type: 'pie',
                                     selectedMode: 'single',
                                     radius: [0, '35%'],
-                                    center: ['50%', '55%'], // 下移图表以避免标题遮挡
+                                    center: ['50%', '60%'], // 继续下移图表中心以腾出空间
                                     label: {
                                         position: 'inner',
                                         fontSize: 14,
@@ -1933,7 +1934,7 @@ function renderOptionRow(option, isGroupItem) {
                                     name: '类型分布',
                                     type: 'pie',
                                     radius: ['45%', '70%'],
-                                    center: ['50%', '55%'], // 下移图表以避免标题遮挡
+                                    center: ['50%', '60%'], // 同步下移外层圆环
                                     label: {
                                         formatter: '{b}: {d}%',
                                         backgroundColor: '#fff',
