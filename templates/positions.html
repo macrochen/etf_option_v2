@@ -1295,6 +1295,17 @@ function renderPositions(container, positions, isFutu = false) {
         if (position.is_group) {
             // 添加折叠按钮和组 ID
             const groupId = `group-${index}`;
+            
+            // 老虎账户港股代码处理
+            let groupCodeDisplay = '';
+            if (!isFutu && position.market === 'HK') {
+                const hkCode = position.stock ? position.stock.hk_symbol : 
+                              (position.options && position.options.length > 0 ? position.options[0].hk_symbol : '');
+                if (hkCode && !position.symbol.startsWith('[待配置]')) {
+                    groupCodeDisplay = `(${hkCode})`;
+                }
+            }
+
             html += `
                 <tr class="table-group-divider" data-position='${JSON.stringify(position)}'>
                     <td>
@@ -1306,7 +1317,7 @@ function renderPositions(container, positions, isFutu = false) {
                             </button>
                             <a href="javascript:void(0)" class="text-decoration-none text-reset" 
                                 onclick='stockChart.showChart("${isFutu && position.code ? position.code : position.symbol}", ${JSON.stringify(position.options).replace(/'/g, "&#39;")}, this, "${position.market}")'>
-                                ${position.symbol}${warningIcon}
+                                ${position.symbol}${groupCodeDisplay}${warningIcon}
                             </a>
                             ${!isFutu ? 
                                 `<button class="btn btn-link btn-sm p-0 ms-2" 
@@ -1427,6 +1438,9 @@ function renderStockRow(stock, isGroupItem) {
     if (displaySymbol.startsWith('[待配置]')) {
         const symbolOnly = stock.hk_symbol || displaySymbol.split(' ')[1];
         displaySymbol = `<a href="/symbol_mapping?symbol=${symbolOnly}&market=${stock.market}" class="text-danger fw-bold" title="点击去配置映射关系">${displaySymbol}</a>`;
+    } else if (stock.market === 'HK' && stock.hk_symbol && !isGroupItem) {
+        // 仅在非分组（独立行）时显示：名称(代码)
+        displaySymbol = `${stock.symbol}(${stock.hk_symbol})`;
     }
     
     // 只在模拟交易持仓中显示平仓按钮
