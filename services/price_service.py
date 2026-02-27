@@ -1,7 +1,11 @@
 import akshare as ak
 import requests
-import logging
+import traceback
+import logging # 使用标准日志库
 from typing import Dict, Optional
+
+# 获取当前模块的 logger
+logger = logging.getLogger(__name__)
 
 class PriceService:
     @staticmethod
@@ -20,7 +24,7 @@ class PriceService:
                 except:
                     pass
                     
-                # 备用：akshare 东财 (单只获取效率低，且可能被墙)
+                # 备用：akshare 东财
                 try:
                     df = ak.stock_zh_a_spot_em()
                     row = df[df['代码'] == symbol]
@@ -30,7 +34,8 @@ class PriceService:
                     pass
                     
             elif asset_type == 'fund':
-                # 获取场外基金净值 (天天基金源，通常比较稳)
+                # 获取场外基金净值
+                # logger.info(f"正在调取 Akshare 基金接口: {symbol}")
                 df = ak.fund_open_fund_info_em(symbol=symbol, indicator="单位净值走势")
                 if not df.empty:
                     return float(df.iloc[-1]['单位净值'])
@@ -38,7 +43,7 @@ class PriceService:
             return None
             
         except Exception as e:
-            logging.error(f"Error fetching price for {symbol} ({asset_type}): {e}")
+            logger.error(f"Error fetching price for {symbol} ({asset_type}): {e}")
             return None
 
     @staticmethod
@@ -48,18 +53,16 @@ class PriceService:
         if not symbols:
             return prices
             
-        # 转换代码格式：6开头->sh, 5/9->sh, 0/3/1->sz, 4/8->bj
-        # 腾讯接口对bj支持不一定好，主要处理sh/sz
         tencent_codes = []
-        code_map = {} # tencent_code -> original_symbol
+        code_map = {} 
         
         for s in symbols:
             prefix = ''
-            if s.startswith(('6', '5')): # 上海
+            if s.startswith(('6', '5', '9')): # 上海
                 prefix = 'sh'
             elif s.startswith(('0', '3', '1')): # 深圳
                 prefix = 'sz'
-            elif s.startswith(('4', '8')): # 北交所通常腾讯用 bj? 或者 sz? 暂且跳过或试bj
+            elif s.startswith(('4', '8')): # 北交所
                 prefix = 'bj'
             
             if prefix:
@@ -70,7 +73,6 @@ class PriceService:
         if not tencent_codes:
             return prices
 
-        # 分批请求，腾讯接口URL长度有限制
         chunk_size = 50
         for i in range(0, len(tencent_codes), chunk_size):
             chunk = tencent_codes[i:i+chunk_size]
@@ -83,7 +85,6 @@ class PriceService:
                     for line in lines:
                         if '="' in line:
                             parts = line.split('="')
-                            # parts[0] 格式 v_sh600519
                             t_code = parts[0].split('_')[-1]
                             data_str = parts[1].strip('"')
                             data = data_str.split('~')
@@ -97,62 +98,68 @@ class PriceService:
                                 except (ValueError, IndexError):
                                     pass
             except Exception as e:
-                logging.error(f"Tencent batch fetch failed: {e}")
+                logger.error(f"Tencent batch fetch failed: {e}")
                 
         return prices
 
     @staticmethod
-    def get_batch_prices(assets: list) -> Dict[str, float]:
-        """批量获取价格 (优化版：优先腾讯直连)"""
+    def get_batch_prices(assets: list) -> Dict[tuple, float]:
+        """批量获取价格"""
         prices = {}
         
-        # 1. 提取所有需要批量获取的股票/ETF代码
+        # 1. 提取资产信息
         stock_etf_symbols = set()
-        for asset in assets:
-            if asset['asset_type'] in ['stock', 'etf']:
-                stock_etf_symbols.add(asset['symbol'])
+        fund_assets = []
+        skipped_custom_count = 0
         
-        # 2. 优先尝试腾讯直连接口 (最快最稳)
+        for asset in assets:
+            atype = asset.get('asset_type')
+            s = asset.get('symbol', '')
+            
+            # 核心过滤：如果代码包含非数字字符（如 TG_XXXX, CASH_XXXX），认为是自定义资产，跳过自动同步
+            if not s.isdigit():
+                skipped_custom_count += 1
+                continue
+                
+            if atype in ['stock', 'etf']:
+                stock_etf_symbols.add(s)
+            elif atype == 'fund':
+                fund_assets.append(asset)
+        
+        if skipped_custom_count > 0:
+            logger.info(f"已跳过 {skipped_custom_count} 个自定义资产（代码含非数字字符），请手动维护其现价。")
+        
+        logger.info(f">>> [行情同步] 计划同步 {len(stock_etf_symbols)} 个上市标的，{len(fund_assets)} 个场外基金。")
+
+        # 2. 同步股票/ETF (腾讯接口)
         if stock_etf_symbols:
             try:
+                logger.info(f"正在调用腾讯财经接口批量获取 {len(stock_etf_symbols)} 个股票/ETF 价格...")
                 t_prices = PriceService._get_tencent_prices(list(stock_etf_symbols))
-                prices.update(t_prices)
+                
+                for asset in assets:
+                    s, atype = asset['symbol'], asset['asset_type']
+                    if atype in ['stock', 'etf'] and s in t_prices:
+                        prices[(s, atype)] = t_prices[s]
+                
+                logger.info(f"腾讯接口同步完成，成功获取 {len([k for k in prices if k[1] in ['stock', 'etf']])} 个标的价格。")
             except Exception as e:
-                logging.error(f"Tencent source failed: {e}")
+                logger.error(f"Tencent source failed: {e}")
 
-        # 3. 检查是否有漏网之鱼，尝试 Akshare (EastMoney/Sina)
-        missing_symbols = stock_etf_symbols - set(prices.keys())
-        if missing_symbols:
-            # ... (Existing akshare fallback logic)
-            # 为了简化代码，这里仅作为最后的备选，或者如果腾讯覆盖了就不跑了
-            try:
-                # 只有当缺失时才尝试 akshare，避免重复请求
-                df = ak.stock_zh_a_spot_em()
-                mask = df['代码'].isin(missing_symbols)
-                relevant_rows = df[mask]
-                for _, row in relevant_rows.iterrows():
-                    try:
-                        val = float(row['最新价'])
-                        prices[row['代码']] = val
-                    except: pass
-            except Exception:
-                pass # Ignore backup errors
-
-        # 4. 处理场外基金、现金和其他类型
-        for asset in assets:
-            symbol = asset['symbol']
-            atype = asset['asset_type']
-            
-            if symbol in prices: continue
-            if atype == 'cash':
-                prices[symbol] = 1.0
-                continue
-            
-            if atype == 'fund':
+        # 3. 基金逐个同步 (由于场外基金无批量实时接口，只能逐个调取净值)
+        if fund_assets:
+            logger.info(f"开始同步 {len(fund_assets)} 个场外基金净值...")
+            for i, asset in enumerate(fund_assets):
+                s, atype = asset['symbol'], asset['asset_type']
                 try:
-                    price = PriceService.get_current_price(symbol, atype)
+                    logger.info(f"[{i+1}/{len(fund_assets)}] 抓取基金净值: {asset['name']}({s})...")
+                    price = PriceService.get_current_price(s, atype)
                     if price is not None:
-                        prices[symbol] = price
-                except: pass
+                        prices[(s, atype)] = price
+                        logger.info(f"   => 成功: {price}")
+                    else:
+                        logger.warning(f"   => 失败: 未能获取到净值")
+                except Exception as e:
+                    logger.error(f"   => 异常: {e}")
             
         return prices

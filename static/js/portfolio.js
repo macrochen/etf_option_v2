@@ -20,8 +20,23 @@ function formatNumber(num) {
 function determineAssetType(cat1, symbol) {
     if (cat1 === '现金类') return 'cash';
     if (cat1 === '权益类' || cat1 === '固收类' || cat1 === '商品类') {
-        if (symbol.startsWith('1') || symbol.startsWith('5')) return 'etf';
-        if (symbol.length === 6 && (symbol.startsWith('6') || symbol.startsWith('0') || symbol.startsWith('3') || symbol.startsWith('8') || symbol.startsWith('4'))) return 'stock';
+        // 1. ETF 识别 (沪深交易所 ETF 代码规律)
+        if (symbol.startsWith('159') || symbol.startsWith('51') || symbol.startsWith('58')) return 'etf';
+        
+        // 2. 股票识别 (典型 A 股代码段)
+        // 60, 688, 000, 001, 002, 300, 301, 43, 83, 87
+        const isTypicalStock = (
+            symbol.startsWith('60') || symbol.startsWith('688') || 
+            symbol.startsWith('000') || symbol.startsWith('001') || symbol.startsWith('002') || 
+            symbol.startsWith('300') || symbol.startsWith('301') ||
+            symbol.startsWith('43') || symbol.startsWith('83') || symbol.startsWith('87')
+        );
+        
+        if (symbol.length === 6 && isTypicalStock) return 'stock';
+        
+        // 3. 基金识别 (其他 6 位数字代码通常为场外基金，如 000968 广发养老)
+        if (symbol.length === 6 && /^\d+$/.test(symbol)) return 'fund';
+        
         return 'fund';
     }
     return 'other';
@@ -201,17 +216,21 @@ function refreshData() {
 function refreshPrices() {
     const btn = $('#btnRefreshPrices');
     const originalContent = btn.html();
-    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 更新中...');
+    // 提示用户关注后端日志，因为同步可能比较慢
+    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 同步中，请关注后台日志...');
     
     $.ajax({
         url: '/api/portfolio/refresh_prices',
         type: 'POST',
+        timeout: 300000, // 将超时时间延长到 5 分钟，防止基金同步慢导致超时
         success: function(res) {
-            alert(`行情更新完成！\n成功更新了 ${res.updated_count} 个资产的价格。`);
+            const msg = `同步成功！\n已从行情服务器获取了 ${res.updated_count} 个资产的最新实时报价。`;
+            alert(msg);
             refreshData(); 
         },
         error: function(err) {
-            alert('更新失败: ' + (err.responseJSON ? err.responseJSON.message : err.statusText));
+            const errorMsg = err.status === 'timeout' ? '同步超时，但后端可能仍在后台处理中，请查看日志。' : (err.responseJSON ? err.responseJSON.message : err.statusText);
+            alert('行情同步失败: ' + errorMsg);
         },
         complete: function() {
             btn.prop('disabled', false).html(originalContent);
@@ -363,9 +382,14 @@ function updateTable(data) {
                     <small>(${asset.pnl_percent >= 999999 ? '∞' : asset.pnl_percent.toFixed(2) + '%'})</small>
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick='editAsset(${JSON.stringify(asset)})'>
-                        <i class="fas fa-edit"></i>
-                    </button>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-outline-primary" onclick='editAsset(${JSON.stringify(asset)})' title="编辑">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteAsset(${asset.id}, '${asset.name || asset.symbol}')" title="删除/清仓">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 </td>
             </tr>
         `;
@@ -501,6 +525,21 @@ function deleteAccount(id) {
     }
 }
 
+function deleteAsset(id, name) {
+    if (confirm(`确定要删除资产 [${name}] 吗？\n清仓资产建议删除记录，资产趋势图仍会保留历史快照。`)) {
+        $.ajax({
+            url: `/api/portfolio/asset/${id}`,
+            type: 'DELETE',
+            success: function() {
+                refreshData();
+            },
+            error: function() {
+                alert('删除失败');
+            }
+        });
+    }
+}
+
 // Asset CRUD
 function showAssetModal() {
     // Helper to clear form
@@ -530,7 +569,7 @@ function editAsset(asset) {
 function saveAsset() {
     // Basic Validation
     const accountName = $('#accountName').val();
-    let symbol = $('#symbol').val().trim(); // 使用 let
+    let symbol = $('#symbol').val().trim(); 
     const name = $('#name').val().trim();
     const quantity = $('#quantity').val();
     const costPrice = $('#costPrice').val();
@@ -558,19 +597,26 @@ function saveAsset() {
         symbol = prefix + Math.abs(hash).toString(16).toUpperCase();
     }
     
-    // Auto-determine asset type
+    // 获取当前界面上的选择
     let aType = $('#assetType').val();
-    if (!aType) {
-        aType = determineAssetType(cat1, symbol);
+    
+    // 自动判断逻辑仅作为默认参考，不强制覆盖用户已有的手动选择
+    if (!aType || $('#modalTitle').text() === '新增资产') {
+        const guessedType = determineAssetType(cat1, symbol);
+        // 如果用户还没选，或者当前是空，则自动填充
+        if (!aType || aType === '') {
+            aType = guessedType;
+            $('#assetType').val(aType);
+        }
     }
 
     const data = {
         id: $('#assetId').val() || null,
         account_name: accountName,
-        asset_type: aType,
+        asset_type: $('#assetType').val() || aType, // 强制从下拉框获取最新值
         category_1: cat1,
         category_2: $('#category2').val(),
-        symbol: symbol, // Use symbol
+        symbol: symbol,
         name: name,
         quantity: parseFloat(quantity),
         cost_price: parseFloat(costPrice),
@@ -763,6 +809,7 @@ function importAllAssets() {
     
     const accountName = $('#batchAccount').val(); 
     const cat1 = $('#batchCategory1').val();
+    const batchAType = $('#batchAssetType').val(); // 获取批量设置的类型
     
     if (!accountName) return alert('请先设置【归属账户】');
     
@@ -782,7 +829,7 @@ function importAllAssets() {
             quantity: parseFloat(row.find('.asset-qty').val()) || 0,
             cost_price: parseFloat(row.find('.asset-cost').val()) || 0,
             last_price: parseFloat(row.find('.asset-last-price').val()) || 0,
-            asset_type: determineAssetType(cat1, symbol)
+            asset_type: batchAType // 使用统一指定的资产形态
         });
     });
     

@@ -20,11 +20,11 @@
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#assetModal">
                     <i class="fas fa-plus"></i> 新增资产
                 </button>
-                <button class="btn btn-secondary ms-2" id="btnRefreshPrices" onclick="refreshPrices()">
-                    <i class="fas fa-cloud-download-alt"></i> 更新行情
+                <button class="btn btn-success ms-2" id="btnRefreshPrices" onclick="refreshPrices()" title="联网获取最新实时价格并更新数据库">
+                    <i class="fas fa-sync-alt"></i> 同步最新价
                 </button>
-                <button class="btn btn-secondary ms-2" onclick="refreshData()">
-                    <i class="fas fa-sync"></i> 刷新数据
+                <button class="btn btn-outline-secondary ms-2" onclick="refreshData()" title="仅重新加载本地数据，不触发实时行情同步">
+                    <i class="fas fa-redo"></i> 刷新显示
                 </button>
             </div>
         </div>
@@ -181,15 +181,16 @@
                             <!-- JS populated -->
                         </select>
                     </div>
-                    <div class="mb-3" style="display:none;">
-                        <label class="form-label">资产类型 (自动推断)</label>
-                        <select class="form-select" id="assetType">
-                            <option value="stock">股票</option>
-                            <option value="etf">ETF</option>
-                            <option value="fund">场外基金</option>
-                            <option value="cash">现金</option>
-                            <option value="other">其他</option>
+                    <div class="mb-3">
+                        <label class="form-label">资产形态 (决定价格更新逻辑)</label>
+                        <select class="form-select" id="assetType" required>
+                            <option value="stock">股票 (代码更新)</option>
+                            <option value="etf">场内ETF (代码更新)</option>
+                            <option value="fund">场外基金/理财 (净值更新)</option>
+                            <option value="cash">现金/存款 (固定1.0)</option>
+                            <option value="other">其他 (手动更新)</option>
                         </select>
+                        <div class="form-text">如果是广发养老等场外基金，请务必选择“场外基金”，否则会按股票行情同步导致错误。</div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -363,7 +364,15 @@
                                     <!-- JS填充 -->
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
+                                <select class="form-select form-select-sm" id="batchAssetType">
+                                    <option value="stock">场内股票</option>
+                                    <option value="etf">场内ETF</option>
+                                    <option value="fund" selected>场外基金</option>
+                                    <option value="cash">现金类</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
                                 <select class="form-select form-select-sm" id="batchCategory1">
                                     <option value="权益类">权益类</option>
                                     <option value="固收类">固收类</option>

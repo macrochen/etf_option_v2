@@ -144,18 +144,22 @@ def refresh_prices():
         updated_count = 0
         
         # 2. 更新数据库
+        logging.info(f"行情抓取完成，开始回写数据库（共 {len(assets)} 个资产）...")
         for asset in assets:
             symbol = asset['symbol']
-            if symbol in prices and prices[symbol] > 0:
-                # 仅更新价格字段
-                new_price = prices[symbol]
-                # 保持其他字段不变
+            asset_type = asset['asset_type']
+            key = (symbol, asset_type)
+            
+            if key in prices and prices[key] > 0:
+                new_price = prices[key]
+                logging.info(f"更新资产价格: {asset['name']}({symbol}) {asset.get('last_price', 0)} -> {new_price}")
                 asset_data = {
                     'last_price': new_price
                 }
-                # 注意：update_asset 会更新 update_time，这正好符合需求
                 db.update_asset(asset['id'], asset_data)
                 updated_count += 1
+        
+        logging.info(f"所有资产价格更新完成，成功更新 {updated_count} 条记录。")
                 
         return jsonify({
             'message': f'Updated {updated_count} assets', 
