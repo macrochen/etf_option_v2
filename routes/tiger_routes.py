@@ -364,18 +364,16 @@ def get_positions():
         grouped_positions = {}
         ungrouped_positions = []
         
-        # 分市场计算总市值
-        total_us_market_value = sum(
-            p.market_value for p in stock_positions if p.contract.market == 'US'
-        ) + sum(
-            p.market_value for p in option_positions if p.contract.market == 'US'
-        )
+        # 分市场、分类型计算总市值
+        total_us_stock_value = sum(p.market_value for p in stock_positions if p.contract.market == 'US')
+        total_us_option_value = sum(p.market_value for p in option_positions if p.contract.market == 'US')
         
-        total_hk_market_value = sum(
-            p.market_value for p in stock_positions if p.contract.market == 'HK'
-        ) + sum(
-            p.market_value for p in option_positions if p.contract.market == 'HK'
-        )
+        total_hk_stock_value = sum(p.market_value for p in stock_positions if p.contract.market == 'HK')
+        total_hk_option_value = sum(p.market_value for p in option_positions if p.contract.market == 'HK')
+        
+        # 兼容旧字段：这里的 total_us_market_value 和 total_hk_market_value 依然保留
+        total_us_market_value = total_us_stock_value + total_us_option_value
+        total_hk_market_value = total_hk_stock_value + total_hk_option_value
         
         # 计算总市值（用于计算持仓占比）- 港股市值需要转换为美元
         total_market_value = total_us_market_value + (total_hk_market_value * HKD_TO_USD_RATE)
@@ -618,6 +616,10 @@ def get_positions():
                 'hk_positions': hk_positions,
                 'total_us_market_value': total_us_market_value,
                 'total_hk_market_value': total_hk_market_value,
+                'total_us_stock_value': total_us_stock_value,
+                'total_us_option_value': total_us_option_value,
+                'total_hk_stock_value': total_hk_stock_value,
+                'total_hk_option_value': total_hk_option_value,
                 'account_assets': account_assets
             }
         })

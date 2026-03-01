@@ -622,8 +622,10 @@ function showAccountSummary() {
         // 更新老虎数据
         if (tigerData.status === 'success' && tigerData.data.account_assets && tigerData.data.account_assets.length > 0) {
             const mainAsset = tigerData.data.account_assets[0];
+            // 美股显示整个账户的净资产
             tigerUs = 'US$ ' + formatNumber(mainAsset.net_liquidity);
-            tigerHk = 'HK$ ' + formatNumber(mainAsset.hkd_nlv || tigerData.data.total_hk_market_value);
+            // 港股按要求：仅计算持仓股票市值，忽略期权
+            tigerHk = 'HK$ ' + formatNumber(tigerData.data.total_hk_stock_value);
         }
         
         // 更新富途数据
