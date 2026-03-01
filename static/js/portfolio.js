@@ -912,10 +912,9 @@ function showLedgerModal() {
     tbody.empty();
     
     let totalSynced = 0;
-    const sortedAccounts = [...accounts].sort((a, b) => b.value - a.value);
-    
-    sortedAccounts.forEach(acc => {
-        const rawValue = acc.value;
+    const sortedAccounts = [...accounts].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+
+    sortedAccounts.forEach(acc => {        const rawValue = acc.value;
         const syncedValue = Math.floor(rawValue / 100) * 100;
         totalSynced += syncedValue;
         const displayValue = syncedValue.toLocaleString('zh-CN', { maximumFractionDigits: 0 });

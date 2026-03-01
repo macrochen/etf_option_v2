@@ -302,36 +302,6 @@ def get_positions():
     try:
         client, quote_client = get_tiger_client()
         
-        # 获取资产汇总信息 (NAV / Equity)
-        account_assets = []
-        try:
-            assets = client.get_assets()
-            for asset in assets:
-                summary = getattr(asset, 'summary', None)
-                if summary:
-                    # 尝试分币种 NLV (如果可用)
-                    m_vals = getattr(asset, 'market_value', {})
-                    if callable(m_vals):
-                        try:
-                            m_vals = m_vals()
-                        except:
-                            m_vals = {}
-                            
-                    hkd_nlv = 0
-                    if m_vals and isinstance(m_vals, dict) and 'HKD' in m_vals:
-                        hkd_nlv = getattr(m_vals['HKD'], 'net_liquidation', 0)
-
-                    account_assets.append({
-                        'account': asset.account,
-                        'net_liquidity': getattr(summary, 'net_liquidation', 0),
-                        'hkd_nlv': hkd_nlv,
-                        'total_cash': getattr(summary, 'total_cash', 0),
-                        'equity': getattr(summary, 'equity', 0),
-                        'market_value': getattr(summary, 'gross_position_value', 0)
-                    })
-        except Exception as e:
-            logging.error(f"获取老虎资产汇总失败: {str(e)}\n{traceback.format_exc()}")
-
         # 获取实时港币兑美元汇率
         # try:
         #     response = requests.get("https://open.er-api.com/v6/latest/HKD")
@@ -364,19 +334,14 @@ def get_positions():
         grouped_positions = {}
         ungrouped_positions = []
         
-        # 分市场、分类型计算总市值
-        total_us_stock_value = sum(p.market_value for p in stock_positions if p.contract.market == 'US')
-        total_us_option_value = sum(p.market_value for p in option_positions if p.contract.market == 'US')
-        
-        total_hk_stock_value = sum(p.market_value for p in stock_positions if p.contract.market == 'HK')
-        total_hk_option_value = sum(p.market_value for p in option_positions if p.contract.market == 'HK')
-        
-        # 兼容旧字段：这里的 total_us_market_value 和 total_hk_market_value 依然保留
-        total_us_market_value = total_us_stock_value + total_us_option_value
-        total_hk_market_value = total_hk_stock_value + total_hk_option_value
-        
         # 计算总市值（用于计算持仓占比）- 港股市值需要转换为美元
-        total_market_value = total_us_market_value + (total_hk_market_value * HKD_TO_USD_RATE)
+        total_market_value = sum(
+            p.market_value * HKD_TO_USD_RATE if p.contract.market == 'HK' else p.market_value
+            for p in stock_positions
+        ) + sum(
+            p.market_value * HKD_TO_USD_RATE if p.contract.market == 'HK' else p.market_value
+            for p in option_positions
+        )
 
         # 处理股票持仓
         for position in stock_positions:
@@ -614,13 +579,6 @@ def get_positions():
             'data': {
                 'us_positions': us_positions,
                 'hk_positions': hk_positions,
-                'total_us_market_value': total_us_market_value,
-                'total_hk_market_value': total_hk_market_value,
-                'total_us_stock_value': total_us_stock_value,
-                'total_us_option_value': total_us_option_value,
-                'total_hk_stock_value': total_hk_stock_value,
-                'total_hk_option_value': total_hk_option_value,
-                'account_assets': account_assets
             }
         })
         

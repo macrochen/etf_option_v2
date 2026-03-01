@@ -160,33 +160,7 @@
 </style>
 
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0">我的持仓</h2>
-        <button class="btn btn-outline-primary" onclick="showAccountSummary()">
-            <i class="fas fa-wallet me-1"></i> 账号持仓汇总
-        </button>
-    </div>
-
-    <!-- 账户汇总展示区 -->
-    <div id="account-summary-bar" class="card mb-4 d-none">
-        <div class="card-body bg-light position-relative">
-            <button type="button" class="btn-close position-absolute top-0 end-0 m-2" onclick="document.getElementById('account-summary-bar').classList.add('d-none')" aria-label="Close"></button>
-            <div class="row text-center">
-                <div class="col-md-4 border-end">
-                    <div class="text-muted small mb-1">老虎账号 (美股)</div>
-                    <h4 id="summary-tiger-us" class="mb-0 text-primary summary-value">--</h4>
-                </div>
-                <div class="col-md-4 border-end">
-                    <div class="text-muted small mb-1">老虎账号 (港股)</div>
-                    <h4 id="summary-tiger-hk" class="mb-0 text-info summary-value">--</h4>
-                </div>
-                <div class="col-md-4">
-                    <div class="text-muted small mb-1">富途账号 (港股)</div>
-                    <h4 id="summary-futu-hk" class="mb-0 text-success summary-value">--</h4>
-                </div>
-            </div>
-        </div>
-    </div>
+    <h2 class="mb-4">我的持仓</h2>
     <div class="card">
         <div class="card-body">
             <ul class="nav nav-tabs mb-3" id="positionTabs" role="tablist">
@@ -592,71 +566,6 @@ function submitTrade() {
     .catch(error => {
         console.error('Error:', error);
         alert('交易提交失败，请重试');
-    });
-}
-
-function showAccountSummary() {
-    const summaryBar = document.getElementById('account-summary-bar');
-    
-    // 如果已经显示，再次点击则隐藏（实现快速收起）
-    if (!summaryBar.classList.contains('d-none')) {
-        summaryBar.classList.add('d-none');
-        return;
-    }
-    
-    summaryBar.classList.remove('d-none');
-    
-    // 初始化显示加载状态
-    const spinner = '<small class="spinner-border spinner-border-sm" role="status"></small>';
-    document.querySelectorAll('.summary-value').forEach(el => el.innerHTML = spinner);
-    
-    // 同时发起两个请求
-    Promise.all([
-        fetch('/positions').then(res => res.json()),
-        fetch('/api/futu_positions').then(res => res.json())
-    ]).then(([tigerData, futuData]) => {
-        const isMasked = document.querySelector('button[onclick="toggleMasking(this)"]').classList.contains('active');
-        
-        let tigerUs = '--', tigerHk = '--', futuHk = '--';
-        
-        // 定义针对汇总看板的特殊格式化逻辑：取整并将后三位置零
-        const fmtSum = (val) => {
-            const n = Math.floor(Number(val));
-            const truncated = Math.floor(n / 1000) * 1000;
-            return truncated.toLocaleString('en-US');
-        };
-
-        // 更新老虎数据
-        if (tigerData.status === 'success' && tigerData.data.account_assets && tigerData.data.account_assets.length > 0) {
-            const mainAsset = tigerData.data.account_assets[0];
-            // 美股显示整个账户的净资产
-            tigerUs = 'US$ ' + fmtSum(mainAsset.net_liquidity);
-            // 港股按要求：仅计算持仓股票市值，忽略期权
-            tigerHk = 'HK$ ' + fmtSum(tigerData.data.total_hk_stock_value);
-        }
-        
-        // 更新富途数据
-        if (futuData.status === 'success' && futuData.data.account_info && futuData.data.account_info.length > 0) {
-            const mainAcc = futuData.data.account_info[0];
-            futuHk = 'HK$ ' + fmtSum(mainAcc.total_assets);
-        }
-
-        // 渲染并保存原始数据
-        const tigerUsEl = document.getElementById('summary-tiger-us');
-        const tigerHkEl = document.getElementById('summary-tiger-hk');
-        const futuHkEl = document.getElementById('summary-futu-hk');
-
-        tigerUsEl.setAttribute('data-original-content', tigerUs);
-        tigerHkEl.setAttribute('data-original-content', tigerHk);
-        futuHkEl.setAttribute('data-original-content', futuHk);
-
-        tigerUsEl.innerHTML = isMasked ? tigerUs.replace(/(-?[\d,]+(\.\d+)?%?)/g, '✳️') : tigerUs;
-        tigerHkEl.innerHTML = isMasked ? tigerHk.replace(/(-?[\d,]+(\.\d+)?%?)/g, '✳️') : tigerHk;
-        futuHkEl.innerHTML = isMasked ? futuHk.replace(/(-?[\d,]+(\.\d+)?%?)/g, '✳️') : futuHk;
-
-    }).catch(err => {
-        console.error('获取汇总数据失败:', err);
-        document.querySelectorAll('.summary-value').forEach(el => el.innerText = '获取失败');
     });
 }
 
@@ -1240,23 +1149,28 @@ function toggleMasking(button) {
     
     // 处理统计信息
     if (statsContainer) {
-        // ... (保持原有逻辑)
+        // 第一次点击时保存原始数据
+        if (!statsContainer.hasAttribute('data-original-content')) {
+            statsContainer.setAttribute('data-original-content', statsContainer.innerHTML);
+        }
+        
+        if (isMasked) {
+            // 脱敏显示：用*替换所有数字（包括千分号）、负号和百分号
+            const content = statsContainer.getAttribute('data-original-content');
+            const maskedContent = content.replace(/(-?[\d,]+(\.\d+)?%?)/g, match => {
+                // 检查是否在class属性中
+                if (content.includes(`class="${match}"`) || content.includes(`class='${match}'`)) {
+                    return match;
+                }
+                return '✳️';
+            });
+            statsContainer.innerHTML = maskedContent;
+        } else {
+            // 恢复原始数据
+            statsContainer.innerHTML = statsContainer.getAttribute('data-original-content');
+        }
     }
     
-    // 处理汇总栏信息
-    const summaryValues = document.querySelectorAll('.summary-value');
-    summaryValues.forEach(el => {
-        if (!el.hasAttribute('data-original-content')) {
-            el.setAttribute('data-original-content', el.innerHTML);
-        }
-        const original = el.getAttribute('data-original-content');
-        if (isMasked) {
-            el.innerHTML = original.replace(/(-?[\d,]+(\.\d+)?%?)/g, '✳️');
-        } else {
-            el.innerHTML = original;
-        }
-    });
-
     // 获取所有包含数字的单元格
     const cells = table.querySelectorAll('td.text-end, td.text-center');
     

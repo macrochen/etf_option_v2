@@ -20,22 +20,6 @@ def get_futu_positions():
     try:
         trd_ctx = OpenSecTradeContext(filter_trdmarket=TrdMarket.HK, host='127.0.0.1', port=11111,
                                       security_firm=SecurityFirm.FUTUSECURITIES)
-        
-        # 获取账户资金信息汇总
-        account_info = []
-        ret_acc, data_acc = trd_ctx.accinfo_query()
-        if ret_acc == RET_OK:
-            for _, acc in data_acc.iterrows():
-                account_info.append({
-                    'total_assets': acc.get('total_assets', 0),
-                    'cash': acc.get('cash', 0),
-                    'market_val': acc.get('market_val', 0),
-                    'currency': acc.get('currency', 'HKD')
-                })
-        else:
-            logging.error(f"富途获取账户信息失败: {data_acc}")
-
-
         ret, data = trd_ctx.position_list_query()
         
         if ret != RET_OK:
@@ -204,8 +188,6 @@ def get_futu_positions():
             'data': {
                 'us_positions': us_positions,
                 'hk_positions': hk_positions,
-                'total_market_value': total_market_value,
-                'account_info': account_info
             }
         })
             
