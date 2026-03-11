@@ -12,6 +12,15 @@ $(document).ready(function() {
     // 1. 初始化 ETF 列表
     loadEtfList();
 
+    function getBoundaryDate() {
+        return $('#end-date').val() || $('#start-date').val();
+    }
+
+    function parseNumberOrDefault(selector, defaultValue, scale = 1) {
+        const raw = parseFloat($(selector).val());
+        return Number.isFinite(raw) ? raw * scale : defaultValue;
+    }
+
     // 监听日期变化：同步滑杆 + 自动填充推荐区间
     $('#start-date, #end-date').on('change', function() {
         const symbol = $('#symbol').val();
@@ -29,9 +38,10 @@ $(document).ready(function() {
             }
         }
 
-        // 仅当 start-date 变化时触发价格获取 (因为推荐区间只依赖开始时间)
-        if ($(this).attr('id') === 'start-date' && symbol && startVal) {
-            fetchPriceInfo(symbol, startVal);
+        // 边界估值按回测结束日期计算；如果结束日期为空，则回退到开始日期
+        const boundaryDate = getBoundaryDate();
+        if (symbol && boundaryDate) {
+            fetchPriceInfo(symbol, boundaryDate);
         }
     });
     
@@ -72,8 +82,8 @@ $(document).ready(function() {
                 $('#end-date').val(fmt(ui.values[1]));
             },
             stop: function(event, ui) {
-                // 拖动结束后触发一次 change 事件，以便更新价格信息
-                $('#start-date').trigger('change');
+                // 拖动结束后触发一次 change 事件，以便按结束日期刷新估值边界
+                $('#end-date').trigger('change');
             }
         });
     }
@@ -91,7 +101,7 @@ $(document).ready(function() {
             if (selectedCode) {
                 $('#symbol').val(selectedCode);
                 autoFillDateRange();
-                const date = $('#start-date').val();
+                const date = getBoundaryDate();
                 if (date) fetchPriceInfo(selectedCode, date);
             }
         });
@@ -135,8 +145,9 @@ $(document).ready(function() {
         }
     }
 
-    function fetchPriceInfo(symbol, date, metric='auto') {
-        $.get(`/api/shannon/price_info?symbol=${symbol}&date=${date}&metric=${metric}`, function(res) {
+    function fetchPriceInfo(symbol, date, metric='auto', startDate=null) {
+        const effectiveStartDate = startDate || $('#start-date').val();
+        $.get(`/api/shannon/price_info?symbol=${symbol}&date=${date}&start_date=${effectiveStartDate || ''}&metric=${metric}`, function(res) {
             if (res.success) {
                 $('#lower-limit').val(res.rec_lower);
                 $('#upper-limit').val(res.rec_upper);
@@ -176,7 +187,7 @@ $(document).ready(function() {
                                     </div>
                                 </div>
                                 <div class="d-flex justify-content-between align-items-center">
-                                    <span>${v.metric}: <b>${v.current_val}</b> (分位: ${v.percentile}%)</span>
+                                    <span>截至 ${date} 的 ${v.metric}: <b>${v.current_val}</b> (分位: ${v.percentile}%，样本区间 ${v.window_start || effectiveStartDate} ~ ${v.window_end || date})</span>
                                     <strong>${v.status}</strong>
                                 </div>
                                 <div class="progress mt-1" style="height: 4px;">
@@ -187,7 +198,7 @@ $(document).ready(function() {
                         // 绑定切换事件
                         $box.find('.val-metric-toggle').on('change', function() {
                             const newMetric = $(this).val();
-                            fetchPriceInfo(symbol, date, newMetric);
+                            fetchPriceInfo(symbol, date, newMetric, effectiveStartDate);
                         });
                     }
                     $container.append($box);
@@ -204,7 +215,7 @@ $(document).ready(function() {
         if(val) {
             $('#symbol').val(val);
             autoFillDateRange();
-            const date = $('#start-date').val();
+            const date = getBoundaryDate();
             if (date) fetchPriceInfo(val, date);
             // 自动触发移除，改为手动
             // fetchShannonScore(val);
@@ -221,7 +232,7 @@ $(document).ready(function() {
             $select.val(code);
             autoFillDateRange();
             
-            const date = $('#start-date').val();
+            const date = getBoundaryDate();
             if (date) fetchPriceInfo(code, date);
         }
     });
@@ -310,7 +321,7 @@ $(document).ready(function() {
             }
             
             // 渲染图表
-            renderScenarioChart(res.kline, res.matches, res.current.metric);
+            renderScenarioChart(res.kline, res.matches, res.current.metric, res.current.val_value);
             
             // 绑定应用事件
             $('.btn-apply-scenario').on('click', function() {
@@ -333,7 +344,7 @@ $(document).ready(function() {
     });
 
     let scenarioChart = null;
-    function renderScenarioChart(klineData, matches, currentMetric='PE') {
+    function renderScenarioChart(klineData, matches, currentMetric='PE', currentValuation=null) {
         if (!klineData || klineData.length === 0) return;
         
         const dom = document.getElementById('scenario-chart');
@@ -361,6 +372,20 @@ $(document).ready(function() {
             };
         });
         
+        const normalizedCurrentValuation = Number(currentValuation);
+        const valuationLineData = Number.isFinite(normalizedCurrentValuation) ? [{
+            yAxis: normalizedCurrentValuation,
+            name: '当前估值',
+            lineStyle: { color: '#ff4d4f', type: 'solid', width: 1.5 },
+            label: {
+                show: true,
+                formatter: `当前估值 ${normalizedCurrentValuation}`,
+                color: '#ff4d4f',
+                backgroundColor: '#fff',
+                padding: [2, 4]
+            }
+        }] : [];
+
         const option = {
             title: { text: `历史走势与相似时刻 (叠加${currentMetric})`, left: 'center', textStyle: { fontSize: 14 } },
             tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
@@ -393,7 +418,12 @@ $(document).ready(function() {
                     data: valuations,
                     smooth: true,
                     symbol: 'none',
-                    lineStyle: { width: 1, type: 'dashed', opacity: 0.7, color: '#1890ff' }
+                    lineStyle: { width: 1, type: 'dashed', opacity: 0.7, color: '#1890ff' },
+                    markLine: {
+                        symbol: 'none',
+                        silent: true,
+                        data: valuationLineData
+                    }
                 }
             ]
         };
@@ -525,15 +555,15 @@ $(document).ready(function() {
     $('#load-data-btn').on('click', function() {
         const code = $('#symbol').val().trim();
         if (!code) {
-            alert('请输入 ETF 代码');
+            alert('请输入 ETF 代码，然后同步分钟数据（本地 parquet + AKShare 在线补齐）');
             return;
         }
         
         const $btn = $(this);
         const $status = $('#data-status');
         
-        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 下载中...');
-        $status.text('正在从 AKShare 获取分钟数据 (请耐心等待)...').removeClass('text-success text-danger').addClass('text-muted');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 整合中...');
+        $status.text('正在同步分钟数据：先导入本地 parquet 历史，再通过 AKShare 在线补齐最新缺口...').removeClass('text-success text-danger').addClass('text-muted');
         
         $.ajax({
             url: '/api/shannon/download_data',
@@ -542,21 +572,42 @@ $(document).ready(function() {
             data: JSON.stringify({ symbol: code }),
             success: function(res) {
                 if (res.success) {
-                    const info = res.info;
-                    $status.text(`下载成功! 本地数据: ${info.start} ~ ${info.end} (共 ${info.count} 条)`).addClass('text-success').removeClass('text-muted');
-                    
+                    const info = res.info || {};
+                    const sync = res.sync || {};
+                    const messages = [];
+
+                    if (sync.message) messages.push(sync.message);
+                    if (sync.parquet?.success) {
+                        const fileName = sync.parquet.file_path ? sync.parquet.file_path.split('/').pop() : 'parquet';
+                        messages.push(`本地文件: ${fileName} (${sync.parquet.rows_written} 条)`);
+                    }
+                    if (sync.akshare?.success) {
+                        messages.push(`AKShare 补齐: ${sync.akshare.rows_written} 条新增分钟数据`);
+                    }
+                    if (Array.isArray(sync.warnings) && sync.warnings.length > 0) {
+                        messages.push(sync.warnings.join('；'));
+                    }
+                    if (info.start && info.end) {
+                        messages.push(`最终本地范围: ${info.start} ~ ${info.end} (共 ${info.count} 条)`);
+                    }
+
+                    $status.html(messages.join('<br>')).addClass('text-success').removeClass('text-muted text-danger');
+
                     // 刷新 ETF 列表并选中当前代码
                     loadEtfList(code);
-                    
+
                     // 自动设置时间范围
                     if (info.start && info.end) {
                         $('#start-date').val(info.start.split(' ')[0]);
                         $('#end-date').val(info.end.split(' ')[0]);
-                        // 触发一次推荐值更新
-                        fetchPriceInfo(code, info.start.split(' ')[0]);
+                        fetchPriceInfo(code, info.end.split(' ')[0]);
                     }
                 } else {
-                    $status.text('下载失败: ' + res.error).addClass('text-danger');
+                    const err = res.error || '未知错误';
+                    const warningText = Array.isArray(res.sync?.warnings) && res.sync.warnings.length > 0
+                        ? `<br>${res.sync.warnings.join('；')}`
+                        : '';
+                    $status.html('同步失败: ' + err + warningText).addClass('text-danger').removeClass('text-success text-muted');
                 }
             },
             error: function(xhr) {
@@ -564,7 +615,7 @@ $(document).ready(function() {
                 $status.text('请求失败: ' + err).addClass('text-danger');
             },
             complete: function() {
-                $btn.prop('disabled', false).html('<i class="bi bi-cloud-download"></i> 加载分钟数据');
+                $btn.prop('disabled', false).html('<i class="bi bi-cloud-download"></i> 同步分钟数据（本地+在线补齐）');
             }
         });
     });
@@ -583,14 +634,14 @@ $(document).ready(function() {
             symbol: $('#symbol').val().trim(),
             start_date: $('#start-date').val(),
             end_date: $('#end-date').val(),
-            initial_capital: parseFloat($('#initial-capital').val()),
-            faith_ratio: parseFloat($('#faith-ratio').val()),
-            grid_ratio: parseFloat($('#grid-ratio').val()),
-            pos_per_grid: parseFloat($('#pos-per-grid').val()),
-            grid_density: parseFloat($('#grid-density').val()) / 100,
-            sell_gap: parseFloat($('#sell-gap').val()) / 100,
-            lower_limit: parseFloat($('#lower-limit').val()) || 0.0,
-            upper_limit: parseFloat($('#upper-limit').val()) || 999.0
+            initial_capital: parseNumberOrDefault('#initial-capital', 100000),
+            faith_ratio: parseNumberOrDefault('#faith-ratio', 0),
+            grid_ratio: parseNumberOrDefault('#grid-ratio', 0),
+            pos_per_grid: parseNumberOrDefault('#pos-per-grid', 5000),
+            grid_density: parseNumberOrDefault('#grid-density', 0.015, 0.01),
+            sell_gap: parseNumberOrDefault('#sell-gap', 0.02, 0.01),
+            lower_limit: parseNumberOrDefault('#lower-limit', 0.0),
+            upper_limit: parseNumberOrDefault('#upper-limit', 999.0)
         };
 
         showLoading('正在执行高精度回测...');
@@ -628,12 +679,12 @@ $(document).ready(function() {
             symbol: $('#symbol').val().trim(),
             start_date: $('#start-date').val(),
             end_date: $('#end-date').val(),
-            initial_capital: parseFloat($('#initial-capital').val()),
-            faith_ratio: parseFloat($('#faith-ratio').val()),
-            grid_ratio: parseFloat($('#grid-ratio').val()),
-            pos_per_grid: parseFloat($('#pos-per-grid').val()),
-            lower_limit: parseFloat($('#lower-limit').val()) || 0.0,
-            upper_limit: parseFloat($('#upper-limit').val()) || 999.0
+            initial_capital: parseNumberOrDefault('#initial-capital', 100000),
+            faith_ratio: parseNumberOrDefault('#faith-ratio', 0),
+            grid_ratio: parseNumberOrDefault('#grid-ratio', 0),
+            pos_per_grid: parseNumberOrDefault('#pos-per-grid', 5000),
+            lower_limit: parseNumberOrDefault('#lower-limit', 0.0),
+            upper_limit: parseNumberOrDefault('#upper-limit', 999.0)
         };
 
         showLoading('正在生成参数热力图 (100+ 回测并行)...');
@@ -840,14 +891,9 @@ $(document).ready(function() {
         const kData = res.daily_curve.map(d => [d.open, d.close, d.low, d.high]);
         const ma250 = res.daily_curve.map(d => (d.ma250 && d.ma250 > 0.001) ? d.ma250 : null);
         
-        // 动态计算 Y 轴范围 (避免 0 把图压扁) -> 移除，改用 ECharts 自动缩放
-        // 前提：确保 kData 里没有 0
-        
-        // 加上止损/止盈线 (MarkLine Data)
         const markLineData = [];
         const lowLimit = parseFloat($('#lower-limit').val());
         const upLimit = parseFloat($('#upper-limit').val());
-        // 只有当非默认值时才画线
         if (lowLimit > 0.01) {
             markLineData.push({ yAxis: lowLimit, lineStyle: { color: '#ff4d4f', type: 'dashed' }, label: { formatter: '下限熔断' } });
         }
@@ -878,7 +924,7 @@ $(document).ready(function() {
             xAxis: { type: 'category', data: dates, scale: true },
             yAxis: { 
                 type: 'value', 
-                scale: true // 自动缩放
+                scale: true
             },
             dataZoom: [{ type: 'inside' }, { type: 'slider' }],
             series: [
@@ -887,8 +933,8 @@ $(document).ready(function() {
                     type: 'candlestick',
                     data: kData,
                     itemStyle: {
-                        color: '#ef5350', // 阳线红
-                        color0: '#26a69a', // 阴线绿
+                        color: '#ef5350',
+                        color0: '#26a69a',
                         borderColor: '#ef5350',
                         borderColor0: '#26a69a'
                     },
@@ -903,7 +949,7 @@ $(document).ready(function() {
                     data: ma250,
                     smooth: true,
                     showSymbol: false,
-                    lineStyle: { width: 2, color: '#9c27b0', opacity: 0.8 } // 紫色年线
+                    lineStyle: { width: 2, color: '#9c27b0', opacity: 0.8 }
                 },
                 {
                     name: '买入点',
@@ -911,7 +957,7 @@ $(document).ready(function() {
                     data: buyPoints,
                     symbol: 'circle',
                     symbolSize: 15,
-                    itemStyle: { color: '#2f54eb' }, // 宝蓝色
+                    itemStyle: { color: '#2f54eb' },
                     label: {
                         show: true,
                         formatter: 'B',
@@ -926,7 +972,7 @@ $(document).ready(function() {
                     data: sellPoints,
                     symbol: 'circle',
                     symbolSize: 15,
-                    itemStyle: { color: '#fa8c16' }, // 橙色
+                    itemStyle: { color: '#fa8c16' },
                     label: {
                         show: true,
                         formatter: 'S',

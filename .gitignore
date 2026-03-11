@@ -37,6 +37,7 @@ logs/
 *.xlsx
 *.csv
 *.xls
+*.parquet
 !requirements.txt
 
 # Environment

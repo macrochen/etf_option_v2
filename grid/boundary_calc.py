@@ -7,7 +7,7 @@ class DynamicGridBoundary:
     def __init__(self):
         self.vm = ValuationManager()
 
-    def calculate_limits(self, etf_code: str, current_price: float, current_date: str = None, metric_preference: str = 'auto'):
+    def calculate_limits(self, etf_code: str, current_price: float, current_date: str = None, metric_preference: str = 'auto', window_start_date: str = None):
         """
         计算动态上下限
         :param metric_preference: 'auto', 'pe', 'pb'
@@ -57,7 +57,7 @@ class DynamicGridBoundary:
             # 情况 C: 数据太少 -> 报警
             return df, f"Level C: 数据不足{min_years}年 (警告:样本失效)"
 
-    def calculate_limits(self, etf_code: str, current_price: float, current_date: str = None, metric_preference: str = 'auto'):
+    def calculate_limits(self, etf_code: str, current_price: float, current_date: str = None, metric_preference: str = 'auto', window_start_date: str = None):
         """
         计算动态上下限
         :param metric_preference: 'auto', 'pe', 'pb'
@@ -84,8 +84,13 @@ class DynamicGridBoundary:
         else:
             df_available = df_val
             
-        # 4. 应用智能窗口选择策略
-        df_hist, strategy_msg = self._get_valuation_window(df_available)
+        # 4. 应用估值窗口策略
+        if window_start_date:
+            start_dt = pd.to_datetime(window_start_date)
+            df_hist = df_available[df_available.index >= start_dt]
+            strategy_msg = f'User Range: {start_dt.date()} -> {df_available.index[-1].date()}' if not df_hist.empty else 'User Range: 无数据'
+        else:
+            df_hist, strategy_msg = self._get_valuation_window(df_available)
         
         # Logging Debug Info
         start_dt_log = df_hist.index[0] if not df_hist.empty else "N/A"
@@ -192,7 +197,9 @@ class DynamicGridBoundary:
                 "percentile": round(rank_pct, 1),
                 "status": status,
                 "history_low_10": round(val_low_10, 2),
-                "history_high_85": round(val_high_85, 2)
+                "history_high_85": round(val_high_85, 2),
+                "window_start": str(start_dt_log)[:10] if start_dt_log != 'N/A' else None,
+                "window_end": str(end_dt_log)[:10] if end_dt_log != 'N/A' else None
             }
         }
 

@@ -14,6 +14,14 @@ min_loader = MinDataLoader()
 boundary_calc = DynamicGridBoundary()
 similarity_searcher = SimilaritySearcher()
 
+def safe_float(value, default):
+    try:
+        if value is None or value == '':
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
 def clean_nan(obj):
     """递归将 NaN/Inf 替换为 0.0，确保 JSON 兼容"""
     if isinstance(obj, str):
@@ -83,14 +91,20 @@ def download_data():
         symbol = data['symbol']
         logging.info(f"Starting manual download for {symbol}...")
         
-        success = min_loader.update_data(symbol)
-        
-        if success:
-            # 获取数据范围信息
-            info = min_loader.get_available_range(symbol)
-            return jsonify({'success': True, 'info': info})
-        else:
-            return jsonify({'success': False, 'error': '下载失败或数据源无数据'}), 400
+        sync_result = min_loader.update_data(symbol)
+
+        if sync_result.get('success'):
+            return jsonify({
+                'success': True,
+                'info': sync_result.get('info'),
+                'sync': sync_result
+            })
+
+        return jsonify({
+            'success': False,
+            'error': sync_result.get('message') or '下载失败或数据源无数据',
+            'sync': sync_result
+        }), 400
             
     except Exception as e:
         logging.error(f"Download Error: {e}", exc_info=True)
@@ -117,6 +131,7 @@ def get_price_info():
     try:
         symbol = request.args.get('symbol')
         date_str = request.args.get('date')
+        start_date = request.args.get('start_date')
         metric = request.args.get('metric', 'auto')
         
         if not symbol or not date_str:
@@ -136,7 +151,7 @@ def get_price_info():
         
         # 使用 DynamicGridBoundary 计算动态上下限
         # 传入 start_date 作为回测视角下的"当前时间"
-        limits = boundary_calc.calculate_limits(symbol, base_price, date_str, metric)
+        limits = boundary_calc.calculate_limits(symbol, base_price, date_str, metric, window_start_date=start_date)
         
         return jsonify({
             'success': True,
@@ -164,17 +179,17 @@ def run_backtest():
         end_date = data.get('end_date', datetime.now().strftime('%Y-%m-%d'))
         
         # 策略参数
-        initial_capital = float(data.get('initial_capital', 100000))
-        grid_density = float(data.get('grid_density', 0.015))
-        sell_gap = float(data.get('sell_gap', 0.02))
-        pos_per_grid = float(data.get('pos_per_grid', 5000))
+        initial_capital = safe_float(data.get('initial_capital'), 100000)
+        grid_density = safe_float(data.get('grid_density'), 0.015)
+        sell_gap = safe_float(data.get('sell_gap'), 0.02)
+        pos_per_grid = safe_float(data.get('pos_per_grid'), 5000)
         
         # 顶层资产配置 (百分比转小数)
-        faith_ratio = float(data.get('faith_ratio', 20.0)) / 100.0
-        grid_ratio = float(data.get('grid_ratio', 30.0)) / 100.0
+        faith_ratio = safe_float(data.get('faith_ratio'), 20.0) / 100.0
+        grid_ratio = safe_float(data.get('grid_ratio'), 30.0) / 100.0
         
-        lower_limit = float(data.get('lower_limit', 0.0))
-        upper_limit = float(data.get('upper_limit', 999.0))
+        lower_limit = safe_float(data.get('lower_limit'), 0.0)
+        upper_limit = safe_float(data.get('upper_limit'), 999.0)
         
         # 初始化引擎
         engine = _get_engine(symbol, start_date, end_date)
