@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}持仓信息{% endblock %}
+{% block title %}海外持仓{% endblock %}
 
 {% block head %}
 {{ super() }}
@@ -161,7 +161,7 @@
 
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0">我的持仓</h2>
+        <h2 class="mb-0">海外持仓</h2>
         <button class="btn btn-outline-primary" onclick="showAccountSummary()">
             <i class="fas fa-wallet me-1"></i> 账号持仓汇总
         </button>
@@ -172,17 +172,21 @@
         <div class="card-body bg-light position-relative">
             <button type="button" class="btn-close position-absolute top-0 end-0 m-2" onclick="document.getElementById('account-summary-bar').classList.add('d-none')" aria-label="Close"></button>
             <div class="row text-center">
-                <div class="col-md-4 border-end">
+                <div class="col-md-3 border-end">
                     <div class="text-muted small mb-1">老虎账号 (美股)</div>
                     <h4 id="summary-tiger-us" class="mb-0 text-primary summary-value">--</h4>
                 </div>
-                <div class="col-md-4 border-end">
+                <div class="col-md-3 border-end">
                     <div class="text-muted small mb-1">老虎账号 (港股)</div>
                     <h4 id="summary-tiger-hk" class="mb-0 text-info summary-value">--</h4>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3 border-end">
                     <div class="text-muted small mb-1">富途账号 (港股)</div>
                     <h4 id="summary-futu-hk" class="mb-0 text-success summary-value">--</h4>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small mb-1">海外账户总值 (估算)</div>
+                    <h4 id="summary-total-cny" class="mb-0 text-warning summary-value">--</h4>
                 </div>
             </div>
         </div>
@@ -610,15 +614,17 @@ function showAccountSummary() {
     const spinner = '<small class="spinner-border spinner-border-sm" role="status"></small>';
     document.querySelectorAll('.summary-value').forEach(el => el.innerHTML = spinner);
     
-    // 同时发起两个请求
+    // 同时发起三个请求：老虎持仓、富途持仓、汇率
     Promise.all([
         fetch('/positions').then(res => res.json()),
-        fetch('/api/futu_positions').then(res => res.json())
-    ]).then(([tigerData, futuData]) => {
+        fetch('/api/futu_positions').then(res => res.json()),
+        fetch('/api/exchange_rates').then(res => res.json())
+    ]).then(([tigerData, futuData, rates]) => {
         const isMasked = document.querySelector('button[onclick="toggleMasking(this)"]').classList.contains('active');
-        
-        let tigerUs = '--', tigerHk = '--', futuHk = '--';
-        
+
+        let tigerUs = '--', tigerHk = '--', futuHk = '--', totalCnyStr = '--';
+        const USD_TO_CNY = rates.USD_CNY || 7.25;
+        const HKD_TO_CNY = rates.HKD_CNY || 0.93;
         // 定义针对汇总看板的特殊格式化逻辑：取整并将后三位置零
         const fmtSum = (val) => {
             const n = Math.floor(Number(val));
@@ -626,33 +632,46 @@ function showAccountSummary() {
             return truncated.toLocaleString('en-US');
         };
 
+        let tigerUsVal = 0, futuHkVal = 0;
+
         // 更新老虎数据
         if (tigerData.status === 'success' && tigerData.data.account_assets && tigerData.data.account_assets.length > 0) {
-            const mainAsset = tigerData.data.account_assets[0];
+            // 累加所有账户的净资产，防止取到空的子账户
+            tigerUsVal = tigerData.data.account_assets.reduce((sum, asset) => sum + (Number(asset.net_liquidity) || 0), 0);
             // 美股显示整个账户的净资产
-            tigerUs = 'US$ ' + fmtSum(mainAsset.net_liquidity);
+            tigerUs = 'US$ ' + fmtSum(tigerUsVal);
             // 港股按要求：仅计算持仓股票市值，忽略期权
             tigerHk = 'HK$ ' + fmtSum(tigerData.data.total_hk_stock_value);
         }
+
         
         // 更新富途数据
         if (futuData.status === 'success' && futuData.data.account_info && futuData.data.account_info.length > 0) {
             const mainAcc = futuData.data.account_info[0];
-            futuHk = 'HK$ ' + fmtSum(mainAcc.total_assets);
+            futuHkVal = mainAcc.total_assets || 0;
+            futuHk = 'HK$ ' + fmtSum(futuHkVal);
         }
+
+        // 计算总的人民币汇总 (老虎美股 + 富途港股)
+        const totalCny = (tigerUsVal * USD_TO_CNY) + (futuHkVal * HKD_TO_CNY);
+        totalCnyStr = '￥ ' + fmtSum(totalCny);
 
         // 渲染并保存原始数据
         const tigerUsEl = document.getElementById('summary-tiger-us');
         const tigerHkEl = document.getElementById('summary-tiger-hk');
         const futuHkEl = document.getElementById('summary-futu-hk');
+        const totalCnyEl = document.getElementById('summary-total-cny');
 
         tigerUsEl.setAttribute('data-original-content', tigerUs);
         tigerHkEl.setAttribute('data-original-content', tigerHk);
         futuHkEl.setAttribute('data-original-content', futuHk);
+        totalCnyEl.setAttribute('data-original-content', totalCnyStr);
 
-        tigerUsEl.innerHTML = isMasked ? tigerUs.replace(/(-?[\d,]+(\.\d+)?%?)/g, '✳️') : tigerUs;
-        tigerHkEl.innerHTML = isMasked ? tigerHk.replace(/(-?[\d,]+(\.\d+)?%?)/g, '✳️') : tigerHk;
-        futuHkEl.innerHTML = isMasked ? futuHk.replace(/(-?[\d,]+(\.\d+)?%?)/g, '✳️') : futuHk;
+        const maskRegex = /(-?[\d,]+(\.\d+)?%?)/g;
+        tigerUsEl.innerHTML = isMasked ? tigerUs.replace(maskRegex, '✳️') : tigerUs;
+        tigerHkEl.innerHTML = isMasked ? tigerHk.replace(maskRegex, '✳️') : tigerHk;
+        futuHkEl.innerHTML = isMasked ? futuHk.replace(maskRegex, '✳️') : futuHk;
+        totalCnyEl.innerHTML = isMasked ? totalCnyStr.replace(maskRegex, '✳️') : totalCnyStr;
 
     }).catch(err => {
         console.error('获取汇总数据失败:', err);
@@ -977,12 +996,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 renderPositions(hkContainer, data.data.hk_positions, false);
                 initSorting(hkContainer);
             } else {
-                showError('获取持仓信息失败');
+                showError('获取海外持仓失败');
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            showError('获取持仓信息失败');
+            showError('获取海外持仓失败');
         });
     
     // 使用事件委托来处理所有的更新Delta按钮
@@ -1309,7 +1328,7 @@ function calculateTotalDelta(positions) {
 
 function renderPositions(container, positions, isFutu = false) {
     if (!positions || positions.length === 0) {
-        container.innerHTML = '<div class="alert alert-info">暂无持仓信息</div>';
+        container.innerHTML = '<div class="alert alert-info">暂无海外持仓</div>';
         return;
     }
 

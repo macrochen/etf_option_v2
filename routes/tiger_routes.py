@@ -243,20 +243,8 @@ def get_prev_close_prices_from_db(stock_positions, option_positions, db):
     # 处理美股和港股数据
     process_market_symbols(us_symbols, 'US', us_prices)
     process_market_symbols(hk_symbols, 'HK', hk_prices)
-    
-    # 如果有缺失的价格，记录日志
-    if missing_prices:
-        # 构建缺失价格标的的列表
-        missing_symbols = []
-        for p in missing_prices:
-            symbol_info = f"{p['symbol']}({p['market']})"
-            missing_symbols.append(symbol_info)
-        
-        # 记录日志
-        logging.info(f"使用当前价格作为前收价的标的: {missing_symbols}")
-    
-    return prev_close_prices
 
+    return prev_close_prices
 def get_position_symbols(market='US'):
     """获取指定市场所有持仓的股票代码列表（包括股票和期权标的）
     
@@ -321,9 +309,15 @@ def get_positions():
                     if m_vals and isinstance(m_vals, dict) and 'HKD' in m_vals:
                         hkd_nlv = getattr(m_vals['HKD'], 'net_liquidation', 0)
 
+                    nlv = getattr(summary, 'net_liquidation', 0)
+                    
+                    # 记录每一个非零账户的金额
+                    if nlv > 0:
+                        logging.info(f"Tiger Account [{asset.account}] NLV: {nlv}")
+
                     account_assets.append({
                         'account': asset.account,
-                        'net_liquidity': getattr(summary, 'net_liquidation', 0),
+                        'net_liquidity': nlv,
                         'hkd_nlv': hkd_nlv,
                         'total_cash': getattr(summary, 'total_cash', 0),
                         'equity': getattr(summary, 'equity', 0),

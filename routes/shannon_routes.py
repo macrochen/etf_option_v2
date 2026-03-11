@@ -32,6 +32,13 @@ def clean_nan(obj):
             return obj
     return obj
 
+@shannon_bp.route('/api/grid_trade/etf_list', methods=['GET'])
+def get_etf_list():
+    """获取已有的ETF列表 (基于分钟线数据库)"""
+    loader = MinDataLoader()
+    etf_list = loader.get_etf_list()
+    return jsonify(etf_list)
+
 @shannon_bp.route('/api/shannon/score', methods=['GET'])
 def get_shannon_score():
     """获取香农网格适格性评分"""

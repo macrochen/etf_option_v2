@@ -45,6 +45,47 @@ ETF_OPTIONS = [
     {'value': '588080', 'label': '科创板100ETF (588080)'}
 ]
 
+import requests
+import time
+import subprocess
+
+# 缓存汇率数据
+EXCHANGE_RATES_CACHE = {
+    'data': None,
+    'timestamp': 0
+}
+
+@app.route('/api/exchange_rates')
+def get_exchange_rates():
+    current_time = time.time()
+    # 缓存 1 小时
+    if EXCHANGE_RATES_CACHE['data'] and (current_time - EXCHANGE_RATES_CACHE['timestamp'] < 3600):
+        return jsonify(EXCHANGE_RATES_CACHE['data'])
+    
+    try:
+        # 获取 USD 汇率
+        usd_res = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5)
+        usd_data = usd_res.json()
+        
+        if usd_data['result'] == 'success':
+            rates = {
+                'USD_CNY': usd_data['rates']['CNY'],
+                'HKD_CNY': usd_data['rates']['CNY'] / usd_data['rates']['HKD'],
+                'timestamp': current_time
+            }
+            EXCHANGE_RATES_CACHE['data'] = rates
+            EXCHANGE_RATES_CACHE['timestamp'] = current_time
+            return jsonify(rates)
+    except Exception as e:
+        app.logger.error(f"获取汇率失败: {str(e)}")
+    
+    # 失败时返回兜底汇率
+    return jsonify({
+        'USD_CNY': 7.25,
+        'HKD_CNY': 0.93,
+        'is_fallback': True
+    })
+
 @app.route('/')
 def index():
     return render_template('index.html', etf_options=ETF_OPTIONS)
