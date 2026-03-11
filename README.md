@@ -42,6 +42,8 @@ strategy_portfolio_platform/
 ├── db/                       # SQLite 数据库、数据库访问层、迁移脚本
 ├── templates/                # Jinja2 页面模板
 ├── static/                   # 前端 JS / CSS / 图标
+├── scripts/                  # 数据导入、迁移、维护与手工验证脚本
+│   └── manual_tests/         # 手工验证、调试、数据源探测脚本
 ├── utils/                    # 通用工具、错误处理、配置辅助
 ├── docs/                     # 设计文档、PRD、业务说明
 ├── data/                     # 历史数据与缓存数据

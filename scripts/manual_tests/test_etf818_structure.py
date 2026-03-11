@@ -1,3 +1,5 @@
+from _bootstrap import PROJECT_ROOT
+
 from grid.etf818_client import Etf818Client
 import json
 

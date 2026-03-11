@@ -1,3 +1,5 @@
+from _bootstrap import PROJECT_ROOT
+
 
 import pandas as pd
 from grid.valuation_manager import ValuationManager

@@ -1,3 +1,5 @@
+from _bootstrap import PROJECT_ROOT
+
 
 import logging
 from datetime import datetime

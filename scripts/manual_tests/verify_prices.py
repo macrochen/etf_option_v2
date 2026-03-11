@@ -1,3 +1,5 @@
+from _bootstrap import PROJECT_ROOT
+
 import sys
 import os
 import logging
@@ -12,7 +14,7 @@ os.environ.pop('https_proxy', None)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 添加项目根目录到 python path，以便导入 services
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(str(PROJECT_ROOT))
 
 from services.price_service import PriceService
 
