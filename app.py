@@ -19,6 +19,9 @@ from routes.symbol_mapping_routes import symbol_mapping_bp
 
 app = Flask(__name__)
 
+APP_DISPLAY_NAME = "交易策略与资产组合分析平台"
+PROJECT_SLUG = "strategy_portfolio_platform"
+
 # 注册蓝图
 app.register_blueprint(scheme_bp)
 app.register_blueprint(backtest_bp)
@@ -89,6 +92,13 @@ def get_exchange_rates():
 @app.route('/')
 def index():
     return render_template('index.html', etf_options=ETF_OPTIONS)
+
+@app.context_processor
+def inject_app_metadata():
+    return {
+        'app_display_name': APP_DISPLAY_NAME,
+        'project_slug': PROJECT_SLUG
+    }
 
 app.register_blueprint(tiger_bp)  # 注册Tiger API蓝图
 app.register_blueprint(futu_bp)  # 注册富途 API蓝图

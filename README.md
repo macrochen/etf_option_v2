@@ -1,6 +1,6 @@
-# ETF Option V2
+# 交易策略与资产组合分析平台
 
-一个以 Flask 为核心的交易研究与回测平台，当前已经不只是“A 股 ETF 期权回测系统”，而是把以下能力整合在同一个项目中：
+一个以 Flask 为核心的交易研究、回测与投资组合管理平台，覆盖 A 股与海外市场，当前将以下能力整合在同一个项目中：
 
 - A 股 ETF 期权 Delta 回测
 - A 股 ETF 期权波动率回测
@@ -8,6 +8,7 @@
 - 香农网格评分与回测
 - A 股 / 美股 / 港股波动率与数据管理
 - 国内 / 海外持仓管理
+- 投资组合分析与资产全景管理
 - 财报期权策略分析
 - 威科夫分析
 - 大 V 跟投管理
@@ -20,10 +21,15 @@
 - 数据源与集成：AkShare、yfinance、Tiger OpenAPI、Futu API
 - 图像处理：pytesseract、Pillow
 
+## 项目命名
+
+- 产品名称：`交易策略与资产组合分析平台`
+- 项目目录 / 仓库建议名称：`strategy_portfolio_platform`
+
 ## 当前项目结构
 
 ```text
-etf_option_v2/
+strategy_portfolio_platform/
 ├── app.py                    # Flask 应用入口，注册所有蓝图
 ├── start.sh                  # 本地启动脚本
 ├── backtest_engine.py        # ETF 期权回测主引擎

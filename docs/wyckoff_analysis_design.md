@@ -2,7 +2,7 @@
 
 ## 1. 项目概述 (Project Overview)
 
-**目标**: 在现有 `etf_option_v2` 交易系统中增加“威科夫分析 (Wyckoff Analysis)”模块。该模块旨在帮助交易者通过威科夫方法论（Wyckoff Methodology）及其现代改良版（如 David Weis 的理论），识别市场结构、供需关系及关键交易信号。
+**目标**: 在现有 `strategy_portfolio_platform` 交易系统中增加“威科夫分析 (Wyckoff Analysis)”模块。该模块旨在帮助交易者通过威科夫方法论（Wyckoff Methodology）及其现代改良版（如 David Weis 的理论），识别市场结构、供需关系及关键交易信号。
 
 **核心价值**: 通过自动化识别“吸筹/派发”区间以及“弹簧效应 (Spring)”和“上冲回落 (Upthrust)”等关键行为，辅助用户在低风险点位（Danger Point）进行交易决策。
 
