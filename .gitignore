@@ -24,6 +24,7 @@ docs/reference/
 
 # IDE
 .idea/
+.idea/**
 .vscode/
 *.swp
 *.swo
