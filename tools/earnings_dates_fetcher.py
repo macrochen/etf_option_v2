@@ -5,7 +5,7 @@
 Earnings Dates Fetcher
 
 用途：
-1. 创建market_data.db数据库中的earnings_dates表
+1. 创建db/us_stock.db数据库中的earnings_dates表
 2. 从Alpha Vantage获取美股财报日期数据
 3. 将数据保存到数据库中
 

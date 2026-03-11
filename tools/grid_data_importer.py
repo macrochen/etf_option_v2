@@ -6,7 +6,7 @@ Grid Trade Data Importer
 
 用途：
 1. 读取grid_trade目录下的CSV文件
-2. 创建market_data.db数据库中的grid_trade表
+2. 创建db/market_data.db数据库中的grid_trade表
 3. 导入数据到数据库中
 
 使用方法：
