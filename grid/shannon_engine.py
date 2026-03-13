@@ -57,7 +57,7 @@ def _core_backtest(
                 cash -= (grid_cost + grid_fee)
                 
                 # 切碎并入栈
-                std_buy_vol = np.floor(pos_per_grid / ref_price / 100.0) * 100.0
+                std_buy_vol = np.floor(pos_per_grid / 100.0) * 100.0
                 if std_buy_vol <= 0: std_buy_vol = 100.0
                 
                 # 1. 先计算总共能切多少格
@@ -113,6 +113,9 @@ def _core_backtest(
     n_steps = len(timestamps)
     equity_curve = np.zeros(n_steps)
     cash_history = np.zeros(n_steps)
+    lower_limit_paused = False
+    lower_pause_day = 0
+    lower_recovery_ratio = 1.02
     
     for i in range(n_steps):
         ts = timestamps[i]
@@ -128,6 +131,17 @@ def _core_backtest(
             
         # [Adjusted] 移除突破上限清仓逻辑，改为仅停止买入(断电)
         # 上限之上，持仓仍可正常止盈，但不补回。
+
+        # --- 下限暂停新增逻辑 ---
+        # 只要分钟内触碰下限，就立即暂停新增；恢复必须等到后续交易日重新站回下限上方缓冲区。
+        if lower_limit > 0.0:
+            if lower_limit_paused:
+                if today > lower_pause_day and c >= lower_limit * lower_recovery_ratio:
+                    lower_limit_paused = False
+                    lower_pause_day = 0
+            elif l <= lower_limit or c <= lower_limit:
+                lower_limit_paused = True
+                lower_pause_day = today
 
         # --- 卖出逻辑 (LIFO) ---
         while len(pos_stack_price) > 0:
@@ -146,7 +160,8 @@ def _core_backtest(
                     free_shares -= vol
                     pos_stack_price.pop()
                     pos_stack_vol.pop()
-                    ref_price = pos_stack_price[-1] if len(pos_stack_price) > 0 else cost
+                    # 空仓后应以最后一次真实卖出价为新锚点，避免回补价错误地锚定旧成本。
+                    ref_price = pos_stack_price[-1] if len(pos_stack_price) > 0 else actual_sell_price
                     
                     current_total_shares = locked_shares + free_shares + frozen_shares
                     trades_log.append(np.array([float(ts), -1.0, actual_sell_price, float(vol), sell_fee, cash, current_total_shares]))
@@ -156,13 +171,16 @@ def _core_backtest(
                 break
         
         # --- 买入逻辑 ---
-        if c > lower_limit and c < upper_limit:
+        can_buy = (not lower_limit_paused) and (c < upper_limit)
+        if can_buy:
             next_buy_price = ref_price * (1.0 - grid_density)
-            if l <= next_buy_price:
+            if lower_limit > 0.0 and next_buy_price <= lower_limit:
+                next_buy_price = -1.0
+            if next_buy_price > 0.0 and l <= next_buy_price:
                 # 撮合逻辑：如果开盘价就低于买入价，按开盘价成交（低买）
                 actual_buy_price = min(next_buy_price, o)
                 
-                buy_vol = np.floor(pos_per_grid / actual_buy_price / 100.0) * 100.0
+                buy_vol = np.floor(pos_per_grid / 100.0) * 100.0
                 if buy_vol > 0:
                     total_pay = (actual_buy_price * buy_vol) * (1.0 + fee_rate)
                     if cash >= total_pay:

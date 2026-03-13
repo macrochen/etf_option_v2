@@ -2,6 +2,13 @@ $(document).ready(function() {
     let equityChart = null;
     let heatmapChart = null;
     let currentHeatmapData = null; // Store data for switching metrics
+    let latestBoundaryInfo = null;
+    let latestValuationInfo = null;
+    let latestPlannerSnapshot = null;
+    let latestPlannerEdgeStats = null;
+    let plannerEdgeRequestKey = null;
+    let plannerEdgeTimer = null;
+    let plannerPreviewChart = null;
 
     // 初始化 Bootstrap Tooltips (即指即显)
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
@@ -11,14 +18,577 @@ $(document).ready(function() {
 
     // 1. 初始化 ETF 列表
     loadEtfList();
+    refreshScenarioMetricBadge();
+    refreshPlannerMetricBadge();
 
-    function getBoundaryDate() {
+    function getLimitDate() {
+        return $('#start-date').val() || $('#end-date').val();
+    }
+
+    function getValuationDate() {
         return $('#end-date').val() || $('#start-date').val();
+    }
+
+    function refreshBoundaryAndValuation(symbol, metric = 'auto') {
+        const limitDate = getLimitDate();
+        const valuationDate = getValuationDate();
+        const startDate = $('#start-date').val();
+
+        if (symbol && limitDate) {
+            fetchPriceInfo(symbol, limitDate, metric, null, {
+                updateLimits: true,
+                updateValuation: false,
+                context: 'boundary'
+            });
+        }
+
+        if (symbol && valuationDate) {
+            fetchPriceInfo(symbol, valuationDate, metric, startDate, {
+                updateLimits: false,
+                updateValuation: true,
+                context: 'valuation'
+            });
+        }
     }
 
     function parseNumberOrDefault(selector, defaultValue, scale = 1) {
         const raw = parseFloat($(selector).val());
         return Number.isFinite(raw) ? raw * scale : defaultValue;
+    }
+
+    function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function renderVolatilityStatus(volatility) {
+        const $container = $('#volatility-status-container');
+        $container.empty();
+
+        if (!volatility) {
+            $container.html('<div class="small text-muted">ATR20 波动视图暂不可用</div>');
+            return;
+        }
+
+        const color = volatility.status.includes('低') ? 'success' : (volatility.status.includes('高') ? 'danger' : 'warning');
+        $container.html(`
+            <div class="rounded border border-${color} bg-${color} bg-opacity-10 text-${color} p-2 small">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span><i class="bi bi-activity"></i> 当前波动 (ATR20)</span>
+                    <strong>${volatility.status}</strong>
+                </div>
+                <div>截至 ${volatility.actual_date} 的 ATR20: <b>${volatility.atr20_pct}%</b> (分位: ${volatility.percentile}%，样本区间 ${volatility.window_start} ~ ${volatility.window_end})</div>
+                <div class="progress mt-1" style="height: 4px;">
+                    <div class="progress-bar bg-${color}" style="width: ${volatility.percentile}%"></div>
+                </div>
+            </div>
+        `);
+    }
+
+    function snapGap(rawGap) {
+        const buckets = [0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05];
+        return buckets.reduce((best, candidate) => Math.abs(candidate - rawGap) < Math.abs(best - rawGap) ? candidate : best, buckets[0]);
+    }
+
+    function getValuationBucket(percentile) {
+        if (!Number.isFinite(percentile)) return 'mid';
+        if (percentile <= 20) return 'low';
+        if (percentile >= 80) return 'high';
+        return 'mid';
+    }
+
+
+    function getSelectedPlannerMetric() {
+        return $('#valuation-status-container input[name="val-metric"]:checked').val() || 'auto';
+    }
+
+    function refreshScenarioMetricBadge(metric = null) {
+        const resolved = (metric || getSelectedPlannerMetric() || 'auto').toUpperCase();
+        $('#scenario-metric-badge').text(`估值指标：${resolved === 'AUTO' ? '跟随上方选择' : resolved}`);
+    }
+
+    function refreshPlannerMetricBadge(metric = null) {
+        const resolved = (metric || getSelectedPlannerMetric() || 'auto').toUpperCase();
+        $('#planner-metric-badge').text(`估值指标：${resolved === 'AUTO' ? '跟随上方选择' : resolved}`);
+    }
+
+    function resetScenarioState(message = '点击右上角按钮开始匹配') {
+        $('#similar-scenarios-list').empty();
+        $('#similar-status-box').html(`<div class="text-muted text-center py-4">${message}<div class="small mt-1">相似场景分析将使用上方当前选中的估值指标；切换 PE/PB 后需要重新匹配。</div></div>`);
+        const chartEl = document.getElementById('scenario-chart');
+        if (scenarioChart) {
+            scenarioChart.dispose();
+            scenarioChart = null;
+        }
+        if (chartEl) chartEl.innerHTML = '';
+        refreshScenarioMetricBadge();
+    }
+
+    function resetPlannerState(message = '设置好标的与规划时点后，点击右上角“生成规划”。') {
+        latestPlannerSnapshot = null;
+        latestPlannerEdgeStats = null;
+        plannerEdgeRequestKey = null;
+        clearTimeout(plannerEdgeTimer);
+        $('#planner-status-summary').text(message);
+        $('#planner-metrics').empty();
+        refreshPlannerMetricBadge();
+    }
+
+    function fetchPlannerSnapshot(symbol, metric = 'auto', planDate = null, resetToLatest = false) {
+        if (!symbol) return;
+
+        const requestedDate = resetToLatest ? '' : (planDate || $('#planner-date').val() || '');
+        const query = new URLSearchParams({ symbol, metric });
+        if (requestedDate) query.set('date', requestedDate);
+
+        $.get(`/api/shannon/planner_snapshot?${query.toString()}`, function(res) {
+            if (!res.success) return;
+            latestPlannerSnapshot = res;
+            latestPlannerEdgeStats = null;
+            plannerEdgeRequestKey = null;
+            refreshPlannerMetricBadge((res.valuation || {}).metric);
+            $('#planner-date').attr('max', res.latest_date).val(res.actual_date);
+            $('#planner-current-price').val(res.current_price);
+            $('#planner-lower-limit').val(res.rec_lower);
+            $('#planner-upper-limit').val(res.rec_upper);
+            const priceSourceText = res.price_source === 'session_open'
+                ? '默认该交易日起始开盘价'
+                : res.price_source === 'daily_open'
+                    ? '默认该交易日日线开盘价'
+                    : '默认最新收盘价';
+            $('#planner-latest-price-hint').text(`${priceSourceText} ${res.current_price} (${res.actual_date})`);
+            $('#planner-date-hint').text(res.requested_date && res.requested_date !== res.actual_date
+                ? `请求 ${res.requested_date}，实际命中 ${res.actual_date}`
+                : `当前规划时点 ${res.actual_date}`);
+            $('#planner-lower-hint').text(`默认建议 ${res.rec_lower}`);
+            $('#planner-upper-hint').text(`默认建议 ${res.rec_upper}`);
+            renderPlannerCard();
+        }).fail(function(xhr) {
+            $('#planner-status-summary').text(xhr.responseJSON?.error || '网格参数规划加载失败，请确认本地数据是否完整。');
+            $('#planner-metrics').empty();
+        }).always(function() {
+            $('#btn-generate-planner').prop('disabled', false).html('<i class="bi bi-play-circle"></i> 生成');
+        });
+    }
+
+
+    function schedulePlannerEdgeRefresh(model, force = false) {
+        if (!model || model.error || !latestPlannerSnapshot) {
+            return;
+        }
+        const symbol = $('#symbol').val();
+        if (!symbol) return;
+
+        const metric = ((latestPlannerSnapshot.valuation || {}).metric || 'PE').toLowerCase();
+        const requestKey = [
+            symbol,
+            metric,
+            model.planningDate,
+            model.inputPrice.toFixed(4),
+            model.recLower.toFixed(4),
+            model.recUpper.toFixed(4),
+        ].join('|');
+
+        if (!force && plannerEdgeRequestKey === requestKey && latestPlannerEdgeStats) {
+            return;
+        }
+
+        clearTimeout(plannerEdgeTimer);
+        plannerEdgeTimer = setTimeout(() => {
+            plannerEdgeRequestKey = requestKey;
+            latestPlannerEdgeStats = { loading: true, requestKey };
+            $('#btn-calc-planner-edge').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 计算中...');
+            renderPlannerCard();
+
+            $.get(`/api/shannon/planner_edge?symbol=${encodeURIComponent(symbol)}&metric=${metric}&current_price=${model.inputPrice}&lower=${model.recLower}&upper=${model.recUpper}&as_of_date=${model.planningDate}`, function(res) {
+                latestPlannerEdgeStats = {
+                    ...res,
+                    loading: false,
+                    requestKey,
+                };
+                $('#btn-calc-planner-edge').prop('disabled', false).html('<i class="bi bi-calculator"></i> 胜率/期望');
+                renderPlannerCard();
+            }).fail(function(xhr) {
+                latestPlannerEdgeStats = {
+                    loading: false,
+                    requestKey,
+                    error: xhr.responseJSON?.error || '经验胜率计算失败'
+                };
+                $('#btn-calc-planner-edge').prop('disabled', false).html('<i class="bi bi-calculator"></i> 胜率/期望');
+                renderPlannerCard();
+            });
+        }, 100);
+    }
+
+    function buildPlannerModel() {
+        if (!latestPlannerSnapshot) {
+            return null;
+        }
+
+        const valuation = latestPlannerSnapshot.valuation || {};
+        const volatility = latestPlannerSnapshot.volatility || {};
+        const basePrice = Number(latestPlannerSnapshot.current_price);
+        const inputPrice = parseNumberOrDefault('#planner-current-price', basePrice);
+        const plannedCapital = parseNumberOrDefault('#planner-total-capital', parseNumberOrDefault('#initial-capital', 100000));
+
+        if (!Number.isFinite(basePrice) || basePrice <= 0 || !Number.isFinite(inputPrice) || inputPrice <= 0 || !Number.isFinite(plannedCapital) || plannedCapital <= 0) {
+            return { error: '请先确认当前价格和计划投入金额。' };
+        }
+
+        const lowerFactor = latestPlannerSnapshot.rec_lower / basePrice;
+        const upperFactor = latestPlannerSnapshot.rec_upper / basePrice;
+        const suggestedLower = inputPrice * lowerFactor;
+        const suggestedUpper = inputPrice * upperFactor;
+        const manualLower = parseNumberOrDefault('#planner-lower-limit', suggestedLower);
+        const manualUpper = parseNumberOrDefault('#planner-upper-limit', suggestedUpper);
+        const recLower = manualLower;
+        const recUpper = manualUpper;
+
+        if (!Number.isFinite(recLower) || !Number.isFinite(recUpper) || recLower <= 0 || recUpper <= recLower) {
+            return { error: '请先确认规划上下限，且上限必须大于下限。' };
+        }
+
+        const valuationBucket = getValuationBucket(Number(valuation.percentile));
+        const atrPct = Number(volatility.atr20_pct) / 100;
+        if (!Number.isFinite(atrPct) || atrPct <= 0) {
+            return { error: 'ATR20 数据暂不可用，无法生成规划。' };
+        }
+
+        const multMap = {
+            low: { buy: 1.2, sell: 1.6, label: '低估' },
+            mid: { buy: 1.4, sell: 1.4, label: '中性' },
+            high: { buy: 1.6, sell: 1.2, label: '高估' },
+        };
+        const selectedMult = multMap[valuationBucket];
+        const buyGap = snapGap(selectedMult.buy * atrPct);
+        const sellGap = snapGap(selectedMult.sell * atrPct);
+
+        const nextPrice = (price) => price * (1 - buyGap);
+        const nextSellPrice = (price) => price * (1 + sellGap);
+        const countBuyLevels = (startPrice) => {
+            let count = 0;
+            let testLevel = nextPrice(startPrice);
+            let loopGuard = 0;
+            while (testLevel >= recLower && loopGuard < 300) {
+                count += 1;
+                testLevel = nextPrice(testLevel);
+                loopGuard += 1;
+            }
+            return count;
+        };
+        const countSellLevels = (startPrice) => {
+            let count = 0;
+            let testLevel = nextSellPrice(startPrice);
+            let loopGuard = 0;
+            while (testLevel <= recUpper && loopGuard < 300) {
+                count += 1;
+                testLevel = nextSellPrice(testLevel);
+                loopGuard += 1;
+            }
+            return count;
+        };
+        const sumBuyCostFactors = (steps) => {
+            let total = 0;
+            for (let i = 1; i <= steps; i += 1) {
+                total += Math.pow(1 - buyGap, i);
+            }
+            return total;
+        };
+
+        const lowerGridCount = countBuyLevels(inputPrice);
+        const upperGridCount = countSellLevels(inputPrice);
+        const lowerCostFactor = sumBuyCostFactors(lowerGridCount);
+        const denominator = upperGridCount + lowerCostFactor;
+        const rawPerGridShares = denominator > 0 ? (plannedCapital / inputPrice / denominator) : 0;
+        const perGridShares = rawPerGridShares >= 100 ? Math.floor(rawPerGridShares / 100) * 100 : 0;
+        const perGridAmount = perGridShares * inputPrice;
+        const baseShares = upperGridCount * perGridShares;
+        const baseAmount = upperGridCount * perGridAmount;
+        const reserveCash = perGridAmount * lowerCostFactor;
+        const deployedAmount = baseAmount + reserveCash;
+        const cashSlack = plannedCapital - deployedAmount;
+        const baseRatio = plannedCapital > 0 ? baseAmount / plannedCapital : 0;
+
+        const buyGridLevels = [];
+        let buyLevel = nextPrice(inputPrice);
+        let buyGuard = 0;
+        while (buyLevel >= recLower && buyGuard < 300) {
+            buyGridLevels.push(buyLevel);
+            buyLevel = nextPrice(buyLevel);
+            buyGuard += 1;
+        }
+
+        const sellGridLevels = [];
+        let sellLevel = nextSellPrice(inputPrice);
+        let sellGuard = 0;
+        while (sellLevel <= recUpper && sellGuard < 300) {
+            sellGridLevels.push(sellLevel);
+            sellLevel = nextSellPrice(sellLevel);
+            sellGuard += 1;
+        }
+
+        const sumLevels = (levels) => levels.reduce((acc, level) => acc + level, 0);
+        const totalBuyCost = perGridShares * sumLevels(buyGridLevels);
+        const totalSellProceeds = perGridShares * sumLevels(sellGridLevels);
+
+        const downsideShares = perGridShares * (upperGridCount + lowerGridCount);
+        const downsideCash = reserveCash + cashSlack - totalBuyCost;
+        const downsideFinalEquity = downsideShares * recLower + downsideCash;
+        const downsidePnL = downsideFinalEquity - plannedCapital;
+        const downsidePnLPct = plannedCapital > 0 ? (downsidePnL / plannedCapital) : 0;
+
+        const upsideFinalEquity = reserveCash + cashSlack + totalSellProceeds;
+        const upsidePnL = upsideFinalEquity - plannedCapital;
+        const upsidePnLPct = plannedCapital > 0 ? (upsidePnL / plannedCapital) : 0;
+
+        return {
+            valuation,
+            volatility,
+            selectedMult,
+            inputPrice,
+            plannedCapital,
+            suggestedLower,
+            suggestedUpper,
+            recLower,
+            recUpper,
+            buyGap,
+            sellGap,
+            lowerGridCount,
+            upperGridCount,
+            baseShares,
+            baseRatio,
+            baseAmount,
+            reserveCash,
+            deployedAmount,
+            cashSlack,
+            perGridShares,
+            perGridAmount,
+            buyGridLevels,
+            sellGridLevels,
+            totalBuyCost,
+            totalSellProceeds,
+            downsideFinalEquity,
+            downsidePnL,
+            downsidePnLPct,
+            upsideFinalEquity,
+            upsidePnL,
+            upsidePnLPct,
+            planningDate: latestPlannerSnapshot.actual_date,
+            requestedDate: latestPlannerSnapshot.requested_date,
+            priceSource: latestPlannerSnapshot.price_source,
+        };
+    }
+
+    function renderPlannerCard() {
+        const $summary = $('#planner-status-summary');
+        const $metrics = $('#planner-metrics');
+        if (!latestPlannerSnapshot) {
+            $summary.text($('#planner-status-summary').text() || '设置好标的与规划时点后，点击右上角“生成规划”。');
+            $metrics.empty();
+            return;
+        }
+
+        const model = buildPlannerModel();
+        if (!model || model.error) {
+            $summary.text(model?.error || '规划数据暂不可用。');
+            $metrics.empty();
+            return;
+        }
+
+        const planningModeText = model.priceSource === 'session_open'
+            ? '使用起始开盘价'
+            : model.priceSource === 'daily_open'
+                ? '使用日线开盘价'
+                : '使用最新收盘价';
+        $summary.html(`
+            <div class="fw-semibold text-dark mb-1">规划时点 ${model.planningDate}</div>
+            <div>估值状态: <b>${model.selectedMult.label}</b> (${model.valuation.metric || 'PE/PB'} 分位 ${model.valuation.percentile ?? '-' }%)</div>
+            <div>ATR20: <b>${model.volatility.atr20_pct ?? '-' }%</b> (${model.volatility.status || '未知'})</div>
+            <div class="text-muted">规划价格来源：${planningModeText}。你可以手动微调价格、上下限和总金额，再回填到上方回测参数。</div>
+        `);
+
+        const formatPnL = (amount, pct) => {
+            const sign = amount >= 0 ? '+' : '';
+            return `${sign}¥${Math.round(amount).toLocaleString()} / ${sign}${(pct * 100).toFixed(1)}%`;
+        };
+        const upsideAbs = Math.max(model.upsidePnL, 0);
+        const downsideAbs = Math.max(-model.downsidePnL, 0);
+        const oddsRatio = downsideAbs > 0 ? (upsideAbs / downsideAbs) : null;
+        const breakevenWinRate = (upsideAbs + downsideAbs) > 0 ? (downsideAbs / (upsideAbs + downsideAbs)) : null;
+        const edge = latestPlannerEdgeStats;
+        const empiricalWinRate = edge && Number.isFinite(edge.win_rate) ? edge.win_rate / 100 : null;
+        const expectedPct = empiricalWinRate === null
+            ? null
+            : (empiricalWinRate * model.upsidePnLPct + (1 - empiricalWinRate) * model.downsidePnLPct);
+        const expectedAmount = empiricalWinRate === null
+            ? null
+            : (empiricalWinRate * model.upsidePnL + (1 - empiricalWinRate) * model.downsidePnL);
+        const valueRate = (empiricalWinRate !== null && breakevenWinRate && breakevenWinRate > 0)
+            ? (empiricalWinRate / breakevenWinRate)
+            : null;
+
+        const edgeCards = edge?.loading
+            ? [
+                ['经验胜率', '计算中...'],
+                ['保本胜率', breakevenWinRate === null ? '—' : `${(breakevenWinRate * 100).toFixed(1)}%`],
+                ['数学期望', '等待样本...'],
+                ['值搏率', '等待样本...'],
+            ]
+            : edge?.error
+                ? [
+                    ['经验胜率', `<span class="text-danger">${edge.error}</span>`],
+                    ['保本胜率', breakevenWinRate === null ? '—' : `${(breakevenWinRate * 100).toFixed(1)}%`],
+                    ['数学期望', '—'],
+                    ['值搏率', '—'],
+                ]
+                : edge
+                    ? [
+                        ['经验胜率', empiricalWinRate === null
+                            ? '样本不足'
+                            : `${(empiricalWinRate * 100).toFixed(1)}%<div class="small text-muted">上 ${edge.up_count} / 下 ${edge.down_count} / 未决 ${edge.no_hit_count + edge.tie_count}</div>`],
+                        ['保本胜率', breakevenWinRate === null ? '—' : `${(breakevenWinRate * 100).toFixed(1)}%`],
+                        ['数学期望', expectedPct === null ? '—' : `${formatPnL(expectedAmount, expectedPct)}<div class="small text-muted">按经验胜率估算</div>`],
+                        ['值搏率', valueRate === null ? '—' : `${valueRate.toFixed(2)}<div class="small text-muted">经验胜率 / 保本胜率</div>`],
+                    ]
+                    : [
+                        ['经验胜率', '<span class="text-muted">点击右上角按钮后计算</span>'],
+                        ['保本胜率', breakevenWinRate === null ? '—' : `${(breakevenWinRate * 100).toFixed(1)}%`],
+                        ['数学期望', '<span class="text-muted">等待手动计算</span>'],
+                        ['值搏率', '<span class="text-muted">等待手动计算</span>'],
+                    ];
+
+        const cards = [
+            ['买入间距', `${(model.buyGap * 100).toFixed(1)}%`],
+            ['卖出间距', `${(model.sellGap * 100).toFixed(1)}%`],
+            ['下方待买', `${model.lowerGridCount} 格`],
+            ['上方待卖', `${model.upperGridCount} 格`],
+            ['建议底仓', `${(model.baseRatio * 100).toFixed(0)}% / ${Math.round(model.baseShares).toLocaleString()} 份 / ¥${Math.round(model.baseAmount).toLocaleString()}`],
+            ['预留现金', `¥${Math.round(model.reserveCash).toLocaleString()} / 余量 ¥${Math.round(model.cashSlack).toLocaleString()}`],
+            ['建议每格份额', `${Math.round(model.perGridShares).toLocaleString()} 份 / ¥${Math.round(model.perGridAmount).toLocaleString()}`],
+            ['资金校验', `底仓+现金 = ¥${Math.round(model.deployedAmount).toLocaleString()}`],
+            ['跌到下限', `${formatPnL(model.downsidePnL, model.downsidePnLPct)}<div class="small text-muted">期末权益 ¥${Math.round(model.downsideFinalEquity).toLocaleString()}</div>`],
+            ['涨到上限', `${formatPnL(model.upsidePnL, model.upsidePnLPct)}<div class="small text-muted">期末权益 ¥${Math.round(model.upsideFinalEquity).toLocaleString()}</div>`],
+            ['盈亏比', oddsRatio === null ? '—' : `${oddsRatio.toFixed(2)}<div class="small text-muted">上行收益 / 下行亏损</div>`],
+            ...edgeCards,
+        ];
+
+        const labelTooltips = {
+            '盈亏比': '公式：上行收益 / 下行亏损。<br>例如涨到上限赚 19%，跌到下限亏 12%，盈亏比就是 19 / 12 ≈ 1.58。<br>怎么看：大于 1 说明单次盈利空间大于单次亏损空间；越高越有利，但不能脱离胜率单独看。',
+            '经验胜率': '基于历史相似样本统计。先找估值分位和趋势类型相近的历史时点，再看这些样本后续是先到映射后的上限还是先到映射后的下限。<br>上/下/未决分别表示：先到上限 / 先到下限 / 在观察窗口内都未命中或同日双向命中。<br>怎么看：越高越好，但样本数太少时稳定性会下降。',
+            '保本胜率': '公式：下行亏损 / (上行收益 + 下行亏损)。<br>它表示这笔网格要做到数学期望不为负，至少需要多高的胜率。<br>怎么看：越低越好；如果经验胜率高于它，说明当前规划从期望值上更有优势。',
+            '数学期望': '公式：经验胜率 × 上行收益 + (1 - 经验胜率) × 下行收益。<br>其中下行收益本身是负数，所以结果会自动扣掉潜在亏损。<br>怎么看：大于 0 说明按当前经验胜率估算这笔网格长期期望为正；小于 0 说明赔率虽可能不错，但胜率不够支撑。',
+            '值搏率': '公式：经验胜率 / 保本胜率。<br>它把“实际经验胜率”与“至少需要的胜率”放在一起比较。<br>怎么看：大于 1 说明经验胜率高于保本门槛；越高越值得做。小于 1 说明当前样本下，这笔网格的期望值偏弱。'
+        };
+
+        $metrics.html(cards.map(([label, value]) => {
+            const isDownside = label === '跌到下限';
+            const isUpside = label === '涨到上限';
+            const cardClass = isDownside
+                ? 'border-danger-subtle bg-danger-subtle'
+                : isUpside
+                    ? 'border-success-subtle bg-success-subtle'
+                    : 'bg-white';
+            const valueClass = isDownside
+                ? 'text-danger'
+                : isUpside
+                    ? 'text-success'
+                    : '';
+            const labelHtml = labelTooltips[label]
+                ? `${label} <i class="bi bi-info-circle text-muted" data-bs-toggle="tooltip" data-bs-html="true" title="${labelTooltips[label]}"></i>`
+                : label;
+            return `
+            <div class="col-md-3 col-6">
+                <div class="rounded border h-100 px-3 py-2 ${cardClass}">
+                    <div class="text-muted small">${labelHtml}</div>
+                    <div class="fw-semibold ${valueClass}">${value}</div>
+                </div>
+            </div>
+        `;
+        }).join(''));
+
+        $metrics.find('[data-bs-toggle="tooltip"]').each(function() {
+            bootstrap.Tooltip.getOrCreateInstance(this);
+        });
+    }
+
+    function renderPlannerPreviewChart() {
+        const model = buildPlannerModel();
+        if (!latestPlannerSnapshot || !model || model.error) {
+            $('#planner-preview-summary').text(model?.error || '规划数据暂不可用。');
+            return;
+        }
+
+        const kline = latestPlannerSnapshot.kline || [];
+        if (!kline.length) {
+            $('#planner-preview-summary').text('缺少全量日K数据，无法绘制网格预览。');
+            return;
+        }
+
+        const dom = document.getElementById('planner-preview-chart');
+        if (plannerPreviewChart) plannerPreviewChart.dispose();
+        plannerPreviewChart = echarts.init(dom);
+
+        const dates = kline.map(d => d.date);
+        const kData = kline.map(d => [d.open, d.close, d.low, d.high]);
+        const lineData = [
+            ...model.buyGridLevels.map(level => ({
+                yAxis: Number(level.toFixed(3)),
+                lineStyle: { color: '#fa8c16', type: 'dashed', width: 1.2, opacity: 0.9 },
+            })),
+            ...model.sellGridLevels.map(level => ({
+                yAxis: Number(level.toFixed(3)),
+                lineStyle: { color: '#722ed1', type: 'dashed', width: 1.2, opacity: 0.9 },
+            })),
+            {
+                yAxis: Number(model.recLower.toFixed(3)),
+                lineStyle: { color: '#ff4d4f', type: 'dashed', width: 2 },
+            },
+            {
+                yAxis: Number(model.recUpper.toFixed(3)),
+                lineStyle: { color: '#52c41a', type: 'dashed', width: 2 },
+            },
+            {
+                yAxis: Number(model.inputPrice.toFixed(3)),
+                lineStyle: { color: '#1677ff', type: 'solid', width: 2 },
+            },
+            {
+                xAxis: model.planningDate,
+                lineStyle: { color: '#595959', type: 'dashed', width: 1.5, opacity: 0.8 },
+            },
+        ];
+
+        $('#planner-preview-summary').html(`蓝线为规划价格 <b style="color:#1677ff">${model.inputPrice.toFixed(3)}</b>，灰色竖线为规划时点 <b>${model.planningDate}</b>，红线为下限 <b style="color:#ff4d4f">${model.recLower.toFixed(3)}</b>，绿线为上限 <b style="color:#52c41a">${model.recUpper.toFixed(3)}</b>，橙色虚线为下方买入网格 <b>${model.buyGridLevels.length}</b> 条，紫色虚线为上方卖出网格 <b>${model.sellGridLevels.length}</b> 条。`);
+
+        plannerPreviewChart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+            legend: { data: ['日K线'], top: 10 },
+            grid: { left: '4%', right: '4%', top: 50, bottom: 70 },
+            xAxis: { type: 'category', data: dates, scale: true },
+            yAxis: {
+                type: 'value',
+                scale: true,
+                splitLine: { show: false }
+            },
+            dataZoom: [{ type: 'inside' }, { type: 'slider' }],
+            series: [{
+                name: '日K线',
+                type: 'candlestick',
+                data: kData,
+                itemStyle: {
+                    color: '#ef5350',
+                    color0: '#26a69a',
+                    borderColor: '#ef5350',
+                    borderColor0: '#26a69a'
+                },
+                markLine: {
+                    symbol: ['none', 'none'],
+                    silent: true,
+                    label: { show: false },
+                    data: lineData
+                }
+            }]
+        });
+
+        setTimeout(() => plannerPreviewChart.resize(), 50);
     }
 
     // 监听日期变化：同步滑杆 + 自动填充推荐区间
@@ -38,11 +608,7 @@ $(document).ready(function() {
             }
         }
 
-        // 边界估值按回测结束日期计算；如果结束日期为空，则回退到开始日期
-        const boundaryDate = getBoundaryDate();
-        if (symbol && boundaryDate) {
-            fetchPriceInfo(symbol, boundaryDate);
-        }
+        refreshBoundaryAndValuation(symbol);
     });
     
     function initDateSlider(minDateStr, maxDateStr) {
@@ -101,10 +667,20 @@ $(document).ready(function() {
             if (selectedCode) {
                 $('#symbol').val(selectedCode);
                 autoFillDateRange();
-                const date = getBoundaryDate();
-                if (date) fetchPriceInfo(selectedCode, date);
+                refreshBoundaryAndValuation(selectedCode);
+                resetPlannerState('已切换标的，请点击右上角“生成规划”。');
+                resetScenarioState('标的已切换，请重新点击右上角“开始匹配”。');
             }
         });
+    }
+
+    function syncPlannerDateToEndDate(force = false) {
+        const endVal = $('#end-date').val();
+        const currentVal = $('#planner-date').val();
+        if (!endVal) return;
+        if (force || !currentVal) {
+            $('#planner-date').val(endVal);
+        }
     }
 
     function autoFillDateRange() {
@@ -127,6 +703,7 @@ $(document).ready(function() {
             
             if ($('#start-date').val() < start) $('#start-date').val(start);
             if ($('#end-date').val() > end) $('#end-date').val(end);
+            syncPlannerDateToEndDate(true);
             
             // 初始化滑杆
             initDateSlider(start, end);
@@ -145,15 +722,31 @@ $(document).ready(function() {
         }
     }
 
-    function fetchPriceInfo(symbol, date, metric='auto', startDate=null) {
-        const effectiveStartDate = startDate || $('#start-date').val();
+    function fetchPriceInfo(symbol, date, metric='auto', startDate=null, options = {}) {
+        const effectiveStartDate = startDate === null ? '' : (startDate || $('#start-date').val());
+        const updateLimits = options.updateLimits !== false;
+        const updateValuation = options.updateValuation !== false;
+        const context = options.context || (updateLimits ? 'boundary' : 'valuation');
         $.get(`/api/shannon/price_info?symbol=${symbol}&date=${date}&start_date=${effectiveStartDate || ''}&metric=${metric}`, function(res) {
             if (res.success) {
-                $('#lower-limit').val(res.rec_lower);
-                $('#upper-limit').val(res.rec_upper);
+                if (context === 'boundary') {
+                    latestBoundaryInfo = res;
+                }
+                if (context === 'valuation') {
+                    latestValuationInfo = res;
+                }
+
+                if (updateLimits) {
+                    $('#lower-limit').val(res.rec_lower);
+                    $('#upper-limit').val(res.rec_upper);
+                }
+
+                if (updateValuation) {
+                    renderVolatilityStatus(res.volatility);
+                }
                 
                 // 渲染估值状态
-                if (res.valuation) {
+                if (updateValuation && res.valuation) {
                     const v = res.valuation;
                     const isDefault = v.status.includes('默认');
                     const color = v.status.includes('低估') ? 'success' : (v.status.includes('高估') ? 'danger' : 'primary');
@@ -198,11 +791,15 @@ $(document).ready(function() {
                         // 绑定切换事件
                         $box.find('.val-metric-toggle').on('change', function() {
                             const newMetric = $(this).val();
-                            fetchPriceInfo(symbol, date, newMetric, effectiveStartDate);
+                            refreshBoundaryAndValuation(symbol, newMetric);
+                            resetPlannerState('估值指标已切换，请点击右上角“生成规划”。');
+                            resetScenarioState(`估值指标已切换为 ${newMetric.toUpperCase()}，请重新点击右上角“开始匹配”。`);
                         });
                     }
                     $container.append($box);
                 }
+
+                renderPlannerCard();
             }
         }).fail(function() {
             console.log('无法获取基准价格 (可能是本地无数据)');
@@ -215,8 +812,9 @@ $(document).ready(function() {
         if(val) {
             $('#symbol').val(val);
             autoFillDateRange();
-            const date = getBoundaryDate();
-            if (date) fetchPriceInfo(val, date);
+            refreshBoundaryAndValuation(val);
+            resetPlannerState('标的已更新，请点击右上角“生成规划”。');
+            resetScenarioState('标的已更新，请重新点击右上角“开始匹配”。');
             // 自动触发移除，改为手动
             // fetchShannonScore(val);
         }
@@ -232,14 +830,86 @@ $(document).ready(function() {
             $select.val(code);
             autoFillDateRange();
             
-            const date = getBoundaryDate();
-            if (date) fetchPriceInfo(code, date);
+            refreshBoundaryAndValuation(code);
+            resetPlannerState('标的已识别，请点击右上角“生成规划”。');
+            resetScenarioState('标的已识别，请重新点击右上角“开始匹配”。');
         }
     });
     
     // 手动输入代码失去焦点时
     $('#symbol').on('blur', function() {
         // 保持原逻辑为空，或者移除该事件监听
+    });
+
+    $('#initial-capital, #planner-total-capital, #planner-current-price, #planner-lower-limit, #planner-upper-limit').on('input change', function() {
+        latestPlannerEdgeStats = null;
+        plannerEdgeRequestKey = null;
+        renderPlannerCard();
+    });
+
+    $('#planner-date').on('change', function() {
+        const symbol = $('#symbol').val().trim();
+        if (!symbol) return;
+        latestPlannerEdgeStats = null;
+        plannerEdgeRequestKey = null;
+        resetPlannerState('规划时点已调整，请点击右上角“生成规划”。');
+    });
+
+    $('#btn-use-start-date-for-planner').on('click', function() {
+        const startDate = $('#start-date').val();
+        if (!startDate) return;
+        $('#planner-date').val(startDate);
+        resetPlannerState('已切换到回测起始日，请点击右上角“生成规划”。');
+    });
+
+    $('#btn-generate-planner').on('click', function() {
+        const symbol = $('#symbol').val().trim();
+        if (!symbol) {
+            alert('请先选择 ETF 标的');
+            return;
+        }
+        const metric = getSelectedPlannerMetric();
+        const planDate = $('#planner-date').val() || null;
+        const $btn = $(this);
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 生成中');
+        $('#planner-status-summary').text('正在生成网格参数规划...');
+        fetchPlannerSnapshot(symbol, metric, planDate, !planDate);
+    });
+
+    $('#btn-apply-planner-to-backtest').on('click', function() {
+        const model = buildPlannerModel();
+        if (!model || model.error) {
+            renderPlannerCard();
+            return;
+        }
+        $('#initial-capital').val(Math.round(model.plannedCapital));
+        $('#faith-ratio').val(0);
+        $('#grid-ratio').val((model.baseRatio * 100).toFixed(0));
+        $('#pos-per-grid').val(Math.round(model.perGridShares));
+        $('#grid-density').val((model.buyGap * 100).toFixed(1));
+        $('#sell-gap').val((model.sellGap * 100).toFixed(1));
+        $('#lower-limit').val(model.recLower.toFixed(3));
+        $('#upper-limit').val(model.recUpper.toFixed(3));
+        $('#data-status').text(`已按 ${model.planningDate} 的规划结果回填回测参数。`).removeClass('text-danger').addClass('text-success');
+    });
+
+    $('#btn-calc-planner-edge').on('click', function() {
+        const model = buildPlannerModel();
+        if (!model || model.error) {
+            renderPlannerCard();
+            return;
+        }
+        schedulePlannerEdgeRefresh(model, true);
+    });
+
+    $('#btn-preview-planner-grid').on('click', function() {
+        const modalEl = document.getElementById('plannerPreviewModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+    });
+
+    $('#plannerPreviewModal').on('shown.bs.modal', function() {
+        renderPlannerPreviewChart();
     });
 
     // 监听检测按钮
@@ -274,7 +944,7 @@ $(document).ready(function() {
         const $statusBox = $('#similar-status-box');
         const $list = $('#similar-scenarios-list');
         
-        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 搜索中...');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 匹配中');
         $statusBox.html('<div class="text-center py-2 text-muted">正在全量扫描历史数据...</div>');
         $list.empty();
 
@@ -284,13 +954,21 @@ $(document).ready(function() {
                 return;
             }
             
+            refreshScenarioMetricBadge(res.current.metric);
+
             // 渲染状态
+            const vol = res.current.volatility;
+            const volLine = vol
+                ? `ATR20: <b>${vol.atr20_pct}%</b> (分位: <b>${vol.percentile}%</b> / ${vol.status})<br>`
+                : '';
+
             $statusBox.html(`
                 <div class="alert alert-info border-info bg-opacity-10 mb-0">
                     <h6 class="alert-heading small fw-bold">当前诊断</h6>
                     <p class="mb-0 small">
                         跟踪指数: <b>${res.current.index_name}</b><br>
                         估值指标: <b>${res.current.metric} (${res.current.val_value})</b> (分位: <b>${res.current.val_pct}%</b>)<br>
+                        ${volLine}
                         趋势状态: <b>${res.current.trend}</b>
                     </p>
                 </div>
@@ -337,9 +1015,10 @@ $(document).ready(function() {
             });
             
         }).fail((xhr) => {
+            refreshScenarioMetricBadge(metric);
             $statusBox.html(`<div class="alert alert-danger">请求失败: ${xhr.statusText}</div>`);
         }).always(() => {
-            $btn.prop('disabled', false).html('<i class="bi bi-search"></i> 开始匹配');
+            $btn.prop('disabled', false).html('<i class="bi bi-search"></i> 匹配');
         });
     });
 
@@ -462,7 +1141,7 @@ $(document).ready(function() {
 
         // 重置 UI
         const $btn = $('#btn-check-score');
-        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 检测中...');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 检测中');
         
         $('#total-score').text('-').removeClass().addClass('display-4 fw-bold mb-0');
         $('#score-verdict').text('计算中...').removeClass().addClass('text-muted mt-2');
@@ -502,7 +1181,7 @@ $(document).ready(function() {
             $('#score-badge').text('失败').removeClass().addClass('badge bg-danger');
         })
         .always(function() {
-            $btn.prop('disabled', false).html('<i class="bi bi-heart-pulse"></i> 重新检测');
+            $btn.prop('disabled', false).html('<i class="bi bi-heart-pulse"></i> 检测');
         });
     }
     
@@ -562,7 +1241,7 @@ $(document).ready(function() {
         const $btn = $(this);
         const $status = $('#data-status');
         
-        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 整合中...');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 同步中');
         $status.text('正在同步分钟数据：先导入本地 parquet 历史，再通过 AKShare 在线补齐最新缺口...').removeClass('text-success text-danger').addClass('text-muted');
         
         $.ajax({
@@ -600,7 +1279,8 @@ $(document).ready(function() {
                     if (info.start && info.end) {
                         $('#start-date').val(info.start.split(' ')[0]);
                         $('#end-date').val(info.end.split(' ')[0]);
-                        fetchPriceInfo(code, info.end.split(' ')[0]);
+                        refreshBoundaryAndValuation(code);
+                        resetPlannerState('分钟数据已同步，请点击右上角“生成规划”。');
                     }
                 } else {
                     const err = res.error || '未知错误';
@@ -615,7 +1295,7 @@ $(document).ready(function() {
                 $status.text('请求失败: ' + err).addClass('text-danger');
             },
             complete: function() {
-                $btn.prop('disabled', false).html('<i class="bi bi-cloud-download"></i> 同步分钟数据（本地+在线补齐）');
+                $btn.prop('disabled', false).html('<i class="bi bi-cloud-download"></i> <span class="d-none d-md-inline">同步</span>');
             }
         });
     });
@@ -625,6 +1305,7 @@ $(document).ready(function() {
     if (!$('#end-date').val()) {
         $('#end-date').val(today);
     }
+    syncPlannerDateToEndDate();
 
     // 1. 运行回测
     $('#shannon-form').on('submit', function(e) {
@@ -728,6 +1409,15 @@ $(document).ready(function() {
     function renderBacktestResults(res) {
         // 显示结果区
         $('#shannon-result-section').removeClass('d-none');
+
+        if (res.boundaries) {
+            if (Number.isFinite(res.boundaries.lower_limit)) {
+                $('#lower-limit').val(res.boundaries.lower_limit);
+            }
+            if (Number.isFinite(res.boundaries.upper_limit)) {
+                $('#upper-limit').val(res.boundaries.upper_limit);
+            }
+        }
         
         // 1. 更新核心指标
         const m = res.metrics;
@@ -889,16 +1579,30 @@ $(document).ready(function() {
         
         const dates = res.daily_curve.map(d => d.date);
         const kData = res.daily_curve.map(d => [d.open, d.close, d.low, d.high]);
+        const ma20 = res.daily_curve.map(d => (d.ma20 && d.ma20 > 0.001) ? d.ma20 : null);
         const ma250 = res.daily_curve.map(d => (d.ma250 && d.ma250 > 0.001) ? d.ma250 : null);
         
         const markLineData = [];
-        const lowLimit = parseFloat($('#lower-limit').val());
-        const upLimit = parseFloat($('#upper-limit').val());
+        const boundaries = res.boundaries || {};
+        const lowLimit = Number.isFinite(boundaries.lower_limit) ? boundaries.lower_limit : parseFloat($('#lower-limit').val());
+        const upLimit = Number.isFinite(boundaries.upper_limit) ? boundaries.upper_limit : parseFloat($('#upper-limit').val());
         if (lowLimit > 0.01) {
-            markLineData.push({ yAxis: lowLimit, lineStyle: { color: '#ff4d4f', type: 'dashed' }, label: { formatter: '下限熔断' } });
+            markLineData.push({
+                name: '',
+                yAxis: lowLimit,
+                lineStyle: { color: '#ff4d4f', type: 'dashed' },
+                label: { show: false },
+                emphasis: { disabled: true }
+            });
         }
         if (upLimit < 200.0) {
-            markLineData.push({ yAxis: upLimit, lineStyle: { color: '#52c41a', type: 'dashed' }, label: { formatter: '上限停买' } });
+            markLineData.push({
+                name: '',
+                yAxis: upLimit,
+                lineStyle: { color: '#52c41a', type: 'dashed' },
+                label: { show: false },
+                emphasis: { disabled: true }
+            });
         }
 
         const buyPoints = [];
@@ -917,7 +1621,7 @@ $(document).ready(function() {
                 axisPointer: { type: 'cross' }
             },
             legend: { 
-                data: ['日K线', 'MA250 (年线)', '买入点', '卖出点'],
+                data: ['日K线', 'MA20', 'MA250 (年线)', '买入点', '卖出点'],
                 top: 10
             },
             grid: { left: '3%', right: '3%', bottom: '15%' },
@@ -940,8 +1644,19 @@ $(document).ready(function() {
                     },
                     markLine: {
                         symbol: ['none', 'none'],
+                        silent: true,
+                        label: { show: false },
+                        emphasis: { disabled: true },
                         data: markLineData
                     }
+                },
+                {
+                    name: 'MA20',
+                    type: 'line',
+                    data: ma20,
+                    smooth: true,
+                    showSymbol: false,
+                    lineStyle: { width: 1.5, color: '#0d6efd', opacity: 0.9 }
                 },
                 {
                     name: 'MA250 (年线)',

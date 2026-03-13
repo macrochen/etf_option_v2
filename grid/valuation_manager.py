@@ -10,7 +10,7 @@ class ValuationManager:
         self.db = MarketDatabase()
         self.client = Etf818Client()
 
-    def get_index_for_etf(self, etf_code: str):
+    def get_index_for_etf(self, etf_code: str, allow_api_update: bool = True):
         """
         获取 ETF 对应的指数信息
         Returns: {'index_code': '000300.SH', 'index_name': '沪深300'} or None
@@ -23,6 +23,9 @@ class ValuationManager:
         if row and row[0]:
             return {'index_code': row[0], 'index_name': row[1]}
             
+        if not allow_api_update:
+            return None
+
         # 2. 查 API
         info = self.client.get_tracking_index(etf_code)
         if info:
@@ -36,7 +39,7 @@ class ValuationManager:
             
         return None
 
-    def get_valuation_history(self, index_code: str) -> pd.DataFrame:
+    def get_valuation_history(self, index_code: str, allow_api_update: bool = True) -> pd.DataFrame:
         """
         获取指数估值历史 (PE & PB)
         返回 DataFrame: index=date, columns=[pe, pb, pe_rank, pb_rank]
@@ -58,7 +61,7 @@ class ValuationManager:
             if (datetime.now() - last_dt).days < 2:
                 need_update = False
         
-        if need_update:
+        if need_update and allow_api_update:
             self._update_valuation_from_api(index_code)
             
         # 2. 读取数据 (包含 Rank)
@@ -78,19 +81,19 @@ class ValuationManager:
         """
         计算并缓存 PE/PB 的历史 5 年分位数
         """
-        # 1. 检查是否需要更新 (即是否存在 rank 为空的数据)
-        row = self.db.db.fetch_one(
-            "SELECT COUNT(*) FROM index_valuation_history WHERE index_code = ? AND (pe_rank IS NULL OR pb_rank IS NULL)",
+        latest_row = self.db.db.fetch_one(
+            "SELECT date, pe_rank, pb_rank FROM index_valuation_history WHERE index_code = ? ORDER BY date DESC LIMIT 1",
             (index_code,)
         )
-        if not row or row[0] == 0:
-            return # 数据完整，无需计算
+        if latest_row and (latest_row[1] is not None or latest_row[2] is not None):
+            return
 
         logging.info(f"Calculating rolling ranks for {index_code}...")
-        
-        # 2. 加载全量数据 (此时 rank 可能是 None)
-        df = self.get_valuation_history(index_code)
-        if df.empty: return
+
+        # 2. 加载全量数据 (仅读取本地 DB，避免分析流程触发联网更新)
+        df = self.get_valuation_history(index_code, allow_api_update=False)
+        if df.empty:
+            return
         
         # 确保索引是 DatetimeIndex 以支持时间窗口 rolling
         if not isinstance(df.index, pd.DatetimeIndex):

@@ -1,6 +1,21 @@
 {% extends "base.html" %}
 
 {% block content %}
+<style>
+.planner-date-col {
+    position: relative;
+}
+.planner-date-col .planner-date-action {
+    position: absolute;
+    top: 0;
+    right: 0;
+}
+.planner-date-col .planner-date-label {
+    display: block;
+    min-height: 31px;
+    padding-right: 190px;
+}
+</style>
 <div class="container-fluid">
     <!-- 1. 参数配置面板 (Config Panel) -->
     <div class="card shadow-sm mb-4">
@@ -24,8 +39,8 @@
                                         <option value="">-- 请选择或输入 --</option>
                                     </select>
                                     <input type="text" class="form-control" id="symbol" value="" placeholder="代码">
-                                    <button type="button" class="btn btn-outline-secondary" id="load-data-btn" title="同步分钟数据（本地 parquet + AKShare 在线补齐）">
-                                        <i class="bi bi-cloud-download"></i>
+                                    <button type="button" class="btn btn-outline-secondary" id="load-data-btn" data-bs-toggle="tooltip" title="同步分钟数据：优先导入本地 parquet，再通过 AKShare 在线补齐最新缺口" aria-label="同步分钟数据">
+                                        <i class="bi bi-cloud-download"></i> <span class="d-none d-md-inline">同步</span>
                                     </button>
                                 </div>
                                 <div id="data-status" class="form-text text-muted small"></div>
@@ -39,6 +54,7 @@
                                 </div>
                                 <!-- 日期滑杆 -->
                                 <div id="date-slider" class="mt-3 mx-1"></div>
+                                <div id="volatility-status-container" class="mt-3"></div>
                             </div>
                         </div>
 
@@ -51,28 +67,28 @@
                                     <input type="number" class="form-control form-control-sm" id="initial-capital" value="100000">
                                 </div>
                                 <div class="col-6 mb-2">
-                                    <label class="form-label small" data-bs-toggle="tooltip" title="单格买入金额：每次网格触发买入时投入的固定资金。">单格买入金额 (元)</label>
-                                    <input type="number" class="form-control form-control-sm" id="pos-per-grid" value="5000">
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="单格买入份额：每次网格触发买入的固定份额，按 100 份整数倍成交。">单格买入份额</label>
+                                    <input type="number" class="form-control form-control-sm" id="pos-per-grid" value="5000" step="100">
                                 </div>
                                 <div class="col-6 mb-2">
-                                    <label class="form-label small" data-bs-toggle="tooltip" title="信仰底仓 (Core Holding)：打死不卖的压舱石，享受长期国运。建议 20%-30%。">信仰仓占比 (%) <i class="bi bi-info-circle small text-muted"></i></label>
-                                    <input type="number" class="form-control form-control-sm" id="faith-ratio" value="20" step="5" min="0" max="100">
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="信仰仓是可选的长期底仓；如果你想让网格更纯粹，可以直接设为 0。">信仰仓占比 (%) 可选 <i class="bi bi-info-circle small text-muted"></i></label>
+                                    <input type="number" class="form-control form-control-sm" id="faith-ratio" value="0" step="1" min="0" max="100">
                                 </div>
                                 <div class="col-6 mb-2">
                                     <label class="form-label small" data-bs-toggle="tooltip" title="网格底仓 (Grid Inventory)：预置的初始货架，用于在上涨中分批卖出。建议 30%。">网格底仓占比 (%) <i class="bi bi-info-circle small text-muted"></i></label>
-                                    <input type="number" class="form-control form-control-sm" id="grid-ratio" value="30" step="5" min="0" max="100">
+                                    <input type="number" class="form-control form-control-sm" id="grid-ratio" value="30" step="1" min="0" max="100">
                                 </div>
                                 <div class="col-6 mb-2">
-                                    <label class="form-label small" data-bs-toggle="tooltip" title="网格密度 (Grid Density)：决定网格线的密集程度。例如 1.5% 表示每跌 1.5% 买入一次。">网格密度 (%) <i class="bi bi-info-circle small text-muted"></i></label>
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="买入间距：决定下跌时每隔多少比例补一格。例如 1.5% 表示每跌 1.5% 买入一次。">买入间距 (%) <i class="bi bi-info-circle small text-muted"></i></label>
                                     <input type="number" class="form-control form-control-sm" id="grid-density" value="1.5" step="0.1">
                                 </div>
                                 <div class="col-6 mb-2">
-                                    <label class="form-label small" data-bs-toggle="tooltip" title="止盈间距 (Sell Gap)：买入后，上涨多少比例卖出。例如 2.0% 表示买入后涨 2.0% 止盈。">止盈间距 (%) <i class="bi bi-info-circle small text-muted"></i></label>
+                                    <label class="form-label small" data-bs-toggle="tooltip" title="卖出间距：持仓上涨后每隔多少比例卖出一格。例如 2.0% 表示涨 2.0% 卖出一格。">卖出间距 (%) <i class="bi bi-info-circle small text-muted"></i></label>
                                     <input type="number" class="form-control form-control-sm" id="sell-gap" value="2.0" step="0.1">
                                 </div>
                             </div>
 
-                            <div class="d-flex gap-2 mt-3">
+                                                        <div class="d-flex gap-2 mt-3">
                                 <button type="submit" class="btn btn-primary flex-grow-1" id="btn-run">
                                     <i class="bi bi-play-fill"></i> 运行回测
                                 </button>
@@ -102,18 +118,91 @@
                 </form>
             </div>
         </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 d-flex align-items-center gap-2" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#plannerPanel">
+                <span><i class="bi bi-sliders"></i> 网格参数规划
+                <i class="bi bi-chevron-down small text-muted ms-1"></i></span>
+            </h6>
+            <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                <span class="small text-muted px-2 py-1 rounded bg-light border planner-metric-chip" id="planner-metric-badge">估值指标: 跟随上方</span>
+                <div class="d-flex align-items-center gap-2 flex-wrap" aria-label="规划操作">
+                    <button type="button" class="btn btn-primary" id="btn-generate-planner" data-bs-toggle="tooltip" title="按当前标的、估值指标、规划时点和规划上下限生成网格参数规划">
+                        <i class="bi bi-play-circle"></i> 生成
+                    </button>
+                    <button type="button" class="btn btn-outline-dark" id="btn-apply-planner-to-backtest" data-bs-toggle="tooltip" title="将规划结果回填到上方回测参数">
+                        <i class="bi bi-arrow-up-square"></i> 回填
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="btn-calc-planner-edge" data-bs-toggle="tooltip" title="基于历史相似样本手动计算经验胜率、数学期望和值搏率">
+                        <i class="bi bi-calculator"></i> 胜率/期望
+                    </button>
+                    <button type="button" class="btn btn-outline-primary" id="btn-preview-planner-grid" data-bs-toggle="tooltip" title="查看规划价格、上下限和全部网格线在全量 K 线上的效果">
+                        <i class="bi bi-graph-up"></i> 预览
+                    </button>
+                </div>
+                <span class="text-muted" data-bs-toggle="tooltip" data-bs-html="true" title="1. 规划时点默认取最新日期，也可以切到历史日期做回测起点规划。<br>2. 历史日期默认取该交易日起始开盘价；最新日期默认取最新收盘价，你也可以手动改价格。<br>3. 先计算 ATR20% = 价格波动锚 / 规划价格，再按估值状态决定买入/卖出间距。<br>4. 用规划价格和上下限分别算出上方待卖格数 N_up、下方待买格数 N_down。<br>5. 假设每格固定份额为 S，则底仓需要的当前市值 = 规划价格 × S × N_up；下方补仓预留现金 = 规划价格 × S × Σ(1-buy_gap)^i。<br>6. 由 总资金 = 底仓 + 预留现金，反推出每格份额，并可一键回填到上方回测参数。<br>7. 胜率/期望为耗时统计，仅在点击“计算胜率/期望”后才会基于历史相似样本计算。">
+                    <i class="bi bi-info-circle"></i>
+                </span>
+            </div>
+        </div>
+        <div class="collapse show" id="plannerPanel">
+            <div class="card-body">
+                <div class="row g-3 align-items-start mb-3">
+                    <div class="col-md-3 planner-date-col">
+                        <label class="form-label small mb-1 planner-date-label">规划时点</label>
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 planner-date-action" id="btn-use-start-date-for-planner">
+                            <i class="bi bi-calendar-event"></i> 使用回测起始日
+                        </button>
+                        <input type="date" class="form-control form-control-sm" id="planner-date">
+                        <div class="form-text small" id="planner-date-hint">默认最新日期，可切到历史回测起点</div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">规划价格</label>
+                        <input type="number" class="form-control form-control-sm" id="planner-current-price" step="0.001">
+                        <div class="form-text small" id="planner-latest-price-hint">默认取规划时点价格</div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">计划投入总金额 (元)</label>
+                        <input type="number" class="form-control form-control-sm" id="planner-total-capital" value="100000" step="1000">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">规划下限</label>
+                        <input type="number" class="form-control form-control-sm" id="planner-lower-limit" step="0.001">
+                        <div class="form-text small" id="planner-lower-hint"></div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">规划上限</label>
+                        <input type="number" class="form-control form-control-sm" id="planner-upper-limit" step="0.001">
+                        <div class="form-text small" id="planner-upper-hint"></div>
+                    </div>
+                    <div class="col-md-12">
+                        <div id="planner-status-summary" class="rounded border bg-light px-3 py-2 small text-muted h-100">设置好标的与规划时点后，点击右上角“生成规划”。</div>
+                    </div>
+                </div>
+                <div id="planner-metrics" class="row g-3"></div>
+            </div>
+        </div>
     </div>
 
     <!-- 1.2 历史场景适配性分析 (New) -->
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-light d-flex justify-content-between align-items-center">
-            <h6 class="mb-0" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#scenarioCardBody">
-                <i class="bi bi-clock-history"></i> 历史场景适配性分析 (Scenario Analysis)
-                <i class="bi bi-chevron-down small text-muted ms-1"></i>
+            <h6 class="mb-0 d-flex align-items-center gap-2" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#scenarioCardBody">
+                <span><i class="bi bi-clock-history"></i> 历史场景适配性分析 (Scenario Analysis)
+                <i class="bi bi-chevron-down small text-muted ms-1"></i></span>
+                <span class="text-muted" data-bs-toggle="tooltip" data-bs-html="true" title="当前版本是后验表现分析，不是网格命中分析。<br>1. 先用估值分位 + 趋势类型筛历史相似时点。<br>2. 趋势类型目前按 MA20 相对 MA60 的偏离分成 上涨/横盘/下跌。<br>3. 再看每个样本未来 120 个交易日的最终涨跌幅，并标记为 上涨/横盘/下跌。<br>4. 120 天只是经验窗口，约等于半年级别观察期，用来避免太短噪声过大；它不是上下限命中窗口。<br>5. 因为这个模块当前没有使用你的规划上下限，所以它和上面的经验胜率不是同一口径。若要统一口径，需要把当前 upper/lower 按比例映射到每个历史样本起点，再统计先到上限还是先到下限。">
+                    <i class="bi bi-info-circle"></i>
+                </span>
             </h6>
-            <button class="btn btn-sm btn-outline-primary" id="btn-find-similar">
-                <i class="bi bi-search"></i> 开始匹配
-            </button>
+            <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                <span class="small text-muted px-2 py-1 rounded bg-light border planner-metric-chip" id="scenario-metric-badge">估值指标: 跟随上方</span>
+                <div class="d-flex align-items-center gap-2 flex-wrap" aria-label="相似场景操作">
+                    <button class="btn btn-outline-primary" id="btn-find-similar" data-bs-toggle="tooltip" title="按上方当前选中的估值指标和当前标的，重新匹配历史相似场景">
+                        <i class="bi bi-search"></i> 匹配
+                    </button>
+                </div>
+            </div>
         </div>
         <div class="collapse show" id="scenarioCardBody">
             <div class="card-body">
@@ -121,7 +210,7 @@
                 <!-- 左侧：列表 -->
                 <div class="col-md-4 border-end">
                     <div id="similar-status-box" class="mb-3">
-                        <div class="text-muted text-center py-4">点击右上角按钮开始匹配</div>
+                        <div class="text-muted text-center py-4">点击右上角按钮开始匹配<div class="small mt-1">默认优先读取本地数据库；仅当指数映射或估值历史缺失时，才会回退 API 补齐</div></div>
                     </div>
                     <div class="list-group list-group-flush" id="similar-scenarios-list" style="max-height: 400px; overflow-y: auto;">
                         <!-- JS 填充 -->
@@ -143,13 +232,15 @@
                 <i class="bi bi-activity"></i> 标的适格性体检 (Shannon Score)
                 <i class="bi bi-chevron-down small text-muted ms-1"></i>
             </h6>
-            <div>
-                <button class="btn btn-sm btn-link text-muted me-2" data-bs-toggle="modal" data-bs-target="#scoreHelpModal" title="算法说明">
-                    <i class="bi bi-question-circle"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-primary" id="btn-check-score">
-                    <i class="bi bi-heart-pulse"></i> 开始检测
-                </button>
+            <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                <div class="d-flex align-items-center gap-2 flex-wrap" aria-label="适格性体检操作">
+                    <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#scoreHelpModal" title="查看香农评分算法说明">
+                        <i class="bi bi-question-circle"></i> 说明
+                    </button>
+                    <button class="btn btn-outline-primary" id="btn-check-score" data-bs-toggle="tooltip" title="按当前标的重新计算 Shannon Score 适格性评分">
+                        <i class="bi bi-heart-pulse"></i> 检测
+                    </button>
+                </div>
             </div>
         </div>
         <div class="collapse" id="scoreCardBody">
@@ -170,7 +261,7 @@
     </div>
 
     <!-- 2. 结果展示区 -->
-    <div id="shannon-result-section" class="d-none">
+    <div id="shannon-result-section">
         
         <!-- 核心指标与热力图 (两列布局) -->
         <div class="row mb-4">
@@ -281,6 +372,7 @@
             </div>
             <div class="collapse show" id="priceChartPanel">
                 <div class="card-body">
+                    <div class="small text-muted mb-2">绿虚线表示上限：停止新增买入。红虚线表示下限：价格触碰后暂停新增，后续交易日重新回到下限上方 2% 才恢复。</div>
                     <div id="price-chart" style="height: 800px; width: 100%;"></div>
                 </div>
             </div>
@@ -316,6 +408,22 @@
     </div>
 
 
+</div>
+
+<div class="modal fade" id="plannerPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-grid-3x3-gap"></i> 网格预览</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2">展示全量日K、当前价格线、规划上下限，以及按推荐买入间距展开的全部网格线。</div>
+        <div id="planner-preview-summary" class="small text-muted mb-2"></div>
+        <div id="planner-preview-chart" style="height: 700px; width: 100%;"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Loading Overlay -->

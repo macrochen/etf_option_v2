@@ -83,6 +83,56 @@ def _get_engine(symbol, start_date, end_date):
         
     return ShannonEngine(df)
 
+def _build_atr_snapshot(symbol, current_date, window_start_date=None):
+    """计算指定日期的 ATR20 及其历史分位。"""
+    df_daily = min_loader.load_daily_data(symbol)
+    if df_daily.empty:
+        return None
+
+    target_dt = pd.to_datetime(current_date)
+    df_daily = df_daily[df_daily['date'] <= target_dt].copy()
+    if df_daily.empty:
+        return None
+
+    df_daily['prev_close'] = df_daily['close'].shift(1)
+    tr_components = pd.concat([
+        (df_daily['high'] - df_daily['low']).abs(),
+        (df_daily['high'] - df_daily['prev_close']).abs(),
+        (df_daily['low'] - df_daily['prev_close']).abs(),
+    ], axis=1)
+    df_daily['tr'] = tr_components.max(axis=1)
+    df_daily['atr20'] = df_daily['tr'].rolling(20).mean()
+    df_daily['atr20_pct'] = np.where(df_daily['close'] > 0, df_daily['atr20'] / df_daily['close'], np.nan)
+
+    hist = df_daily.dropna(subset=['atr20_pct']).copy()
+    if window_start_date:
+        start_dt = pd.to_datetime(window_start_date)
+        hist = hist[hist['date'] >= start_dt]
+
+    if hist.empty:
+        return None
+
+    current_row = hist.iloc[-1]
+    current_atr_pct = float(current_row['atr20_pct'])
+    rank_pct = float((hist['atr20_pct'] < current_atr_pct).mean() * 100)
+
+    if rank_pct < 20:
+        status = '低波动'
+    elif rank_pct > 80:
+        status = '高波动'
+    else:
+        status = '适中'
+
+    return {
+        'atr20_pct': round(current_atr_pct * 100, 2),
+        'percentile': round(rank_pct, 1),
+        'status': status,
+        'window_start': hist['date'].iloc[0].strftime('%Y-%m-%d'),
+        'window_end': hist['date'].iloc[-1].strftime('%Y-%m-%d'),
+        'actual_date': current_row['date'].strftime('%Y-%m-%d')
+    }
+
+
 @shannon_bp.route('/api/shannon/download_data', methods=['POST'])
 def download_data():
     """专门的数据下载接口"""
@@ -131,7 +181,7 @@ def get_price_info():
     try:
         symbol = request.args.get('symbol')
         date_str = request.args.get('date')
-        start_date = request.args.get('start_date')
+        start_date = request.args.get('start_date') or None
         metric = request.args.get('metric', 'auto')
         
         if not symbol or not date_str:
@@ -159,12 +209,116 @@ def get_price_info():
             'rec_lower': limits['lower'],
             'rec_upper': limits['upper'],
             'valuation': limits['valuation'],
-            'actual_date': str(first_row['timestamp'])[:8]
+            'volatility': _build_atr_snapshot(symbol, date_str, start_date),
+            'actual_date': str(first_row['timestamp'])[:10]
         })
         
     except Exception as e:
         logging.error(f"Price Info Error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+@shannon_bp.route('/api/shannon/planner_snapshot', methods=['GET'])
+def get_planner_snapshot():
+    """获取网格参数规划卡所需的快照。"""
+    try:
+        symbol = request.args.get('symbol')
+        metric = request.args.get('metric', 'auto')
+        plan_date = request.args.get('date')
+        if not symbol:
+            return jsonify({'error': 'Missing symbol'}), 400
+
+        available_range = min_loader.get_available_range(symbol)
+        if not available_range:
+            return jsonify({'error': 'No local data available'}), 404
+
+        latest_date = available_range['end'][:10]
+        df_daily = min_loader.load_daily_data(symbol)
+        if df_daily.empty:
+            return jsonify({'error': 'No daily data available'}), 404
+
+        requested_date = plan_date or latest_date
+        actual_date = latest_date
+        price_source = 'latest_close'
+        current_price = None
+
+        if requested_date and requested_date < latest_date:
+            next_week = (datetime.strptime(requested_date, '%Y-%m-%d') + timedelta(days=7)).strftime('%Y-%m-%d')
+            df_min = min_loader.load_data(symbol, start_date=requested_date, end_date=next_week)
+            if not df_min.empty:
+                first_row = df_min.iloc[0]
+                current_price = float(first_row['open'])
+                actual_date = str(first_row['timestamp'])[:10]
+                price_source = 'session_open'
+            else:
+                future_daily = df_daily[df_daily['date'] >= pd.to_datetime(requested_date)]
+                if future_daily.empty:
+                    return jsonify({'error': 'No data found near requested planning date'}), 404
+                first_daily = future_daily.iloc[0]
+                current_price = float(first_daily['open'])
+                actual_date = first_daily['date'].strftime('%Y-%m-%d')
+                price_source = 'daily_open'
+        else:
+            latest_row = df_daily.iloc[-1]
+            current_price = float(latest_row['close'])
+            actual_date = latest_row['date'].strftime('%Y-%m-%d')
+
+        limits = boundary_calc.calculate_limits(symbol, current_price, actual_date, metric)
+
+        kline = []
+        for _, row in df_daily.iterrows():
+            kline.append({
+                'date': row['date'].strftime('%Y-%m-%d'),
+                'open': round(float(row['open']), 3),
+                'high': round(float(row['high']), 3),
+                'low': round(float(row['low']), 3),
+                'close': round(float(row['close']), 3),
+            })
+
+        return jsonify({
+            'success': True,
+            'latest_date': latest_date,
+            'requested_date': requested_date,
+            'actual_date': actual_date,
+            'price_source': price_source,
+            'current_price': round(current_price, 3),
+            'rec_lower': limits['lower'],
+            'rec_upper': limits['upper'],
+            'valuation': limits['valuation'],
+            'volatility': _build_atr_snapshot(symbol, actual_date),
+            'kline': kline,
+        })
+    except Exception as e:
+        logging.error(f"Planner Snapshot Error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@shannon_bp.route('/api/shannon/planner_edge', methods=['GET'])
+def get_planner_edge():
+    """基于历史相似样本估算当前规划的经验胜率。"""
+    try:
+        symbol = request.args.get('symbol')
+        metric = request.args.get('metric', 'auto')
+        current_price = safe_float(request.args.get('current_price'), 0)
+        lower = safe_float(request.args.get('lower'), 0)
+        upper = safe_float(request.args.get('upper'), 0)
+        as_of_date = request.args.get('as_of_date') or None
+        if not symbol:
+            return jsonify({'error': 'Missing symbol'}), 400
+
+        result = similarity_searcher.estimate_planner_edge(
+            symbol,
+            current_price=current_price,
+            lower=lower,
+            upper=upper,
+            metric_preference=metric,
+            as_of_date=as_of_date,
+        )
+        status = 400 if result.get('error') else 200
+        return jsonify(clean_nan(result)), status
+    except Exception as e:
+        logging.error(f"Planner Edge Error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 
 @shannon_bp.route('/shannon')
 def index():
@@ -182,35 +336,36 @@ def run_backtest():
         initial_capital = safe_float(data.get('initial_capital'), 100000)
         grid_density = safe_float(data.get('grid_density'), 0.015)
         sell_gap = safe_float(data.get('sell_gap'), 0.02)
-        pos_per_grid = safe_float(data.get('pos_per_grid'), 5000)
+        pos_per_grid = safe_float(data.get('pos_per_grid'), 5000)  # 每格固定份额
         
         # 顶层资产配置 (百分比转小数)
-        faith_ratio = safe_float(data.get('faith_ratio'), 20.0) / 100.0
+        faith_ratio = safe_float(data.get('faith_ratio'), 0.0) / 100.0
         grid_ratio = safe_float(data.get('grid_ratio'), 30.0) / 100.0
         
         lower_limit = safe_float(data.get('lower_limit'), 0.0)
         upper_limit = safe_float(data.get('upper_limit'), 999.0)
+        boundary_source = 'user_input'
         
         # 初始化引擎
         engine = _get_engine(symbol, start_date, end_date)
         
-        # --- 自动设定回测开始时刻的估值边界 ---
-        # 如果用户没有手动调整(即使用默认值)，或者为了更准确的回测，
-        # 我们根据 start_date 当天的历史估值分位来设定 lower_limit/upper_limit
-        try:
-            # 获取回测起点价格 (使用 engine 加载的第一条数据)
-            base_price = float(engine.opens[0])
-            
-            # 计算回测起点的动态边界
-            limits = boundary_calc.calculate_limits(symbol, base_price, start_date)
-            
-            # 使用计算出的动态边界作为回测期间的固定边界
-            lower_limit = limits['lower']
-            upper_limit = limits['upper']
-            logging.info(f"Backtest initialized with valuation-based limits: {lower_limit} - {upper_limit}")
-        except Exception as e:
-            logging.error(f"Error calculating initial backtest limits: {e}")
-            # Fallback to defaults from request already assigned above
+        # 如果前端还没拿到推荐值，则按与 UI 一致的口径补默认边界
+        if lower_limit <= 0.0 or upper_limit >= 999.0:
+            try:
+                boundary_date = start_date or end_date
+                next_week = (datetime.strptime(boundary_date, '%Y-%m-%d') + timedelta(days=7)).strftime('%Y-%m-%d')
+                boundary_df = min_loader.load_data(symbol, start_date=boundary_date, end_date=next_week)
+                if not boundary_df.empty:
+                    base_price = float(boundary_df.iloc[0]['open'])
+                    limits = boundary_calc.calculate_limits(symbol, base_price, boundary_date)
+                    if lower_limit <= 0.0:
+                        lower_limit = limits['lower']
+                    if upper_limit >= 999.0:
+                        upper_limit = limits['upper']
+                    boundary_source = 'auto_start_based'
+                    logging.info(f"Backtest initialized with start-based limits: {lower_limit} - {upper_limit}")
+            except Exception as e:
+                logging.error(f"Error calculating fallback backtest limits: {e}")
         
         # 运行回测
         result = engine.run(
@@ -295,10 +450,12 @@ def run_backtest():
             df_warmup['date_str'] = df_warmup['dt'].dt.strftime('%Y-%m-%d')
             daily_warmup = df_warmup.groupby('date_str')['close'].last().reset_index()
             
-            # 4. 计算全量 MA250
+            # 4. 计算全量均线
+            daily_warmup['ma20'] = daily_warmup['close'].rolling(20).mean()
             daily_warmup['ma250'] = daily_warmup['close'].rolling(250).mean()
             
             # 5. 建立映射表
+            ma20_map = daily_warmup.set_index('date_str')['ma20'].to_dict()
             ma250_map = daily_warmup.set_index('date_str')['ma250'].to_dict()
             
             # 3. 构建返回列表
@@ -317,6 +474,7 @@ def run_backtest():
                     'high': row['high'],
                     'low': row['low'],
                     'close': row['close'],
+                    'ma20': ma20_map.get(d_str),
                     'ma250': ma250_map.get(d_str) # 从全量映射表中取值
                 })
 
@@ -406,7 +564,12 @@ def run_backtest():
                 'dd_reduction': round(dd_reduction, 1)
             },
             'daily_curve': daily_curve,
-            'trades': result['trades']
+            'trades': result['trades'],
+            'boundaries': {
+                'lower_limit': round(lower_limit, 3),
+                'upper_limit': round(upper_limit, 3),
+                'source': boundary_source
+            }
         }
         
         return jsonify(clean_nan(response_raw))
@@ -425,8 +588,8 @@ def run_heatmap():
         
         # 固定参数
         initial_capital = float(data.get('initial_capital', 100000))
-        pos_per_grid = float(data.get('pos_per_grid', 5000))
-        faith_ratio = float(data.get('faith_ratio', 20.0)) / 100.0
+        pos_per_grid = float(data.get('pos_per_grid', 5000))  # 每格固定份额
+        faith_ratio = float(data.get('faith_ratio', 0.0)) / 100.0
         grid_ratio = float(data.get('grid_ratio', 30.0)) / 100.0
         
         lower_limit = float(data.get('lower_limit', 0.0))
